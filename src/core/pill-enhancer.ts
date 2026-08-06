@@ -3,7 +3,6 @@ import { encodeOptionKey, resolveColor } from './colors';
 import { evaluateRule, ruleColorVariables } from './rules';
 import { SettingsStore } from './settings-store';
 import { ConditionalRule, OptionIdentity } from './types';
-import { ColorPopover } from '../ui/color-popover';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
@@ -20,11 +19,20 @@ interface TrackedPill {
 
 interface RootBinding {
 	observer: MutationObserver;
-	contextMenuHandler: (event: MouseEvent) => void;
 	inputHandler: (event: Event) => void;
+	contextMenuHandler: (event: MouseEvent) => void;
 }
 
 export type OpenRuleManager = (propertyIds: string[]) => void;
+export interface ColumnMenuRequest {
+	document: Document;
+	point: { x: number; y: number };
+	propertyId: string;
+	value: string;
+	values: string[];
+	removeFromRow: () => void;
+}
+export type OpenColumnManager = (request: ColumnMenuRequest) => void;
 
 export class PillEnhancer {
 	private readonly roots = new Map<HTMLElement, RootBinding>();
@@ -32,6 +40,7 @@ export class PillEnhancer {
 	private readonly visibleByKey = new Map<string, Set<HTMLElement>>();
 	private readonly visibleRows = new Set<HTMLElement>();
 	private readonly visibleCells = new Set<HTMLElement>();
+	private readonly tableValues = new Map<HTMLElement, Map<string, Set<string>>>();
 	private unsubscribeStore: (() => void) | null = null;
 	private previousOverrides = new Map<string, string>();
 	private started = false;
@@ -39,8 +48,8 @@ export class PillEnhancer {
 	constructor(
 		private readonly app: App,
 		private readonly store: SettingsStore,
-		private readonly popover: ColorPopover,
 		private readonly openRuleManager: OpenRuleManager = () => undefined,
+		private readonly openColumnManager: OpenColumnManager = () => undefined,
 	) {}
 
 	start(registerEvent: (eventRef: EventRef) => void): void {
@@ -72,28 +81,15 @@ export class PillEnhancer {
 			attributeFilter: ['data-property', 'aria-checked'],
 		});
 
-		const contextMenuHandler = (event: MouseEvent) => {
-			const pill = asElement(event.target)?.closest<HTMLElement>('.bpc-pill');
-			if (!pill || !root.contains(pill)) return;
-			const metadata = this.tracked.get(pill);
-			if (!metadata) return;
-			event.preventDefault();
-			event.stopPropagation();
-			event.stopImmediatePropagation();
-			this.popover.openAtPoint(
-				pill.ownerDocument,
-				{ x: event.clientX, y: event.clientY },
-				metadata.identity,
-			);
-		};
 		const inputHandler = (event: Event) => {
 			const target = asElement(event.target);
 			if (target) this.refreshAround(target);
 		};
-		root.addEventListener('contextmenu', contextMenuHandler, true);
+		const contextMenuHandler = (event: MouseEvent) => this.handleContextMenu(event);
 		root.addEventListener('input', inputHandler);
 		root.addEventListener('change', inputHandler);
-		this.roots.set(root, { observer, contextMenuHandler, inputHandler });
+		root.addEventListener('contextmenu', contextMenuHandler, true);
+		this.roots.set(root, { observer, inputHandler, contextMenuHandler });
 		this.processTree(root);
 	}
 
@@ -102,10 +98,10 @@ export class PillEnhancer {
 		this.unsubscribeStore?.();
 		this.unsubscribeStore = null;
 		for (const root of [...this.roots.keys()]) this.detachRoot(root);
-		this.popover.close();
 		this.visibleByKey.clear();
 		this.visibleRows.clear();
 		this.visibleCells.clear();
+		this.tableValues.clear();
 	}
 
 	private refreshRoots(): void {
@@ -129,10 +125,13 @@ export class PillEnhancer {
 		const binding = this.roots.get(root);
 		if (!binding) return;
 		binding.observer.disconnect();
-		root.removeEventListener('contextmenu', binding.contextMenuHandler, true);
 		root.removeEventListener('input', binding.inputHandler);
 		root.removeEventListener('change', binding.inputHandler);
+		root.removeEventListener('contextmenu', binding.contextMenuHandler, true);
 		this.untrackTree(root);
+		for (const host of this.tableValues.keys()) {
+			if (host === root || root.contains(host)) this.tableValues.delete(host);
+		}
 		root.querySelectorAll<HTMLElement>('.bpc-conditional-formatting-button').forEach((button) => button.remove());
 		this.roots.delete(root);
 	}
@@ -159,6 +158,9 @@ export class PillEnhancer {
 		this.processMatches(element, PILL_SELECTOR, (item) => this.untrackPill(item));
 		this.processMatches(element, CELL_SELECTOR, (item) => this.untrackCell(item));
 		this.processMatches(element, ROW_SELECTOR, (item) => this.untrackRow(item));
+		for (const host of this.tableValues.keys()) {
+			if (host === element || element.contains(host)) this.tableValues.delete(host);
+		}
 	}
 
 	private refreshAround(element: Element): void {
@@ -196,12 +198,13 @@ export class PillEnhancer {
 		const scope = findBaseTableHost(toolbar);
 		if (!scope?.querySelector(CELL_SELECTOR)) return;
 		const item = toolbar.createDiv('bases-toolbar-item bpc-conditional-formatting-button');
-		const button = item.createEl('button', { cls: 'text-icon-button' });
-		button.type = 'button';
+		const button = item.createDiv('text-icon-button');
+		button.setAttribute('role', 'button');
+		button.tabIndex = 0;
 		button.setAttribute('aria-label', 'Conditional formatting');
 		button.title = 'Conditional formatting';
 		createPaletteIcon(button);
-		button.createSpan({ cls: 'text-button-label', text: 'Conditional formatting' });
+		button.createSpan({ cls: 'text-button-label', text: 'Format' });
 		button.addEventListener('click', (event) => {
 			event.preventDefault();
 			event.stopPropagation();
@@ -237,6 +240,12 @@ export class PillEnhancer {
 		}
 
 		const identity = { propertyId, value };
+		const host = findBaseTableHost(pill);
+		if (!host) {
+			this.untrackPill(pill);
+			return;
+		}
+		this.rememberTableValue(host, identity);
 		const key = encodeOptionKey(identity);
 		const existing = this.tracked.get(pill);
 		if (existing?.key !== key) this.untrackPill(pill);
@@ -253,6 +262,37 @@ export class PillEnhancer {
 		}
 		this.store.ensure(identity);
 		this.applyPillAppearance(pill, identity);
+	}
+
+	private rememberTableValue(host: HTMLElement, identity: OptionIdentity): void {
+		const properties = this.tableValues.get(host) ?? new Map<string, Set<string>>();
+		const values = properties.get(identity.propertyId) ?? new Set<string>();
+		values.add(identity.value);
+		properties.set(identity.propertyId, values);
+		this.tableValues.set(host, properties);
+	}
+
+	private handleContextMenu(event: MouseEvent): void {
+		const target = asElement(event.target);
+		const pill = target?.closest<HTMLElement>('.bpc-pill');
+		if (!pill) return;
+		const metadata = this.tracked.get(pill);
+		const host = findBaseTableHost(pill);
+		if (!metadata || !host) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		event.stopImmediatePropagation();
+		const removeButton = pill.querySelector<HTMLElement>('.multi-select-pill-remove-button');
+		this.openColumnManager({
+			document: pill.ownerDocument,
+			point: { x: event.clientX, y: event.clientY },
+			propertyId: metadata.identity.propertyId,
+			value: metadata.identity.value,
+			values: [...(this.tableValues.get(host)?.get(metadata.identity.propertyId) ?? [])]
+				.sort((first, second) => first.localeCompare(second)),
+			removeFromRow: () => removeButton?.click(),
+		});
 	}
 
 	private applyPillAppearance(pill: HTMLElement, identity: OptionIdentity): void {
@@ -432,7 +472,7 @@ function findBaseTableHost(element: HTMLElement): HTMLElement | null {
 		?? element.closest<HTMLElement>('.bases-view');
 }
 
-function createPaletteIcon(button: HTMLButtonElement): void {
+function createPaletteIcon(button: HTMLElement): void {
 	const icon = button.createSpan({ cls: 'text-button-icon bpc-toolbar-palette-icon' });
 	const svg = icon.createSvg('svg', {
 		cls: ['svg-icon', 'lucide-palette'],

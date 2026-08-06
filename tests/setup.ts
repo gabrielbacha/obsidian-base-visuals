@@ -3,6 +3,7 @@ type ElementOptions =
 	| {
 			text?: string;
 			cls?: string | string[];
+			placeholder?: string;
 			attr?: Record<string, string | number | boolean | null>;
 	  };
 
@@ -42,6 +43,10 @@ HTMLElement.prototype.empty = function empty(): void {
 	this.replaceChildren();
 };
 
+HTMLElement.prototype.addClass = function addClass(...classes: string[]): void {
+	this.classList.add(...classes);
+};
+
 function applyOptions(element: HTMLElement, options?: ElementOptions): void {
 	if (typeof options === 'string') {
 		element.className = options;
@@ -49,6 +54,9 @@ function applyOptions(element: HTMLElement, options?: ElementOptions): void {
 	}
 	if (!options) return;
 	if (options.text !== undefined) element.textContent = options.text;
+	if (options.placeholder !== undefined && element.tagName === 'INPUT') {
+		(element as HTMLInputElement).placeholder = options.placeholder;
+	}
 	if (typeof options.cls === 'string') element.className = options.cls;
 	else if (options.cls) element.classList.add(...options.cls);
 	for (const [name, value] of Object.entries(options.attr ?? {})) {

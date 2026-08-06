@@ -73,8 +73,8 @@ export class RuleManagerView {
 		const toolbar = this.container.createDiv('bpc-rule-manager__toolbar');
 		const search = toolbar.createEl('input', {
 			type: 'search',
-			placeholder: 'Search rules',
-			attr: { 'aria-label': 'Search conditional formatting rules' },
+			placeholder: 'Search rules…',
+			attr: { 'aria-label': 'Search conditional formatting rules', autocomplete: 'off', name: 'bpc-rule-search' },
 		});
 		search.value = this.store.settings.ruleManagerSearch;
 		const add = toolbar.createEl('button', { text: 'Add rule', cls: 'mod-cta', attr: { type: 'button' } });
@@ -123,10 +123,14 @@ export class RuleManagerView {
 		});
 
 		const header = card.createDiv('bpc-rule-card__header');
-		const enabled = header.createEl('input', { type: 'checkbox', attr: { 'aria-label': `Enable ${rule.name}` } });
+		const enabled = header.createEl('input', { type: 'checkbox', attr: { 'aria-label': `Enable ${rule.name}`, name: `bpc-rule-enabled-${rule.id}` } });
 		enabled.checked = rule.enabled;
 		enabled.addEventListener('change', () => this.store.updateRule(rule.id, { enabled: enabled.checked }));
-		const name = header.createEl('input', { type: 'text', cls: 'bpc-rule-card__name', attr: { 'aria-label': 'Rule name' } });
+		const name = header.createEl('input', {
+			type: 'text',
+			cls: 'bpc-rule-card__name',
+			attr: { 'aria-label': 'Rule name', autocomplete: 'off', name: `bpc-rule-name-${rule.id}` },
+		});
 		name.value = rule.name;
 		name.addEventListener('change', () => this.store.updateRule(rule.id, { name: name.value.trim() || 'Formatting rule' }));
 		const actions = header.createDiv('bpc-rule-card__actions');
@@ -137,7 +141,11 @@ export class RuleManagerView {
 			new ConfirmDeleteRuleModal(this.app, rule.name, () => this.store.deleteRule(rule.id)).open();
 		});
 
-		const fields = card.createDiv('bpc-rule-card__fields');
+		const fieldsViewport = card.createDiv('bpc-rule-card__fields-scroll');
+		fieldsViewport.tabIndex = 0;
+		fieldsViewport.setAttribute('role', 'region');
+		fieldsViewport.setAttribute('aria-label', `${rule.name} fields`);
+		const fields = fieldsViewport.createDiv('bpc-rule-card__fields');
 		const property = this.field(fields, 'Property').createEl('select', { attr: { 'aria-label': 'Property' } });
 		const properties = this.properties(rule.propertyId);
 		for (const propertyId of properties) property.createEl('option', { text: displayPropertyName(propertyId), value: propertyId }).title = propertyId;
@@ -150,10 +158,13 @@ export class RuleManagerView {
 		operator.addEventListener('change', () => this.store.updateRule(rule.id, { operator: operator.value as ConditionalRule['operator'] }));
 
 		const valueField = this.field(fields, 'Value');
-		const operand = valueField.createEl('input', { type: 'text', attr: { 'aria-label': 'Comparison value' } });
+		const operand = valueField.createEl('input', {
+			type: 'text',
+			attr: { 'aria-label': 'Comparison value', autocomplete: 'off', name: `bpc-rule-value-${rule.id}` },
+		});
 		operand.value = rule.operand ?? '';
 		operand.disabled = !operatorNeedsOperand(rule.operator);
-		operand.placeholder = operand.disabled ? 'Not required' : 'Enter a value';
+		operand.placeholder = operand.disabled ? 'Not required' : 'Enter a value…';
 		operand.addEventListener('change', () => this.store.updateRule(rule.id, { operand: operand.value }));
 
 		const target = this.field(fields, 'Apply to').createEl('select', { attr: { 'aria-label': 'Apply formatting to' } });
@@ -208,7 +219,7 @@ class RuleColorPopover {
 		const grid = panel.createDiv('bpc-swatch-grid');
 		for (const name of PRESET_NAMES) {
 			const resolved = resolvePreset(name);
-			const swatch = grid.createEl('button', { cls: 'bpc-swatch', attr: { type: 'button', 'aria-label': resolved.label, title: resolved.label } });
+			const swatch = grid.createEl('button', { cls: 'clickable-icon bpc-swatch', attr: { type: 'button', 'aria-label': resolved.label, title: resolved.label } });
 			swatch.style.setProperty('--bpc-swatch', resolved.dot);
 			swatch.setAttribute('aria-pressed', String(current.kind === 'preset' && current.name === name));
 			swatch.addEventListener('click', () => { this.onChange({ kind: 'preset', name }); this.close(); });
@@ -219,12 +230,23 @@ class RuleColorPopover {
 		const initial = current.kind === 'custom' ? current.hex : '#5B8DEF';
 		const picker = inputs.createEl('input', { cls: 'bpc-custom-color__picker', attr: { type: 'color', 'aria-label': 'Custom color' } });
 		picker.value = initial;
-		const text = inputs.createEl('input', { cls: 'bpc-custom-color__text', attr: { type: 'text', 'aria-label': 'Custom hex color' } });
+		const text = inputs.createEl('input', {
+			cls: 'bpc-custom-color__text',
+			attr: { type: 'text', 'aria-label': 'Custom hex color', autocomplete: 'off', name: 'bpc-rule-custom-color' },
+		});
 		text.value = initial;
+		text.spellcheck = false;
+		const error = custom.createDiv('bpc-custom-color__error');
+		error.setAttribute('aria-live', 'polite');
 		const apply = (value: string) => {
 			const hex = normalizeHex(value);
-			if (!hex) { text.setAttribute('aria-invalid', 'true'); return; }
+			if (!hex) {
+				text.setAttribute('aria-invalid', 'true');
+				error.textContent = 'Use a 3 or 6 digit hex color.';
+				return;
+			}
 			text.removeAttribute('aria-invalid');
+			error.textContent = '';
 			text.value = hex;
 			picker.value = hex;
 			this.onChange({ kind: 'custom', hex });

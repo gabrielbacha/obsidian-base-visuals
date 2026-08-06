@@ -1,13 +1,11 @@
 import type { App, EventRef } from 'obsidian';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PillEnhancer } from '../src/core/pill-enhancer';
+import { ColumnMenuRequest, PillEnhancer } from '../src/core/pill-enhancer';
 import { SettingsStore } from '../src/core/settings-store';
-import { ColorPopover } from '../src/ui/color-popover';
 
 interface Harness {
 	root: HTMLElement;
 	store: SettingsStore;
-	popover: ColorPopover;
 	enhancer: PillEnhancer;
 }
 
@@ -95,10 +93,11 @@ describe('PillEnhancer', () => {
 		).toBe(value);
 	});
 
-	it('does not replace left-click and opens a keyboard-operable right-click palette', () => {
+	it('preserves native left-click and replaces only the tracked pill context menu', () => {
+		const opened = vi.fn<(request: ColumnMenuRequest) => void>();
 		const harness = createHarness([
 			{ propertyId: 'note.status', value: 'Done' },
-		]);
+		], undefined, undefined, opened);
 		const target = harness.root.querySelector<HTMLElement>('.multi-select-pill-content');
 		const click = new MouseEvent('click', { bubbles: true, cancelable: true });
 		expect(target?.dispatchEvent(click)).toBe(true);
@@ -114,17 +113,53 @@ describe('PillEnhancer', () => {
 			}),
 		);
 		expect(nativeContextMenu).not.toHaveBeenCalled();
-		const swatches = [...document.querySelectorAll<HTMLButtonElement>('.bpc-swatch')];
-		expect(swatches).toHaveLength(10);
-		expect(document.activeElement).toBe(swatches[0]);
-		swatches[0]?.dispatchEvent(
-			new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }),
+		expect(opened).toHaveBeenCalledOnce();
+		expect(opened.mock.calls[0]?.[0]).toMatchObject({
+			propertyId: 'note.status',
+			value: 'Done',
+			values: ['Done'],
+		});
+	});
+
+	it('uses the hidden native control to remove the clicked pill from its row', () => {
+		const removed = vi.fn();
+		let request: ColumnMenuRequest | undefined;
+		const harness = createHarness(
+			[{ propertyId: 'note.status', value: 'Done' }],
+			(baseView) => baseView.querySelector('.multi-select-pill-remove-button')?.addEventListener('click', removed),
+			undefined,
+			(next) => { request = next; },
 		);
-		expect(document.activeElement).toBe(swatches[1]);
-		swatches[1]?.dispatchEvent(
-			new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+		harness.root.querySelector<HTMLElement>('.multi-select-pill')?.dispatchEvent(
+			new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
 		);
-		expect(document.querySelector('.bpc-popover')).toBeNull();
+		request?.removeFromRow();
+		expect(removed).toHaveBeenCalledOnce();
+	});
+
+	it('accumulates virtualized values per table and property without cross-table leakage', async () => {
+		const opened = vi.fn<(request: ColumnMenuRequest) => void>();
+		const harness = createHarness(
+			[{ propertyId: 'note.status', value: 'Doing' }],
+			undefined,
+			undefined,
+			opened,
+		);
+		const baseView = harness.root.querySelector<HTMLElement>('.bases-view');
+		if (baseView) appendPill(baseView, { propertyId: 'note.status', value: 'Done' });
+		await mutationCycle();
+		harness.root.querySelector<HTMLElement>('.multi-select-pill')?.dispatchEvent(
+			new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+		);
+		expect(opened.mock.calls[0]?.[0].values).toEqual(['Doing', 'Done']);
+
+		const embed = harness.root.createDiv('bases-embed');
+		appendPill(embed, { propertyId: 'note.status', value: 'Elsewhere' });
+		await mutationCycle();
+		embed.querySelector<HTMLElement>('.multi-select-pill')?.dispatchEvent(
+			new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
+		);
+		expect(opened.mock.calls[1]?.[0].values).toEqual(['Elsewhere']);
 	});
 
 	it('restores attributes and classes when stopped', () => {
@@ -192,14 +227,17 @@ describe('PillEnhancer', () => {
 			appendTableRow(baseView, 'note.priority', 'Later');
 		}, opened);
 		const items = harness.root.querySelectorAll<HTMLElement>('.bpc-conditional-formatting-button');
-		const buttons = harness.root.querySelectorAll<HTMLButtonElement>('.bpc-conditional-formatting-button > .text-icon-button');
+		const buttons = harness.root.querySelectorAll<HTMLElement>('.bpc-conditional-formatting-button > .text-icon-button');
 		expect(items).toHaveLength(1);
 		expect(buttons).toHaveLength(1);
 		const toolbarItems = [...harness.root.querySelectorAll<HTMLElement>('.bases-toolbar > .bases-toolbar-item')];
-		expect(toolbarItems.map((item) => item.classList.contains('bpc-conditional-formatting-button') ? 'Conditional formatting' : item.textContent)).toEqual([
-			'Table', '5 results', 'Conditional formatting', 'Sort', 'Filter', 'Properties',
+		expect(toolbarItems.map((item) => item.classList.contains('bpc-conditional-formatting-button') ? 'Format' : item.textContent)).toEqual([
+			'Table', '5 results', 'Format', 'Sort', 'Filter', 'Properties',
 		]);
-		expect(buttons[0]?.querySelector('.text-button-label')?.textContent).toBe('Conditional formatting');
+		expect(buttons[0]?.tagName).toBe('DIV');
+		expect(buttons[0]?.getAttribute('role')).toBe('button');
+		expect(buttons[0]?.getAttribute('aria-label')).toBe('Conditional formatting');
+		expect(buttons[0]?.querySelector('.text-button-label')?.textContent).toBe('Format');
 
 		buttons[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 		expect(opened).toHaveBeenCalledWith(['note.priority']);
@@ -227,7 +265,8 @@ describe('PillEnhancer', () => {
 function createHarness(
 	specs: PillSpec[],
 	configure?: (baseView: HTMLElement) => void,
-	openRuleManager: (properties: string[]) => void = () => undefined,
+	openRuleManager: ((properties: string[]) => void) | undefined = () => undefined,
+	openColumnManager: ((request: ColumnMenuRequest) => void) | undefined = () => undefined,
 ): Harness {
 	const root = document.body.createDiv();
 	root.className = 'workspace-leaf-content';
@@ -240,7 +279,6 @@ function createHarness(
 	}
 	configure?.(baseView);
 	const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
-	const popover = new ColorPopover(store);
 	const workspace = {
 		getLeavesOfType: (type: string) =>
 			type === 'bases' ? [{ view: { containerEl: root } }] : [],
@@ -249,11 +287,11 @@ function createHarness(
 	const enhancer = new PillEnhancer(
 		{ workspace } as unknown as App,
 		store,
-		popover,
 		openRuleManager,
+		openColumnManager,
 	);
 	enhancer.start(() => undefined);
-	const harness = { root, store, popover, enhancer };
+	const harness = { root, store, enhancer };
 	activeHarnesses.push(harness);
 	return harness;
 }

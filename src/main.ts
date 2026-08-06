@@ -2,12 +2,14 @@ import { Plugin } from 'obsidian';
 import { PillEnhancer } from './core/pill-enhancer';
 import { SettingsStore } from './core/settings-store';
 import { ColorPopover } from './ui/color-popover';
+import { ColumnPillPopover } from './ui/column-pill-popover';
 import { BasesPillColorsSettingTab } from './ui/settings-tab';
-import { RuleManagerModal } from './ui/rule-manager';
+import { BasesVisualsModal } from './ui/visuals-manager';
 
 export default class BasesPillColorsPlugin extends Plugin {
 	private store!: SettingsStore;
 	private popover!: ColorPopover;
+	private columnPopover!: ColumnPillPopover;
 	private enhancer!: PillEnhancer;
 	private active = false;
 
@@ -18,11 +20,21 @@ export default class BasesPillColorsPlugin extends Plugin {
 			this.saveData(nextSettings),
 		);
 		this.popover = new ColorPopover(this.store);
+		this.columnPopover = new ColumnPillPopover(this.app, this.store);
 		this.enhancer = new PillEnhancer(
 			this.app,
 			this.store,
-			this.popover,
-			(propertyIds) => new RuleManagerModal(this.app, this.store, propertyIds).open(),
+			(propertyIds) => new BasesVisualsModal(
+				this.app,
+				this.store,
+				this.popover,
+				propertyIds,
+				'conditional-formatting',
+			).open(),
+			(request) => {
+				this.popover.close();
+				this.columnPopover.open(request);
+			},
 		);
 
 		this.addSettingTab(
@@ -44,6 +56,7 @@ export default class BasesPillColorsPlugin extends Plugin {
 		this.active = false;
 		this.enhancer?.stop();
 		this.popover?.close();
+		this.columnPopover?.close();
 		this.store?.dispose();
 	}
 }

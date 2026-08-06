@@ -1,0 +1,135 @@
+import type { App } from 'obsidian';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { SettingsStore } from '../src/core/settings-store';
+import { ColumnPillPopover } from '../src/ui/column-pill-popover';
+
+const stores: SettingsStore[] = [];
+const popovers: ColumnPillPopover[] = [];
+
+afterEach(() => {
+	for (const popover of popovers.splice(0)) popover.close();
+	for (const store of stores.splice(0)) store.dispose();
+	document.body.replaceChildren();
+});
+
+describe('ColumnPillPopover', () => {
+	it('opens as a compact intent menu without exposing color controls', () => {
+		const { popover } = createPopover();
+		popover.open(createRequest());
+		const panel = document.querySelector('.bpc-column-popover');
+		expect(panel?.getAttribute('aria-label')).toBe('Actions for Doing');
+		expect(panel?.querySelector('.bpc-context-header .bpc-settings-pill')?.textContent).toBe('Doing');
+		expect(menuLabels()).toEqual(['Change color', 'Manage “status” colors', 'Remove from row']);
+		expect(panel?.querySelector('.bpc-swatch')).toBeNull();
+		expect(panel?.querySelector('input')).toBeNull();
+	});
+
+	it('reveals the palette only after Change color and offers a conditional reset', () => {
+		const { popover, store } = createPopover();
+		popover.open(createRequest());
+		findMenuItem('Change color')?.click();
+		expect(document.querySelectorAll('.bpc-context-palette .bpc-swatch')).toHaveLength(10);
+		document.querySelector<HTMLButtonElement>('.bpc-context-palette [data-preset="red"]')?.click();
+		expect(store.get({ propertyId: 'note.status', value: 'Doing' })?.override).toEqual({ kind: 'preset', name: 'red' });
+
+		document.querySelector<HTMLButtonElement>('.bpc-context-header__back')?.click();
+		expect(menuLabels()).toEqual(['Change color', 'Reset to automatic', 'Manage “status” colors', 'Remove from row']);
+		findMenuItem('Reset to automatic')?.click();
+		expect(store.get({ propertyId: 'note.status', value: 'Doing' })?.override).toBeUndefined();
+		expect(document.querySelector('.bpc-column-popover')).toBeNull();
+	});
+
+	it('shows a separate column view with clickable rows and highlights the source value', () => {
+		const { popover, store } = createPopover();
+		popover.open(createRequest());
+		findMenuItem('Manage “status” colors')?.click();
+		const rows = [...document.querySelectorAll<HTMLElement>('.bpc-column-manager__row')];
+		expect(rows.map((row) => row.querySelector('.bpc-settings-pill')?.textContent)).toEqual(['Doing', 'Done', 'Later']);
+		expect(rows[0]?.classList.contains('is-selected')).toBe(true);
+		expect(document.querySelector('.bpc-column-manager__search')).toBeNull();
+		expect(document.querySelector('button')?.textContent).not.toContain('Change');
+
+		rows[1]?.click();
+		document.querySelector<HTMLButtonElement>('.bpc-context-palette [data-preset="green"]')?.click();
+		expect(store.get({ propertyId: 'note.status', value: 'Done' })?.override).toEqual({ kind: 'preset', name: 'green' });
+		document.querySelector<HTMLButtonElement>('.bpc-context-header__back')?.click();
+		expect(document.querySelectorAll('.bpc-column-manager__row')).toHaveLength(3);
+	});
+
+	it('adds search only for larger columns and filters the value list', () => {
+		const { popover } = createPopover();
+		const request = createRequest();
+		request.values = ['Doing', 'Done', 'Later', 'Blocked', 'Ready', 'Review', 'Archived'];
+		popover.open(request);
+		findMenuItem('Manage “status” colors')?.click();
+		const search = document.querySelector<HTMLInputElement>('.bpc-column-manager__search');
+		expect(search).not.toBeNull();
+		if (search) search.value = 'rev';
+		search?.dispatchEvent(new Event('input', { bubbles: true }));
+		expect(document.querySelectorAll('.bpc-column-manager__row')).toHaveLength(1);
+		expect(document.querySelector('.bpc-column-manager__row .bpc-settings-pill')?.textContent).toBe('Review');
+	});
+
+	it('resets column overrides with confirmation and removes through the native callback', () => {
+		const { popover, store } = createPopover();
+		store.setOverride({ propertyId: 'note.status', value: 'Done' }, { kind: 'preset', name: 'green' });
+		const request = createRequest();
+		popover.open(request);
+		findMenuItem('Manage “status” colors')?.click();
+		document.querySelector<HTMLButtonElement>('.bpc-column-manager__reset')?.click();
+		document.querySelector<HTMLButtonElement>('.modal-content .mod-warning')?.click();
+		expect(store.get({ propertyId: 'note.status', value: 'Done' })?.override).toBeUndefined();
+
+		document.querySelector<HTMLButtonElement>('.bpc-context-header__back')?.click();
+		findMenuItem('Remove from row')?.click();
+		expect(document.querySelector('.bpc-context-header strong')?.textContent).toBe('Remove value?');
+		document.querySelector<HTMLButtonElement>('.bpc-remove-confirm .mod-warning')?.click();
+		expect(request.removeFromRow).toHaveBeenCalledOnce();
+		expect(document.querySelector('.bpc-column-popover')).toBeNull();
+	});
+
+	it('supports arrow navigation and returning with ArrowLeft', async () => {
+		const { popover } = createPopover();
+		popover.open(createRequest());
+		await Promise.resolve();
+		const first = findMenuItem('Change color');
+		expect(document.activeElement).toBe(first);
+		first?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+		expect(document.activeElement).toBe(findMenuItem('Manage “status” colors'));
+		findMenuItem('Manage “status” colors')?.click();
+		document.querySelector('.bpc-column-popover')?.dispatchEvent(
+			new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }),
+		);
+		expect(menuLabels()).toContain('Change color');
+	});
+});
+
+function menuLabels(): string[] {
+	return [...document.querySelectorAll<HTMLElement>('.bpc-context-menu__label')]
+		.map((element) => element.textContent ?? '');
+}
+
+function findMenuItem(label: string): HTMLButtonElement | undefined {
+	return [...document.querySelectorAll<HTMLButtonElement>('.bpc-context-menu__item')]
+		.find((button) => button.querySelector('.bpc-context-menu__label')?.textContent === label);
+}
+
+function createPopover(): { popover: ColumnPillPopover; store: SettingsStore } {
+	const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+	const popover = new ColumnPillPopover({} as App, store);
+	stores.push(store);
+	popovers.push(popover);
+	return { popover, store };
+}
+
+function createRequest() {
+	return {
+		document,
+		point: { x: 40, y: 40 },
+		propertyId: 'note.status',
+		value: 'Doing',
+		values: ['Doing', 'Done', 'Later'],
+		removeFromRow: vi.fn(),
+	};
+}
