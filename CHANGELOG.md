@@ -2,6 +2,11 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.2.2
+
+- Match the native two-level Base toolbar item structure.
+- Remove the oversized filled appearance from the Conditional formatting action.
+
 ## 0.2.1
 
 - Fix the Conditional formatting toolbar button in native Base file views.

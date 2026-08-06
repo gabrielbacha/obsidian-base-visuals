@@ -195,9 +195,9 @@ export class PillEnhancer {
 		if (toolbar.querySelector('.bpc-conditional-formatting-button')) return;
 		const scope = findBaseTableHost(toolbar);
 		if (!scope?.querySelector(CELL_SELECTOR)) return;
-		const button = toolbar.createEl('button');
+		const item = toolbar.createDiv('bases-toolbar-item bpc-conditional-formatting-button');
+		const button = item.createEl('button', { cls: 'text-icon-button' });
 		button.type = 'button';
-		button.className = 'text-icon-button bases-toolbar-item bpc-conditional-formatting-button';
 		button.setAttribute('aria-label', 'Conditional formatting');
 		button.title = 'Conditional formatting';
 		createPaletteIcon(button);
@@ -215,7 +215,7 @@ export class PillEnhancer {
 
 		const anchor = findToolbarInsertionAnchor(toolbar);
 		const parent = anchor?.parentElement ?? toolbar;
-		parent.insertBefore(button, anchor ?? parent.firstChild);
+		parent.insertBefore(item, anchor ?? parent.firstChild);
 	}
 
 	private propertyIdsInScope(scope: HTMLElement): string[] {

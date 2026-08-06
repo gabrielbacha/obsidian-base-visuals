@@ -184,14 +184,16 @@ describe('PillEnhancer', () => {
 			const header = baseView.parentElement?.createDiv('bases-header');
 			const toolbar = header?.createDiv('bases-toolbar');
 			if (!toolbar) throw new Error('Missing native Base toolbar fixture');
-			toolbar.createEl('button', { text: 'Table', cls: 'bases-toolbar-item bases-toolbar-views-menu' });
+			appendToolbarItem(toolbar, 'bases-toolbar-views-menu', 'Table');
 			toolbar.createSpan({ text: '5 results', cls: 'bases-toolbar-item bases-toolbar-result-count' });
-			toolbar.createEl('button', { text: 'Sort', cls: 'bases-toolbar-item bases-toolbar-sort-menu' });
-			toolbar.createEl('button', { text: 'Filter', cls: 'bases-toolbar-item bases-toolbar-filter-menu' });
-			toolbar.createEl('button', { text: 'Properties', cls: 'bases-toolbar-item bases-toolbar-properties-menu' });
+			appendToolbarItem(toolbar, 'bases-toolbar-sort-menu', 'Sort');
+			appendToolbarItem(toolbar, 'bases-toolbar-filter-menu', 'Filter');
+			appendToolbarItem(toolbar, 'bases-toolbar-properties-menu', 'Properties');
 			appendTableRow(baseView, 'note.priority', 'Later');
 		}, opened);
-		const buttons = harness.root.querySelectorAll<HTMLButtonElement>('.bpc-conditional-formatting-button');
+		const items = harness.root.querySelectorAll<HTMLElement>('.bpc-conditional-formatting-button');
+		const buttons = harness.root.querySelectorAll<HTMLButtonElement>('.bpc-conditional-formatting-button > .text-icon-button');
+		expect(items).toHaveLength(1);
 		expect(buttons).toHaveLength(1);
 		const toolbarItems = [...harness.root.querySelectorAll<HTMLElement>('.bases-toolbar > .bases-toolbar-item')];
 		expect(toolbarItems.map((item) => item.classList.contains('bpc-conditional-formatting-button') ? 'Conditional formatting' : item.textContent)).toEqual([
@@ -204,7 +206,7 @@ describe('PillEnhancer', () => {
 		buttons[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
 		expect(opened).toHaveBeenCalledTimes(2);
 
-		buttons[0]?.remove();
+		items[0]?.remove();
 		await mutationCycle();
 		expect(harness.root.querySelectorAll('.bpc-conditional-formatting-button')).toHaveLength(1);
 		harness.enhancer.stop();
@@ -261,6 +263,12 @@ function appendTableRow(parent: Element, propertyId: string, value: string): voi
 	const cell = row.createDiv('bases-td');
 	cell.dataset.property = propertyId;
 	cell.textContent = value;
+}
+
+function appendToolbarItem(toolbar: HTMLElement, className: string, label: string): void {
+	const item = toolbar.createDiv(`bases-toolbar-item ${className}`);
+	const button = item.createEl('button', { cls: 'text-icon-button' });
+	button.createSpan({ text: label, cls: 'text-button-label' });
 }
 
 function appendPill(parent: Element, spec: PillSpec): void {
