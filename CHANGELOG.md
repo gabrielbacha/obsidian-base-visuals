@@ -2,6 +2,11 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.2.1
+
+- Fix the Conditional formatting toolbar button in native Base file views.
+- Match Obsidian's current sibling `.bases-header` and `.bases-view` structure.
+
 ## 0.2.0
 
 Initial public release.

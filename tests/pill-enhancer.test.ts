@@ -181,7 +181,9 @@ describe('PillEnhancer', () => {
 	it('places one native-style toolbar button before Sort and supports keyboard activation', async () => {
 		const opened = vi.fn();
 		const harness = createHarness([], (baseView) => {
-			const toolbar = baseView.createDiv('bases-toolbar');
+			const header = baseView.parentElement?.createDiv('bases-header');
+			const toolbar = header?.createDiv('bases-toolbar');
+			if (!toolbar) throw new Error('Missing native Base toolbar fixture');
 			toolbar.createEl('button', { text: 'Table', cls: 'bases-toolbar-item bases-toolbar-views-menu' });
 			toolbar.createSpan({ text: '5 results', cls: 'bases-toolbar-item bases-toolbar-result-count' });
 			toolbar.createEl('button', { text: 'Sort', cls: 'bases-toolbar-item bases-toolbar-sort-menu' });
@@ -226,6 +228,8 @@ function createHarness(
 	openRuleManager: (properties: string[]) => void = () => undefined,
 ): Harness {
 	const root = document.body.createDiv();
+	root.className = 'workspace-leaf-content';
+	root.dataset.type = 'bases';
 	const baseView = root.createDiv();
 	baseView.className = 'bases-view';
 	root.appendChild(baseView);

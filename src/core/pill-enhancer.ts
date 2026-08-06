@@ -175,7 +175,7 @@ export class PillEnhancer {
 	}
 
 	private processCell(cell: HTMLElement): void {
-		const scope = cell.closest<HTMLElement>(BASE_SCOPE_SELECTOR);
+		const scope = findBaseTableHost(cell);
 		if (!scope) return;
 		const propertyId = cell.dataset.property?.trim();
 		if (!propertyId) return;
@@ -193,7 +193,7 @@ export class PillEnhancer {
 
 	private processToolbar(toolbar: HTMLElement): void {
 		if (toolbar.querySelector('.bpc-conditional-formatting-button')) return;
-		const scope = toolbar.closest<HTMLElement>(BASE_SCOPE_SELECTOR);
+		const scope = findBaseTableHost(toolbar);
 		if (!scope?.querySelector(CELL_SELECTOR)) return;
 		const button = toolbar.createEl('button');
 		button.type = 'button';
@@ -423,6 +423,13 @@ function findToolbarInsertionAnchor(toolbar: HTMLElement): Element | null {
 	return toolbar.querySelector(
 		'.bases-toolbar-item:not(.bases-toolbar-views-menu):not(.bases-toolbar-result-count)',
 	);
+}
+
+function findBaseTableHost(element: HTMLElement): HTMLElement | null {
+	return element.closest<HTMLElement>('.bases-embed')
+		?? element.closest<HTMLElement>('.workspace-leaf-content[data-type="bases"]')
+		?? element.closest<HTMLElement>('.view-content')
+		?? element.closest<HTMLElement>('.bases-view');
 }
 
 function createPaletteIcon(button: HTMLButtonElement): void {
