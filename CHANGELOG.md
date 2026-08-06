@@ -4,6 +4,8 @@ All notable changes to Bases Visuals are documented here.
 
 ## Unreleased
 
+## 0.3.0 — 2026-08-06
+
 - Add an intent-first pill menu with separate color and column-manager views plus native-backed removal from the current row.
 - Show column search only for larger value sets and highlight the originally clicked value.
 - Refine pill menus with native icons, compact swatches, clearer focus states, and confirmation before removing a value.
