@@ -2,7 +2,17 @@
 
 All notable changes to Bases Visuals are documented here.
 
-## Unreleased
+## 0.4.0 — 2026-08-13
+
+- Add a native **Layout** toolbar control beside **Format** for Base tables.
+- Expose Obsidian's Short, Medium, Tall, and Extra tall row-height settings directly in Layout.
+- Add Compact, Standard, Wide, and Maximum column-width presets with **Unset only** and confirmed **All columns** scopes.
+- Keep the Layout popover open while testing widths and make its toolbar button toggle the popover closed.
+- Add temporary column-header indicators showing which columns match or will change with the selected width.
+- Add named saved-layout presets that restore row height, column width, and width scope together.
+- Add confirmed column-width reset and confirmation before every operation that overwrites all column widths.
+- Add a subtle Base header tint and bold the first configured visible column.
+- Persist and validate layout presets through settings schema version 3.
 
 ## 0.3.0 — 2026-08-06
 

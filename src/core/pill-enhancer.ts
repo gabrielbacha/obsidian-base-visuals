@@ -1,14 +1,23 @@
-import type { App, EventRef, WorkspaceLeaf } from 'obsidian';
+import { setIcon, type App, type EventRef, type WorkspaceLeaf } from 'obsidian';
 import { encodeOptionKey, resolveColor } from './colors';
+import {
+	getNativeMainProperty,
+} from './native-table-view';
 import { evaluateRule, ruleColorVariables } from './rules';
 import { SettingsStore } from './settings-store';
 import { ConditionalRule, OptionIdentity } from './types';
+import { TableLayoutPopover } from '../ui/table-layout-popover';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
 const CELL_SELECTOR = '.bases-td[data-property], .bases-table-cell[data-property]';
 const ROW_SELECTOR = '.bases-tr';
 const TOOLBAR_SELECTOR = '.bases-toolbar, .query-toolbar';
+const TABLE_SELECTOR = '.bases-table-container';
+const TOOLBAR_CONTROL_SELECTOR = [
+	'.bpc-conditional-formatting-button',
+	'.bpc-table-layout-button',
+].join(',');
 
 interface TrackedPill {
 	identity: OptionIdentity;
@@ -41,6 +50,9 @@ export class PillEnhancer {
 	private readonly visibleRows = new Set<HTMLElement>();
 	private readonly visibleCells = new Set<HTMLElement>();
 	private readonly tableValues = new Map<HTMLElement, Map<string, Set<string>>>();
+	private readonly tables = new Set<HTMLElement>();
+	private readonly mainPropertyByTable = new WeakMap<HTMLElement, string>();
+	private readonly tableLayoutPopover: TableLayoutPopover;
 	private unsubscribeStore: (() => void) | null = null;
 	private previousOverrides = new Map<string, string>();
 	private started = false;
@@ -50,7 +62,9 @@ export class PillEnhancer {
 		private readonly store: SettingsStore,
 		private readonly openRuleManager: OpenRuleManager = () => undefined,
 		private readonly openColumnManager: OpenColumnManager = () => undefined,
-	) {}
+	) {
+		this.tableLayoutPopover = new TableLayoutPopover(app, store);
+	}
 
 	start(registerEvent: (eventRef: EventRef) => void): void {
 		if (this.started) return;
@@ -102,6 +116,8 @@ export class PillEnhancer {
 		this.visibleRows.clear();
 		this.visibleCells.clear();
 		this.tableValues.clear();
+		this.tables.clear();
+		this.tableLayoutPopover.close();
 	}
 
 	private refreshRoots(): void {
@@ -132,7 +148,8 @@ export class PillEnhancer {
 		for (const host of this.tableValues.keys()) {
 			if (host === root || root.contains(host)) this.tableValues.delete(host);
 		}
-		root.querySelectorAll<HTMLElement>('.bpc-conditional-formatting-button').forEach((button) => button.remove());
+		root.querySelectorAll<HTMLElement>(TOOLBAR_CONTROL_SELECTOR).forEach((button) => button.remove());
+		root.querySelectorAll<HTMLElement>('.bpc-table').forEach((table) => this.untrackTable(table));
 		this.roots.delete(root);
 	}
 
@@ -142,6 +159,7 @@ export class PillEnhancer {
 		this.processMatches(element, PILL_SELECTOR, (item) => this.processPill(item));
 		this.processMatches(element, CELL_SELECTOR, (item) => this.processCell(item));
 		this.processMatches(element, ROW_SELECTOR, (item) => this.processRow(item));
+		this.processMatches(element, TABLE_SELECTOR, (item) => this.processTable(item));
 		this.processMatches(element, TOOLBAR_SELECTOR, (item) => this.processToolbar(item));
 		const ancestorPill = element.closest<HTMLElement>(PILL_SELECTOR);
 		if (ancestorPill) this.processPill(ancestorPill);
@@ -158,6 +176,7 @@ export class PillEnhancer {
 		this.processMatches(element, PILL_SELECTOR, (item) => this.untrackPill(item));
 		this.processMatches(element, CELL_SELECTOR, (item) => this.untrackCell(item));
 		this.processMatches(element, ROW_SELECTOR, (item) => this.untrackRow(item));
+		this.processMatches(element, TABLE_SELECTOR, (item) => this.untrackTable(item));
 		for (const host of this.tableValues.keys()) {
 			if (host === element || element.contains(host)) this.tableValues.delete(host);
 		}
@@ -174,6 +193,10 @@ export class PillEnhancer {
 		if (cell) this.processCell(cell);
 		const row = element.closest<HTMLElement>(ROW_SELECTOR);
 		if (row) this.processRow(row);
+		const table = element.matches(TABLE_SELECTOR)
+			? element as HTMLElement
+			: element.closest<HTMLElement>(TABLE_SELECTOR);
+		if (table) this.processTable(table);
 	}
 
 	private processCell(cell: HTMLElement): void {
@@ -184,6 +207,8 @@ export class PillEnhancer {
 		this.visibleCells.add(cell);
 		this.store.discoverProperty(propertyId);
 		this.applyCellRule(cell, propertyId);
+		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
+		if (table) this.applyMainColumn(table, cell);
 		scope.querySelectorAll<HTMLElement>(TOOLBAR_SELECTOR).forEach((toolbar) => this.processToolbar(toolbar));
 	}
 
@@ -194,31 +219,104 @@ export class PillEnhancer {
 	}
 
 	private processToolbar(toolbar: HTMLElement): void {
-		if (toolbar.querySelector('.bpc-conditional-formatting-button')) return;
 		const scope = findBaseTableHost(toolbar);
 		if (!scope?.querySelector(CELL_SELECTOR)) return;
-		const item = toolbar.createDiv('bases-toolbar-item bpc-conditional-formatting-button');
+		const anchor = findToolbarInsertionAnchor(toolbar);
+		const parent = anchor?.parentElement ?? toolbar;
+		const formatItem = this.ensureToolbarControl(
+			toolbar,
+			'bpc-conditional-formatting-button',
+			'palette',
+			'Format',
+			'Conditional formatting',
+			() => this.openRuleManager(this.propertyIdsInScope(scope)),
+		);
+		const layoutItem = this.ensureToolbarControl(
+			toolbar,
+			'bpc-table-layout-button',
+			'layout-grid',
+			'Layout',
+			'Table layout',
+			(button) => this.tableLayoutPopover.toggle(button, scope),
+		);
+		let cursor: ChildNode | null = anchor ?? parent.firstChild;
+		for (const item of [layoutItem, formatItem]) {
+			if (item.nextSibling !== cursor) parent.insertBefore(item, cursor);
+			cursor = item;
+		}
+	}
+
+	private ensureToolbarControl(
+		toolbar: HTMLElement,
+		className: string,
+		icon: string,
+		label: string,
+		title: string,
+		onActivate: (button: HTMLElement) => void,
+	): HTMLElement {
+		const existing = toolbar.querySelector<HTMLElement>(`.${className}`);
+		if (existing) return existing;
+		const item = toolbar.createDiv(`bases-toolbar-item bpc-toolbar-control ${className}`);
 		const button = item.createDiv('text-icon-button');
 		button.setAttribute('role', 'button');
 		button.tabIndex = 0;
-		button.setAttribute('aria-label', 'Conditional formatting');
-		button.title = 'Conditional formatting';
-		createPaletteIcon(button);
-		button.createSpan({ cls: 'text-button-label', text: 'Format' });
+		button.setAttribute('aria-label', title);
+		button.title = title;
+		const iconElement = button.createSpan({ cls: 'text-button-icon' });
+		setIcon(iconElement, icon);
+		button.createSpan({ cls: 'text-button-label', text: label });
 		button.addEventListener('click', (event) => {
 			event.preventDefault();
 			event.stopPropagation();
-			this.openRuleManager(this.propertyIdsInScope(scope));
+			onActivate(button);
 		});
 		button.addEventListener('keydown', (event) => {
 			if (event.key !== 'Enter' && event.key !== ' ') return;
 			event.preventDefault();
 			button.click();
 		});
+		return item;
+	}
 
-		const anchor = findToolbarInsertionAnchor(toolbar);
-		const parent = anchor?.parentElement ?? toolbar;
-		parent.insertBefore(item, anchor ?? parent.firstChild);
+	private processTable(table: HTMLElement): void {
+		if (!table.closest(BASE_SCOPE_SELECTOR)) return;
+		table.classList.add('bpc-table');
+		this.tables.add(table);
+		const scope = findBaseTableHost(table);
+		const primary = scope ? getNativeMainProperty(this.app, scope) : null;
+		this.updateMainColumn(table, primary ?? undefined);
+	}
+
+	private updateMainColumn(table: HTMLElement, configuredPrimary?: string): void {
+		const primary = configuredPrimary ?? table.querySelector<HTMLElement>(
+			'.bases-thead .bases-td[data-property], .bases-thead [data-property].bases-table-header',
+		)?.dataset.property?.trim() ?? table.querySelector<HTMLElement>(
+			'.bases-tbody .bases-td[data-property], .bases-tbody .bases-table-cell[data-property]',
+		)?.dataset.property?.trim();
+		if (!primary) return;
+		this.mainPropertyByTable.set(table, primary);
+		for (const cell of table.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
+			this.applyMainColumn(table, cell, primary);
+		}
+	}
+
+	private applyMainColumn(table: HTMLElement, cell: HTMLElement, primaryProperty?: string): void {
+		const primary = primaryProperty ?? this.mainPropertyByTable.get(table) ?? table.querySelector<HTMLElement>(
+			'.bases-thead .bases-td[data-property], .bases-thead [data-property].bases-table-header',
+		)?.dataset.property?.trim() ?? table.querySelector<HTMLElement>(
+			'.bases-tbody .bases-td[data-property], .bases-tbody .bases-table-cell[data-property]',
+		)?.dataset.property?.trim();
+		cell.classList.toggle(
+			'bpc-main-column',
+			Boolean(primary) && cell.dataset.property?.trim() === primary,
+		);
+	}
+
+	private untrackTable(table: HTMLElement): void {
+		table.classList.remove('bpc-table');
+		table.querySelectorAll<HTMLElement>('.bpc-main-column').forEach((cell) =>
+			cell.classList.remove('bpc-main-column'));
+		this.tables.delete(table);
 	}
 
 	private propertyIdsInScope(scope: HTMLElement): string[] {
@@ -470,33 +568,4 @@ function findBaseTableHost(element: HTMLElement): HTMLElement | null {
 		?? element.closest<HTMLElement>('.workspace-leaf-content[data-type="bases"]')
 		?? element.closest<HTMLElement>('.view-content')
 		?? element.closest<HTMLElement>('.bases-view');
-}
-
-function createPaletteIcon(button: HTMLElement): void {
-	const icon = button.createSpan({ cls: 'text-button-icon bpc-toolbar-palette-icon' });
-	const svg = icon.createSvg('svg', {
-		cls: ['svg-icon', 'lucide-palette'],
-		attr: {
-			viewBox: '0 0 24 24',
-			width: '18',
-			height: '18',
-			fill: 'none',
-			stroke: 'currentColor',
-			'stroke-width': '2',
-			'stroke-linecap': 'round',
-			'stroke-linejoin': 'round',
-			'aria-hidden': 'true',
-		},
-	});
-	svg.createSvg('path', {
-		attr: { d: 'M12 22a10 10 0 1 0-10-10 4 4 0 0 0 4 4h1.6a2 2 0 0 1 1.6 3.2l-.4.6A2 2 0 0 0 10.4 22Z' },
-	});
-	const dots: Array<[string, string]> = [
-		['13.5', '6.5'], ['17.5', '10.5'], ['8.5', '7.5'], ['6.5', '12.5'],
-	];
-	for (const [cx, cy] of dots) {
-		svg.createSvg('circle', {
-			attr: { cx, cy, r: '.5', fill: 'currentColor' },
-		});
-	}
 }

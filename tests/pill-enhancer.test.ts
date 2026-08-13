@@ -213,7 +213,7 @@ describe('PillEnhancer', () => {
 		expect(cells[1]?.classList.contains('bpc-rule-cell')).toBe(false);
 	});
 
-	it('places one native-style toolbar button before Sort and supports keyboard activation', async () => {
+	it('groups table layout controls into one native button before Sort', async () => {
 		const opened = vi.fn();
 		const harness = createHarness([], (baseView) => {
 			const header = baseView.parentElement?.createDiv('bases-header');
@@ -226,13 +226,13 @@ describe('PillEnhancer', () => {
 			appendToolbarItem(toolbar, 'bases-toolbar-properties-menu', 'Properties');
 			appendTableRow(baseView, 'note.priority', 'Later');
 		}, opened);
-		const items = harness.root.querySelectorAll<HTMLElement>('.bpc-conditional-formatting-button');
+		const items = harness.root.querySelectorAll<HTMLElement>('.bpc-toolbar-control');
 		const buttons = harness.root.querySelectorAll<HTMLElement>('.bpc-conditional-formatting-button > .text-icon-button');
-		expect(items).toHaveLength(1);
+		expect(items).toHaveLength(2);
 		expect(buttons).toHaveLength(1);
 		const toolbarItems = [...harness.root.querySelectorAll<HTMLElement>('.bases-toolbar > .bases-toolbar-item')];
-		expect(toolbarItems.map((item) => item.classList.contains('bpc-conditional-formatting-button') ? 'Format' : item.textContent)).toEqual([
-			'Table', '5 results', 'Format', 'Sort', 'Filter', 'Properties',
+		expect(toolbarItems.map((item) => item.textContent)).toEqual([
+			'Table', '5 results', 'Format', 'Layout', 'Sort', 'Filter', 'Properties',
 		]);
 		expect(buttons[0]?.tagName).toBe('DIV');
 		expect(buttons[0]?.getAttribute('role')).toBe('button');
@@ -244,11 +244,36 @@ describe('PillEnhancer', () => {
 		buttons[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
 		expect(opened).toHaveBeenCalledTimes(2);
 
-		items[0]?.remove();
+		harness.root.querySelector('.bpc-conditional-formatting-button')?.remove();
 		await mutationCycle();
 		expect(harness.root.querySelectorAll('.bpc-conditional-formatting-button')).toHaveLength(1);
+		expect(harness.root.querySelectorAll('.bpc-table-layout-button')).toHaveLength(1);
 		harness.enhancer.stop();
-		expect(harness.root.querySelector('.bpc-conditional-formatting-button')).toBeNull();
+		expect(harness.root.querySelector('.bpc-toolbar-control')).toBeNull();
+	});
+
+	it('tints tables and bolds the first visible column only', () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const head = table.createDiv('bases-thead');
+			const filenameHeader = head.createDiv('bases-td');
+			filenameHeader.dataset.property = 'file.name';
+			const statusHeader = head.createDiv('bases-td');
+			statusHeader.dataset.property = 'note.status';
+			const body = table.createDiv('bases-tbody');
+			const row = body.createDiv('bases-tr');
+			appendTableCell(row, 'file.name', 'Project');
+			appendTableCell(row, 'note.status', 'Active');
+		});
+		const table = harness.root.querySelector<HTMLElement>('.bases-table-container');
+		const cells = harness.root.querySelectorAll<HTMLElement>('.bases-tbody .bases-td');
+		expect(table?.classList.contains('bpc-table')).toBe(true);
+		expect(cells[0]?.classList.contains('bpc-main-column')).toBe(true);
+		expect(cells[1]?.classList.contains('bpc-main-column')).toBe(false);
+
+		harness.enhancer.stop();
+		expect(table?.classList.contains('bpc-table')).toBe(false);
+		expect(cells[0]?.classList.contains('bpc-main-column')).toBe(false);
 	});
 
 	it('leaves context menus outside tracked Base pills untouched', () => {
@@ -298,7 +323,11 @@ function createHarness(
 
 function appendTableRow(parent: Element, propertyId: string, value: string): void {
 	const row = parent.createDiv('bases-tr');
-	const cell = row.createDiv('bases-td');
+	appendTableCell(row, propertyId, value);
+}
+
+function appendTableCell(parent: Element, propertyId: string, value: string): void {
+	const cell = parent.createDiv('bases-td');
 	cell.dataset.property = propertyId;
 	cell.textContent = value;
 }

@@ -1,6 +1,7 @@
 import { encodeOptionKey, isPresetName, normalizeHex } from './colors';
 import {
 	BasesPillColorsSettings,
+	LayoutPreset,
 	ColorOverride,
 	ConditionalRule,
 	DEFAULT_SETTINGS,
@@ -60,6 +61,8 @@ export class SettingsStore {
 				return rule ? [rule] : [];
 			})
 			: [];
+		const layoutPresets = normalizeLayoutPresets(raw.layoutPresets);
+		const lastColumnWidthPreset = normalizeColumnWidth(raw.lastColumnWidthPreset);
 
 		return {
 			schemaVersion: SCHEMA_VERSION,
@@ -70,6 +73,8 @@ export class SettingsStore {
 			knownProperties,
 			ruleManagerSearch:
 				typeof raw.ruleManagerSearch === 'string' ? raw.ruleManagerSearch : '',
+			layoutPresets,
+			lastColumnWidthPreset,
 		};
 	}
 
@@ -203,6 +208,48 @@ export class SettingsStore {
 		this.scheduleSave();
 	}
 
+	addLayoutPreset(
+		name: string,
+		rowHeight: LayoutPreset['rowHeight'],
+		columnWidth: number,
+		columnScope: LayoutPreset['columnScope'],
+	): LayoutPreset | null {
+		const normalizedName = name.trim().slice(0, 40);
+		const normalizedWidth = normalizeColumnWidth(columnWidth);
+		if (!normalizedName || normalizedWidth === null || !isStoredRowHeight(rowHeight) ||
+			(columnScope !== 'unset' && columnScope !== 'all')) return null;
+		const preset = {
+			id: createLayoutPresetId(),
+			name: normalizedName,
+			rowHeight,
+			columnWidth: normalizedWidth,
+			columnScope,
+		};
+		this.settings.layoutPresets.push(preset);
+		this.changed();
+		return preset;
+	}
+
+	deleteLayoutPreset(id: string): void {
+		const index = this.settings.layoutPresets.findIndex((preset) => preset.id === id);
+		if (index < 0) return;
+		this.settings.layoutPresets.splice(index, 1);
+		this.changed();
+	}
+
+	setLastColumnWidthPreset(width: number | null): void {
+		if (width === null) {
+			if (this.settings.lastColumnWidthPreset === null) return;
+			this.settings.lastColumnWidthPreset = null;
+			this.scheduleSave();
+			return;
+		}
+		const normalized = normalizeColumnWidth(width);
+		if (normalized === null || this.settings.lastColumnWidthPreset === normalized) return;
+		this.settings.lastColumnWidthPreset = normalized;
+		this.scheduleSave();
+	}
+
 	allOptions(): StoredOption[] {
 		return Object.values(this.settings.options);
 	}
@@ -248,9 +295,49 @@ export class SettingsStore {
 }
 
 let fallbackRuleId = 0;
+let fallbackLayoutPresetId = 0;
 
 function createRuleId(): string {
 	return window.crypto?.randomUUID?.() ?? `rule-${Date.now()}-${fallbackRuleId += 1}`;
+}
+
+function createLayoutPresetId(): string {
+	return window.crypto?.randomUUID?.() ??
+		`layout-preset-${Date.now()}-${fallbackLayoutPresetId += 1}`;
+}
+
+function normalizeLayoutPresets(value: unknown): LayoutPreset[] {
+	if (!Array.isArray(value)) return [];
+	const presets: LayoutPreset[] = [];
+	const ids = new Set<string>();
+	for (const [index, candidate] of value.entries()) {
+		if (!isRecord(candidate) || typeof candidate.name !== 'string') continue;
+		const name = candidate.name.trim().slice(0, 40);
+		const columnWidth = normalizeColumnWidth(candidate.columnWidth);
+		if (!name || columnWidth === null || !isStoredRowHeight(candidate.rowHeight) ||
+			(candidate.columnScope !== 'unset' && candidate.columnScope !== 'all')) continue;
+		const requestedId = typeof candidate.id === 'string' ? candidate.id.trim() : '';
+		const id = requestedId && !ids.has(requestedId) ? requestedId : `migrated-layout-${index}`;
+		if (ids.has(id)) continue;
+		ids.add(id);
+		presets.push({
+			id,
+			name,
+			rowHeight: candidate.rowHeight,
+			columnWidth,
+			columnScope: candidate.columnScope,
+		});
+	}
+	return presets;
+}
+
+function isStoredRowHeight(value: unknown): value is LayoutPreset['rowHeight'] {
+	return value === '' || value === 'medium' || value === 'tall' || value === 'extra';
+}
+
+function normalizeColumnWidth(value: unknown): number | null {
+	if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+	return Math.round(Math.min(300, Math.max(40, value)));
 }
 
 function normalizeRule(value: unknown, index: number): ConditionalRule | null {

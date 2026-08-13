@@ -20,7 +20,7 @@ describe('SettingsStore', () => {
 			},
 		});
 
-		expect(settings.schemaVersion).toBe(2);
+		expect(settings.schemaVersion).toBe(3);
 		expect(Object.values(settings.options)).toEqual([
 			{
 				propertyId: 'note.status',
@@ -63,7 +63,7 @@ describe('SettingsStore', () => {
 			],
 		});
 
-		expect(settings.schemaVersion).toBe(2);
+		expect(settings.schemaVersion).toBe(3);
 		expect(settings.rules).toHaveLength(1);
 		expect(settings.rules[0]?.color).toEqual({ kind: 'custom', hex: '#AABBCC' });
 		expect(settings.knownProperties['note.status']).toEqual({ propertyId: 'note.status' });
@@ -81,6 +81,45 @@ describe('SettingsStore', () => {
 		expect(store.settings.rules[2]?.name).toContain('copy');
 		store.deleteRule(second.id);
 		expect(store.settings.rules).toHaveLength(2);
+		store.dispose();
+	});
+
+	it('normalizes, saves, and deletes complete layout presets', () => {
+		const settings = SettingsStore.normalize({
+			layoutPresets: [
+				{
+					id: 'writing', name: ' Writing ', rowHeight: 'tall',
+					columnWidth: 184.6, columnScope: 'all',
+				},
+				{
+					id: 'too-wide', name: 'Maximum-ish', rowHeight: '',
+					columnWidth: 900, columnScope: 'unset',
+				},
+				{ id: 'bad', name: '', rowHeight: 'medium', columnWidth: 120, columnScope: 'all' },
+				{ id: 'bad-width', name: 'Nope', rowHeight: 'giant', columnWidth: 120, columnScope: 'all' },
+			],
+		});
+		expect(settings.layoutPresets).toEqual([
+			{
+				id: 'writing', name: 'Writing', rowHeight: 'tall',
+				columnWidth: 185, columnScope: 'all',
+			},
+			{
+				id: 'too-wide', name: 'Maximum-ish', rowHeight: '',
+				columnWidth: 300, columnScope: 'unset',
+			},
+		]);
+
+		const store = new SettingsStore(settings, vi.fn(async () => undefined));
+		const added = store.addLayoutPreset('Reading', 'extra', 142, 'all');
+		expect(added).toMatchObject({
+			name: 'Reading', rowHeight: 'extra', columnWidth: 142, columnScope: 'all',
+		});
+		if (added) store.deleteLayoutPreset(added.id);
+		expect(store.settings.layoutPresets.map((preset) => preset.name))
+			.toEqual(['Writing', 'Maximum-ish']);
+		store.setLastColumnWidthPreset(185);
+		expect(store.settings.lastColumnWidthPreset).toBe(185);
 		store.dispose();
 	});
 });

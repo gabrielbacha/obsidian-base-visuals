@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const PRESET_NAMES = [
 	'default',
@@ -67,6 +67,17 @@ export interface KnownProperty {
 	propertyId: string;
 }
 
+export type StoredRowHeight = '' | 'medium' | 'tall' | 'extra';
+export type StoredColumnWidthScope = 'unset' | 'all';
+
+export interface LayoutPreset {
+	id: string;
+	name: string;
+	rowHeight: StoredRowHeight;
+	columnWidth: number;
+	columnScope: StoredColumnWidthScope;
+}
+
 export interface BasesPillColorsSettings {
 	schemaVersion: number;
 	options: Record<string, StoredOption>;
@@ -74,6 +85,8 @@ export interface BasesPillColorsSettings {
 	rules: ConditionalRule[];
 	knownProperties: Record<string, KnownProperty>;
 	ruleManagerSearch: string;
+	layoutPresets: LayoutPreset[];
+	lastColumnWidthPreset: number | null;
 }
 
 export const DEFAULT_SETTINGS: BasesPillColorsSettings = {
@@ -83,4 +96,6 @@ export const DEFAULT_SETTINGS: BasesPillColorsSettings = {
 	rules: [],
 	knownProperties: {},
 	ruleManagerSearch: '',
+	layoutPresets: [],
+	lastColumnWidthPreset: null,
 };
