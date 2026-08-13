@@ -445,11 +445,34 @@
 		var(--background-primary) 68%,
 		var(--background-secondary)
 	);
+	--bases-table-group-gap: 0px;
 }
 
 .bpc-table .bases-tbody .bases-td.bpc-main-column,
 .bpc-table .bases-tbody .bases-table-cell.bpc-main-column {
 	font-weight: var(--font-semibold);
+}
+
+.bases-table .bases-group-heading.bpc-group-heading--colored {
+	--bases-group-heading-value-color: var(--bpc-fg-light);
+	background-color: var(--bpc-bg);
+	transition: background-color 100ms ease-out;
+}
+
+.theme-dark .bases-table .bases-group-heading.bpc-group-heading--colored {
+	--bases-group-heading-value-color: var(--bpc-fg-dark);
+}
+
+.bases-table .bases-group-heading.bpc-group-heading--colored:hover {
+	background-color: var(--bpc-bg-hover);
+}
+
+.bases-table .bases-group-heading.bpc-group-heading--colored .bases-group-value {
+	color: var(--bases-group-heading-value-color);
+}
+
+.bases-table .bases-group-heading.bpc-group-heading--colored .bases-group-property {
+	color: color-mix(in srgb, var(--bases-group-heading-value-color) 62%, transparent);
 }
 
 .bases-view .bpc-pill,

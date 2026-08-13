@@ -66,6 +66,63 @@ describe('PillEnhancer', () => {
 		expect(harness.store.allOptions()[0]?.value).toBe('3. Later');
 	});
 
+	it('colors grouped row headings with the exact property and pill value color', () => {
+		const harness = createHarness(
+			[{ propertyId: 'note.category', value: '01 Product configuration' }],
+			(baseView) => appendGroupHeading(
+				baseView,
+				null,
+				'category',
+				'01 Product configuration',
+			),
+			undefined,
+			undefined,
+			'note.category',
+		);
+		const pill = harness.root.querySelector<HTMLElement>('.bpc-pill');
+		const heading = harness.root.querySelector<HTMLElement>('.bases-group-heading');
+		expect(heading?.classList.contains('bpc-group-heading--colored')).toBe(true);
+		expect(heading?.style.getPropertyValue('--bpc-bg')).toBe(
+			pill?.style.getPropertyValue('--bpc-bg'),
+		);
+		expect(heading?.dataset.bpcKey).toBe(pill?.dataset.bpcKey);
+		expect(heading?.querySelector('.bases-group-property')?.textContent).toBe('category');
+	});
+
+	it('updates grouped row heading colors live and removes all styling on cleanup', () => {
+		const harness = createHarness([], (baseView) => appendGroupHeading(
+			baseView,
+			'note.category',
+			'category',
+			'02 User identity and control',
+		));
+		const identity = {
+			propertyId: 'note.category',
+			value: '02 User identity and control',
+		};
+		const heading = harness.root.querySelector<HTMLElement>('.bases-group-heading');
+		harness.store.setOverride(identity, { kind: 'custom', hex: '#123456' });
+		expect(heading?.style.getPropertyValue('--bpc-bg')).toContain('#123456');
+		harness.store.setOverride(identity, { kind: 'disabled' });
+		expect(heading?.classList.contains('bpc-group-heading--colored')).toBe(false);
+		expect(heading?.style.getPropertyValue('--bpc-bg')).toBe('');
+
+		harness.enhancer.stop();
+		expect(heading?.classList.contains('bpc-group-heading')).toBe(false);
+		expect(heading?.dataset.bpcKey).toBeUndefined();
+	});
+
+	it('discovers grouped row headings added by virtualized table rendering', async () => {
+		const harness = createHarness([]);
+		const baseView = harness.root.querySelector<HTMLElement>('.bases-view');
+		if (baseView) appendGroupHeading(baseView, 'note.category', 'category', 'Later group');
+		await mutationCycle();
+		expect(
+			harness.root.querySelector('.bases-group-heading')?.classList.contains('bpc-group-heading--colored'),
+		).toBe(true);
+		expect(harness.store.get({ propertyId: 'note.category', value: 'Later group' })).toBeDefined();
+	});
+
 	it('keeps identical values independent across properties', () => {
 		const harness = createHarness([
 			{ propertyId: 'note.status', value: 'Same' },
@@ -292,6 +349,7 @@ function createHarness(
 	configure?: (baseView: HTMLElement) => void,
 	openRuleManager: ((properties: string[]) => void) | undefined = () => undefined,
 	openColumnManager: ((request: ColumnMenuRequest) => void) | undefined = () => undefined,
+	nativeGroupProperty?: string,
 ): Harness {
 	const root = document.body.createDiv();
 	root.className = 'workspace-leaf-content';
@@ -304,9 +362,23 @@ function createHarness(
 	}
 	configure?.(baseView);
 	const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+	const view: Record<string, unknown> = { containerEl: root };
+	if (nativeGroupProperty) {
+		view.renderer = {
+			child: {
+				type: 'table',
+				containerEl: baseView.querySelector<HTMLElement>('.bases-table') ?? baseView,
+				config: {
+					groupBy: { property: nativeGroupProperty },
+					get: () => undefined,
+					set: () => undefined,
+				},
+			},
+		};
+	}
 	const workspace = {
 		getLeavesOfType: (type: string) =>
-			type === 'bases' ? [{ view: { containerEl: root } }] : [],
+			type === 'bases' ? [{ view }] : [],
 		on: () => ({}) as EventRef,
 	};
 	const enhancer = new PillEnhancer(
@@ -351,6 +423,21 @@ function appendPill(parent: Element, spec: PillSpec): void {
 	const remove = pillElement.createEl('button');
 	remove.className = 'multi-select-pill-remove-button';
 	remove.textContent = '×';
+}
+
+function appendGroupHeading(
+	parent: Element,
+	propertyId: string | null,
+	propertyLabel: string,
+	value: string,
+): HTMLElement {
+	const table = parent.querySelector<HTMLElement>('.bases-table')
+		?? parent.createDiv('bases-table bases-table-container');
+	const heading = table.createDiv('bases-group-heading');
+	if (propertyId) heading.dataset.property = propertyId;
+	heading.createSpan({ cls: 'bases-group-property', text: propertyLabel });
+	heading.createSpan({ cls: 'bases-group-value', text: value });
+	return heading;
 }
 
 async function mutationCycle(): Promise<void> {

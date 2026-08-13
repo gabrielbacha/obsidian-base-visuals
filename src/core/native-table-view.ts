@@ -19,6 +19,7 @@ export const COLUMN_WIDTH_PRESETS = [
 export type ColumnWidthScope = 'unset' | 'all';
 
 interface NativeViewConfig {
+	groupBy?: { property?: unknown };
 	get(key: string): unknown;
 	set(key: string, value: unknown): void;
 	getOrder?(): unknown[];
@@ -173,6 +174,14 @@ export function getNativeMainProperty(app: App, scope: HTMLElement): string | nu
 	if (!isObject(first)) return null;
 	const id = first.id;
 	return typeof id === 'string' ? id.trim() || null : null;
+}
+
+export function getNativeGroupProperty(app: App, scope: HTMLElement): string | null {
+	const config = findNativeTableView(app, scope)?.config;
+	const groupBy = config?.groupBy ?? config?.get('groupBy');
+	if (!isObject(groupBy)) return null;
+	const property = groupBy.property;
+	return typeof property === 'string' ? property.trim() || null : null;
 }
 
 export function findNativeTableView(app: App, scope: HTMLElement): NativeTableView | null {

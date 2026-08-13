@@ -1,6 +1,7 @@
 import { setIcon, type App, type EventRef, type WorkspaceLeaf } from 'obsidian';
 import { encodeOptionKey, resolveColor } from './colors';
 import {
+	getNativeGroupProperty,
 	getNativeMainProperty,
 } from './native-table-view';
 import { evaluateRule, ruleColorVariables } from './rules';
@@ -12,6 +13,7 @@ const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
 const CELL_SELECTOR = '.bases-td[data-property], .bases-table-cell[data-property]';
 const ROW_SELECTOR = '.bases-tr';
+const GROUP_HEADING_SELECTOR = '.bases-group-heading';
 const TOOLBAR_SELECTOR = '.bases-toolbar, .query-toolbar';
 const TABLE_SELECTOR = '.bases-table-container';
 const TOOLBAR_CONTROL_SELECTOR = [
@@ -24,6 +26,11 @@ interface TrackedPill {
 	key: string;
 	originalTitle: string | null;
 	originalAriaLabel: string | null;
+}
+
+interface TrackedGroupHeading {
+	identity: OptionIdentity;
+	key: string;
 }
 
 interface RootBinding {
@@ -46,7 +53,9 @@ export type OpenColumnManager = (request: ColumnMenuRequest) => void;
 export class PillEnhancer {
 	private readonly roots = new Map<HTMLElement, RootBinding>();
 	private readonly tracked = new WeakMap<HTMLElement, TrackedPill>();
+	private readonly trackedGroups = new WeakMap<HTMLElement, TrackedGroupHeading>();
 	private readonly visibleByKey = new Map<string, Set<HTMLElement>>();
+	private readonly visibleGroupsByKey = new Map<string, Set<HTMLElement>>();
 	private readonly visibleRows = new Set<HTMLElement>();
 	private readonly visibleCells = new Set<HTMLElement>();
 	private readonly tableValues = new Map<HTMLElement, Map<string, Set<string>>>();
@@ -113,6 +122,7 @@ export class PillEnhancer {
 		this.unsubscribeStore = null;
 		for (const root of [...this.roots.keys()]) this.detachRoot(root);
 		this.visibleByKey.clear();
+		this.visibleGroupsByKey.clear();
 		this.visibleRows.clear();
 		this.visibleCells.clear();
 		this.tableValues.clear();
@@ -159,10 +169,13 @@ export class PillEnhancer {
 		this.processMatches(element, PILL_SELECTOR, (item) => this.processPill(item));
 		this.processMatches(element, CELL_SELECTOR, (item) => this.processCell(item));
 		this.processMatches(element, ROW_SELECTOR, (item) => this.processRow(item));
+		this.processMatches(element, GROUP_HEADING_SELECTOR, (item) => this.processGroupHeading(item));
 		this.processMatches(element, TABLE_SELECTOR, (item) => this.processTable(item));
 		this.processMatches(element, TOOLBAR_SELECTOR, (item) => this.processToolbar(item));
 		const ancestorPill = element.closest<HTMLElement>(PILL_SELECTOR);
 		if (ancestorPill) this.processPill(ancestorPill);
+		const ancestorGroup = element.closest<HTMLElement>(GROUP_HEADING_SELECTOR);
+		if (ancestorGroup) this.processGroupHeading(ancestorGroup);
 	}
 
 	private processMatches(element: Element, selector: string, action: (item: HTMLElement) => void): void {
@@ -176,6 +189,7 @@ export class PillEnhancer {
 		this.processMatches(element, PILL_SELECTOR, (item) => this.untrackPill(item));
 		this.processMatches(element, CELL_SELECTOR, (item) => this.untrackCell(item));
 		this.processMatches(element, ROW_SELECTOR, (item) => this.untrackRow(item));
+		this.processMatches(element, GROUP_HEADING_SELECTOR, (item) => this.untrackGroupHeading(item));
 		this.processMatches(element, TABLE_SELECTOR, (item) => this.untrackTable(item));
 		for (const host of this.tableValues.keys()) {
 			if (host === element || element.contains(host)) this.tableValues.delete(host);
@@ -193,6 +207,8 @@ export class PillEnhancer {
 		if (cell) this.processCell(cell);
 		const row = element.closest<HTMLElement>(ROW_SELECTOR);
 		if (row) this.processRow(row);
+		const group = element.closest<HTMLElement>(GROUP_HEADING_SELECTOR);
+		if (group) this.processGroupHeading(group);
 		const table = element.matches(TABLE_SELECTOR)
 			? element as HTMLElement
 			: element.closest<HTMLElement>(TABLE_SELECTOR);
@@ -216,6 +232,34 @@ export class PillEnhancer {
 		if (!row.closest(BASE_SCOPE_SELECTOR)) return;
 		this.visibleRows.add(row);
 		this.applyRowRule(row);
+	}
+
+	private processGroupHeading(heading: HTMLElement): void {
+		if (!heading.closest('.bases-table, .bases-table-container')) {
+			this.untrackGroupHeading(heading);
+			return;
+		}
+		const scope = findBaseTableHost(heading);
+		const value = heading.querySelector<HTMLElement>('.bases-group-value')?.textContent?.trim() ?? '';
+		const propertyId = groupPropertyId(this.app, scope, heading);
+		if (!scope || !propertyId || !value) {
+			this.untrackGroupHeading(heading);
+			return;
+		}
+
+		const identity = { propertyId, value };
+		const key = encodeOptionKey(identity);
+		const existing = this.trackedGroups.get(heading);
+		if (existing?.key !== key) this.untrackGroupHeading(heading);
+		if (!this.trackedGroups.has(heading)) {
+			this.trackedGroups.set(heading, { identity, key });
+			const elements = this.visibleGroupsByKey.get(key) ?? new Set<HTMLElement>();
+			elements.add(heading);
+			this.visibleGroupsByKey.set(key, elements);
+		}
+		this.rememberTableValue(scope, identity);
+		this.store.ensure(identity);
+		this.applyGroupHeadingAppearance(heading, identity);
 	}
 
 	private processToolbar(toolbar: HTMLElement): void {
@@ -413,6 +457,19 @@ export class PillEnhancer {
 		pill.style.setProperty('--pill-background-hover', resolved.hoverBackground);
 	}
 
+	private applyGroupHeadingAppearance(heading: HTMLElement, identity: OptionIdentity): void {
+		const resolved = resolveColor(identity, this.store.get(identity)?.override);
+		heading.classList.add('bpc-group-heading');
+		heading.dataset.bpcKey = encodeOptionKey(identity);
+		if (resolved.kind === 'disabled') {
+			heading.classList.remove('bpc-group-heading--colored');
+			clearOptionColorVariables(heading);
+			return;
+		}
+		heading.classList.add('bpc-group-heading--colored');
+		applyOptionColorVariables(heading, resolved);
+	}
+
 	private applyCellRule(cell: HTMLElement, propertyId: string): void {
 		clearRuleAppearance(cell, 'bpc-rule-cell');
 		const value = renderedCellValue(cell);
@@ -445,6 +502,18 @@ export class PillEnhancer {
 		clearRuleAppearance(row, 'bpc-rule-row');
 	}
 
+	private untrackGroupHeading(heading: HTMLElement): void {
+		const metadata = this.trackedGroups.get(heading);
+		if (!metadata) return;
+		const elements = this.visibleGroupsByKey.get(metadata.key);
+		elements?.delete(heading);
+		if (elements?.size === 0) this.visibleGroupsByKey.delete(metadata.key);
+		heading.classList.remove('bpc-group-heading', 'bpc-group-heading--colored');
+		delete heading.dataset.bpcKey;
+		clearOptionColorVariables(heading);
+		this.trackedGroups.delete(heading);
+	}
+
 	private untrackPill(pill: HTMLElement): void {
 		const metadata = this.tracked.get(pill);
 		if (!metadata) return;
@@ -467,6 +536,10 @@ export class PillEnhancer {
 			for (const pill of this.visibleByKey.get(key) ?? []) {
 				const metadata = this.tracked.get(pill);
 				if (metadata) this.applyPillAppearance(pill, metadata.identity);
+			}
+			for (const heading of this.visibleGroupsByKey.get(key) ?? []) {
+				const metadata = this.trackedGroups.get(heading);
+				if (metadata) this.applyGroupHeadingAppearance(heading, metadata.identity);
 			}
 		}
 		this.previousOverrides = next;
@@ -540,6 +613,22 @@ function clearPillVariables(element: HTMLElement): void {
 	]) element.style.removeProperty(variable);
 }
 
+function applyOptionColorVariables(
+	element: HTMLElement,
+	color: Exclude<ReturnType<typeof resolveColor>, { kind: 'disabled' }>,
+): void {
+	element.style.setProperty('--bpc-bg', color.background);
+	element.style.setProperty('--bpc-bg-hover', color.hoverBackground);
+	element.style.setProperty('--bpc-fg-light', color.foregroundLight);
+	element.style.setProperty('--bpc-fg-dark', color.foregroundDark);
+}
+
+function clearOptionColorVariables(element: HTMLElement): void {
+	for (const variable of ['--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark']) {
+		element.style.removeProperty(variable);
+	}
+}
+
 function restoreAttribute(element: HTMLElement, name: string, value: string | null): void {
 	if (value === null) element.removeAttribute(name);
 	else element.setAttribute(name, value);
@@ -568,4 +657,12 @@ function findBaseTableHost(element: HTMLElement): HTMLElement | null {
 		?? element.closest<HTMLElement>('.workspace-leaf-content[data-type="bases"]')
 		?? element.closest<HTMLElement>('.view-content')
 		?? element.closest<HTMLElement>('.bases-view');
+}
+
+function groupPropertyId(app: App, scope: HTMLElement | null, heading: HTMLElement): string | null {
+	const fromDom = heading.dataset.property?.trim()
+		?? heading.querySelector<HTMLElement>('.bases-group-property[data-property]')?.dataset.property?.trim()
+		?? heading.closest<HTMLElement>('[data-property]')?.dataset.property?.trim();
+	if (fromDom) return fromDom;
+	return scope ? getNativeGroupProperty(app, scope) : null;
 }

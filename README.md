@@ -18,6 +18,7 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 - Named layout presets that restore row height, width, and application scope together
 - Temporary header indicators showing which columns match the selected width
 - Subtle table-header tinting and emphasis for the first visible column
+- Grouped row headings that automatically mirror the grouped value's pill color
 
 ## Usage
 
@@ -28,6 +29,7 @@ Open a Base table containing a list property. Values receive stable automatic co
 - Click **Format** in a Base table toolbar to open the unified Pill colors and Conditional formatting manager.
 - Click **Layout** to adjust row height, test column-width presets, reset widths, or save the current combination as a reusable layout.
 - Use **Unset only** to preserve unrelated manual widths. Header indicators show which columns will change. **All columns** always asks for confirmation.
+- Group a table by a colored list property to carry each value's pill color into its group heading.
 - Open **Settings → Bases Visuals** to manage conditional formatting and every discovered property value.
 
 Rules are global by property ID, case-insensitive, and evaluated top-to-bottom. Color and conditional-formatting changes never modify note properties. Layout actions use Obsidian's native Base view configuration for row height and column widths. The explicit **Remove from row** action delegates that one list edit to Obsidian.

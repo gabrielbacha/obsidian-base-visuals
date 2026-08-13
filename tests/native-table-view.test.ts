@@ -2,6 +2,7 @@ import type { App, WorkspaceLeaf } from 'obsidian';
 import { describe, expect, it, vi } from 'vitest';
 import {
 	applyNativeColumnWidthPreset,
+	getNativeGroupProperty,
 	getNativeUnsetColumnProperties,
 	getNativeMainProperty,
 	getNativeRowHeight,
@@ -22,6 +23,7 @@ describe('native table view bridge', () => {
 			type: 'table',
 			containerEl: table,
 			config: {
+				groupBy: { property: 'note.category' },
 				get: (key: string) => values.get(key),
 				set,
 				getOrder: () => ['file.name', 'note.status'],
@@ -32,6 +34,7 @@ describe('native table view bridge', () => {
 
 		expect(getNativeRowHeight(app, root)).toBe('tall');
 		expect(getNativeMainProperty(app, root)).toBe('file.name');
+		expect(getNativeGroupProperty(app, root)).toBe('note.category');
 		expect(setNativeRowHeight(app, root, 'medium')).toBe(true);
 		expect(set).toHaveBeenCalledWith('rowHeight', 'medium');
 	});
