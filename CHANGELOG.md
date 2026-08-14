@@ -2,6 +2,18 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.5.0 — 2026-08-14
+
+- Color grouped table headings with the same property/value color as their matching pills.
+- Remove the native gray gap between colored group headings and their rows.
+- Add a native **Column appearance** entry to column-header context menus.
+- Add view-specific Default, Muted, Faint, and custom text colors for column body cells.
+- Add an independent Bold column control that combines with every text treatment.
+- Preserve semantic pill colors while gently reducing their prominence in muted or faint columns.
+- Open Column appearance as a hoverable, keyboard-accessible submenu beside the native menu.
+- Keep column headers unchanged when applying body-cell appearance.
+- Display the full author name, Gabriel Bacha, in Obsidian.
+
 ## 0.4.0 — 2026-08-13
 
 - Add a native **Layout** toolbar control beside **Format** for Base tables.

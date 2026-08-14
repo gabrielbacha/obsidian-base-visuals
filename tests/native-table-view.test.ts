@@ -2,11 +2,13 @@ import type { App, WorkspaceLeaf } from 'obsidian';
 import { describe, expect, it, vi } from 'vitest';
 import {
 	applyNativeColumnWidthPreset,
+	getNativeColumnAppearance,
 	getNativeGroupProperty,
 	getNativeUnsetColumnProperties,
 	getNativeMainProperty,
 	getNativeRowHeight,
 	resetNativeColumnWidths,
+	setNativeColumnAppearance,
 	setNativeRowHeight,
 } from '../src/core/native-table-view';
 
@@ -37,6 +39,41 @@ describe('native table view bridge', () => {
 		expect(getNativeGroupProperty(app, root)).toBe('note.category');
 		expect(setNativeRowHeight(app, root, 'medium')).toBe(true);
 		expect(set).toHaveBeenCalledWith('rowHeight', 'medium');
+	});
+
+	it('stores validated column appearance in the current native view', () => {
+		const root = document.body.createDiv();
+		const values = new Map<string, unknown>([
+			['basesVisualsColumnAppearance', {
+				'note.status': { tone: 'muted', bold: true },
+				'note.invalid': { tone: 'custom', color: 'not-a-color' },
+			}],
+		]);
+		const set = vi.fn((key: string, value: unknown) => values.set(key, value));
+		const nativeTable = {
+			type: 'table',
+			containerEl: root,
+			config: { get: (key: string) => values.get(key), set },
+		};
+		const leaf = { view: { containerEl: root, nativeTable } };
+		const app = appWithLeaves([leaf as unknown as WorkspaceLeaf]);
+
+		expect(getNativeColumnAppearance(app, root, 'note.status')).toEqual({
+			tone: 'muted', bold: true,
+		});
+		expect(getNativeColumnAppearance(app, root, 'note.invalid')).toEqual({
+			tone: 'default', bold: false,
+		});
+		expect(setNativeColumnAppearance(app, root, 'note.status', {
+			tone: 'custom', bold: true, color: '#abc',
+		})).toBe(true);
+		expect(getNativeColumnAppearance(app, root, 'note.status')).toEqual({
+			tone: 'custom', bold: true, color: '#AABBCC',
+		});
+		setNativeColumnAppearance(app, root, 'note.status', { tone: 'default', bold: false });
+		expect(values.get('basesVisualsColumnAppearance')).toEqual({
+			'note.invalid': { tone: 'custom', color: 'not-a-color' },
+		});
 	});
 
 	it('maps missing and malformed row heights to Short', () => {

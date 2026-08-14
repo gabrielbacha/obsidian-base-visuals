@@ -1,4 +1,5 @@
 import type { App, WorkspaceLeaf } from 'obsidian';
+import { normalizeHex } from './colors';
 
 export const ROW_HEIGHTS = [
 	{ value: '', label: 'Short' },
@@ -17,6 +18,21 @@ export const COLUMN_WIDTH_PRESETS = [
 ] as const;
 
 export type ColumnWidthScope = 'unset' | 'all';
+
+export type ColumnTextTone = 'default' | 'muted' | 'faint' | 'custom';
+
+export interface NativeColumnAppearance {
+	tone: ColumnTextTone;
+	bold: boolean;
+	color?: string;
+}
+
+export const DEFAULT_COLUMN_APPEARANCE: NativeColumnAppearance = {
+	tone: 'default',
+	bold: false,
+};
+
+const COLUMN_APPEARANCE_CONFIG_KEY = 'basesVisualsColumnAppearance';
 
 interface NativeViewConfig {
 	groupBy?: { property?: unknown };
@@ -184,6 +200,37 @@ export function getNativeGroupProperty(app: App, scope: HTMLElement): string | n
 	return typeof property === 'string' ? property.trim() || null : null;
 }
 
+export function getNativeColumnAppearance(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+): NativeColumnAppearance {
+	const view = findNativeTableView(app, scope);
+	const stored = view?.config.get(COLUMN_APPEARANCE_CONFIG_KEY);
+	if (!isObject(stored)) return { ...DEFAULT_COLUMN_APPEARANCE };
+	return normalizeColumnAppearance(stored[propertyId]);
+}
+
+export function setNativeColumnAppearance(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+	appearance: NativeColumnAppearance,
+): boolean {
+	const view = findNativeTableView(app, scope);
+	if (!view) return false;
+	const current = view.config.get(COLUMN_APPEARANCE_CONFIG_KEY);
+	const stored = isObject(current) ? { ...current } : {};
+	const normalized = normalizeColumnAppearance(appearance);
+	if (isDefaultColumnAppearance(normalized)) delete stored[propertyId];
+	else stored[propertyId] = normalized;
+	view.config.set(
+		COLUMN_APPEARANCE_CONFIG_KEY,
+		Object.keys(stored).length > 0 ? stored : null,
+	);
+	return true;
+}
+
 export function findNativeTableView(app: App, scope: HTMLElement): NativeTableView | null {
 	const cached = VIEW_CACHE.get(scope);
 	if (cached?.containerEl.isConnected && elementsOverlap(cached.containerEl, scope)) return cached;
@@ -242,6 +289,25 @@ function elementsOverlap(first: HTMLElement, second: HTMLElement): boolean {
 
 function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
+}
+
+function normalizeColumnAppearance(value: unknown): NativeColumnAppearance {
+	if (!isObject(value)) return { ...DEFAULT_COLUMN_APPEARANCE };
+	const tone = value.tone === 'muted' || value.tone === 'faint' || value.tone === 'custom'
+		? value.tone
+		: 'default';
+	const color = tone === 'custom' && typeof value.color === 'string'
+		? normalizeHex(value.color) ?? undefined
+		: undefined;
+	return {
+		tone: tone === 'custom' && !color ? 'default' : tone,
+		bold: value.bold === true,
+		...(color ? { color } : {}),
+	};
+}
+
+function isDefaultColumnAppearance(appearance: NativeColumnAppearance): boolean {
+	return appearance.tone === 'default' && !appearance.bold;
 }
 
 function isDomNode(value: object): boolean {

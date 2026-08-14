@@ -16,6 +16,11 @@ interface PillSpec {
 	title?: string;
 }
 
+interface NativeFixtureOptions {
+	groupProperty?: string;
+	columnAppearances?: Record<string, unknown>;
+}
+
 const activeHarnesses: Harness[] = [];
 
 afterEach(() => {
@@ -77,7 +82,7 @@ describe('PillEnhancer', () => {
 			),
 			undefined,
 			undefined,
-			'note.category',
+			{ groupProperty: 'note.category' },
 		);
 		const pill = harness.root.querySelector<HTMLElement>('.bpc-pill');
 		const heading = harness.root.querySelector<HTMLElement>('.bases-group-heading');
@@ -333,6 +338,77 @@ describe('PillEnhancer', () => {
 		expect(cells[0]?.classList.contains('bpc-main-column')).toBe(false);
 	});
 
+	it('adds column appearance to the native header menu and updates the column live', async () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const head = table.createDiv('bases-thead');
+			const header = head.createDiv('bases-td');
+			header.dataset.property = 'note.status';
+			header.createDiv({ cls: 'bases-table-header-name', text: 'status' });
+			header.addEventListener('contextmenu', () => {
+				const menu = document.body.createDiv('menu');
+				const scroll = menu.createDiv('menu-scroll');
+				scroll.createDiv({ cls: 'menu-item selected', text: 'Group by this property' });
+				scroll.createDiv('menu-separator');
+			});
+			const body = table.createDiv('bases-tbody');
+			const row = body.createDiv('bases-tr');
+			appendTableCell(row, 'note.status', 'Ready');
+		}, undefined, undefined, {
+			columnAppearances: {
+				'note.status': { tone: 'muted', bold: true },
+			},
+		});
+		const header = harness.root.querySelector<HTMLElement>('.bases-thead .bases-td');
+		const cell = harness.root.querySelector<HTMLElement>('.bases-tbody .bases-td');
+		expect(header?.classList.contains('bpc-column-appearance')).toBe(false);
+		expect(cell?.classList.contains('bpc-column-emphasized')).toBe(true);
+
+		header?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+		await mutationCycle();
+		const menuItem = document.querySelector<HTMLElement>('.bpc-column-appearance-menu-item');
+		if (!menuItem) throw new Error('Missing column appearance menu item');
+		expect(menuItem?.textContent).toContain('Column appearance');
+		expect(menuItem?.textContent).toContain('Muted + Bold');
+		menuItem?.dispatchEvent(new Event('pointerenter', { bubbles: true }));
+		expect(menuItem?.classList.contains('selected')).toBe(true);
+		expect(
+			[...document.querySelectorAll<HTMLElement>('.menu-item')]
+				.find((item) => item.textContent === 'Group by this property')
+				?.classList.contains('selected'),
+		).toBe(false);
+		await new Promise((resolve) => window.setTimeout(resolve, 140));
+		expect(document.querySelector('.bpc-column-appearance-popover')).not.toBeNull();
+		document.querySelector<HTMLButtonElement>('.bpc-column-appearance__header button')?.click();
+		menuItem?.classList.remove('selected');
+		menuItem.getBoundingClientRect = () => ({
+			left: 100, right: 300, top: 80, bottom: 120,
+			width: 200, height: 40, x: 100, y: 80, toJSON: () => undefined,
+		});
+		menuItem?.click();
+		await Promise.resolve();
+		const popover = document.querySelector<HTMLElement>('.bpc-column-appearance-popover');
+		expect(popover).not.toBeNull();
+		expect(popover?.style.left).toBe('306px');
+		expect(popover?.style.top).toBe('80px');
+		const faint = [...document.querySelectorAll<HTMLButtonElement>('.bpc-column-tone-option')]
+			.find((button) => button.textContent?.includes('Faint'));
+		faint?.click();
+		expect(cell?.classList.contains('bpc-column-tone-faint')).toBe(true);
+		expect(cell?.classList.contains('bpc-column-emphasized')).toBe(true);
+		expect(header?.classList.contains('bpc-column-appearance')).toBe(false);
+		const custom = [...document.querySelectorAll<HTMLButtonElement>('.bpc-column-tone-option')]
+			.find((button) => button.textContent?.includes('Custom'));
+		custom?.click();
+		expect(cell?.classList.contains('bpc-column-tone-custom')).toBe(true);
+		expect(cell?.style.getPropertyValue('--bpc-column-color')).toBe('#787774');
+		expect(header?.style.getPropertyValue('--bpc-column-color')).toBe('');
+
+		harness.enhancer.stop();
+		expect(cell?.classList.contains('bpc-column-appearance')).toBe(false);
+		expect(document.querySelector('.bpc-column-appearance-popover')).toBeNull();
+	});
+
 	it('leaves context menus outside tracked Base pills untouched', () => {
 		const harness = createHarness([{ propertyId: 'note.status', value: 'Done' }]);
 		const outside = harness.root.createDiv('outside');
@@ -349,7 +425,7 @@ function createHarness(
 	configure?: (baseView: HTMLElement) => void,
 	openRuleManager: ((properties: string[]) => void) | undefined = () => undefined,
 	openColumnManager: ((request: ColumnMenuRequest) => void) | undefined = () => undefined,
-	nativeGroupProperty?: string,
+	nativeOptions?: NativeFixtureOptions,
 ): Harness {
 	const root = document.body.createDiv();
 	root.className = 'workspace-leaf-content';
@@ -363,16 +439,28 @@ function createHarness(
 	configure?.(baseView);
 	const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 	const view: Record<string, unknown> = { containerEl: root };
-	if (nativeGroupProperty) {
+	if (nativeOptions) {
+		const table = baseView.querySelector<HTMLElement>('.bases-table-container, .bases-table') ?? baseView;
+		const values = new Map<string, unknown>();
+		if (nativeOptions.columnAppearances) {
+			values.set('basesVisualsColumnAppearance', nativeOptions.columnAppearances);
+		}
+		const headerCells = [...baseView.querySelectorAll<HTMLElement>('.bases-thead .bases-td')]
+			.flatMap((element) => element.dataset.property
+				? [{ prop: element.dataset.property, el: element }]
+				: []);
 		view.renderer = {
 			child: {
 				type: 'table',
-				containerEl: baseView.querySelector<HTMLElement>('.bases-table') ?? baseView,
+				containerEl: table,
 				config: {
-					groupBy: { property: nativeGroupProperty },
-					get: () => undefined,
-					set: () => undefined,
+					...(nativeOptions.groupProperty
+						? { groupBy: { property: nativeOptions.groupProperty } }
+						: {}),
+					get: (key: string) => values.get(key),
+					set: (key: string, value: unknown) => values.set(key, value),
 				},
+				header: { cells: headerCells },
 			},
 		};
 	}

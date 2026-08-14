@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-base-visuals",
-	"version": "0.4.0",
+	"version": "0.5.0",
 	"description": "Notion-style pill colors and conditional formatting for Obsidian Bases.",
 	"main": "main.js",
 	"type": "module",
@@ -17,7 +17,7 @@
 		"properties",
 		"colors"
 	],
-	"author": "Gabriel",
+	"author": "Gabriel Bacha",
 	"license": "MIT",
 	"devDependencies": {
 		"@eslint/js": "^9.39.4",

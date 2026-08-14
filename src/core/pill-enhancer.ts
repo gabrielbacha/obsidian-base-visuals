@@ -1,13 +1,17 @@
 import { setIcon, type App, type EventRef, type WorkspaceLeaf } from 'obsidian';
 import { encodeOptionKey, resolveColor } from './colors';
 import {
+	getNativeColumnAppearance,
+	getNativeColumnHeaders,
 	getNativeGroupProperty,
 	getNativeMainProperty,
+	type NativeColumnAppearance,
 } from './native-table-view';
 import { evaluateRule, ruleColorVariables } from './rules';
 import { SettingsStore } from './settings-store';
 import { ConditionalRule, OptionIdentity } from './types';
 import { TableLayoutPopover } from '../ui/table-layout-popover';
+import { ColumnAppearancePopover } from '../ui/column-appearance-popover';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
@@ -60,8 +64,11 @@ export class PillEnhancer {
 	private readonly visibleCells = new Set<HTMLElement>();
 	private readonly tableValues = new Map<HTMLElement, Map<string, Set<string>>>();
 	private readonly tables = new Set<HTMLElement>();
+	private readonly columnAppearanceElements = new Set<HTMLElement>();
+	private readonly pendingMenuObservers = new Set<MutationObserver>();
 	private readonly mainPropertyByTable = new WeakMap<HTMLElement, string>();
 	private readonly tableLayoutPopover: TableLayoutPopover;
+	private readonly columnAppearancePopover: ColumnAppearancePopover;
 	private unsubscribeStore: (() => void) | null = null;
 	private previousOverrides = new Map<string, string>();
 	private started = false;
@@ -73,6 +80,7 @@ export class PillEnhancer {
 		private readonly openColumnManager: OpenColumnManager = () => undefined,
 	) {
 		this.tableLayoutPopover = new TableLayoutPopover(app, store);
+		this.columnAppearancePopover = new ColumnAppearancePopover(app);
 	}
 
 	start(registerEvent: (eventRef: EventRef) => void): void {
@@ -128,6 +136,11 @@ export class PillEnhancer {
 		this.tableValues.clear();
 		this.tables.clear();
 		this.tableLayoutPopover.close();
+		this.columnAppearancePopover.close();
+		for (const observer of this.pendingMenuObservers) observer.disconnect();
+		this.pendingMenuObservers.clear();
+		for (const element of this.columnAppearanceElements) clearColumnAppearance(element);
+		this.columnAppearanceElements.clear();
 	}
 
 	private refreshRoots(): void {
@@ -160,6 +173,10 @@ export class PillEnhancer {
 		}
 		root.querySelectorAll<HTMLElement>(TOOLBAR_CONTROL_SELECTOR).forEach((button) => button.remove());
 		root.querySelectorAll<HTMLElement>('.bpc-table').forEach((table) => this.untrackTable(table));
+		root.querySelectorAll<HTMLElement>('.bpc-column-appearance').forEach((element) => {
+			clearColumnAppearance(element);
+			this.columnAppearanceElements.delete(element);
+		});
 		this.roots.delete(root);
 	}
 
@@ -223,6 +240,10 @@ export class PillEnhancer {
 		this.visibleCells.add(cell);
 		this.store.discoverProperty(propertyId);
 		this.applyCellRule(cell, propertyId);
+		if (cell.closest('.bases-thead')) {
+			clearColumnAppearance(cell);
+			this.columnAppearanceElements.delete(cell);
+		} else this.applyColumnAppearance(cell, scope, propertyId);
 		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
 		if (table) this.applyMainColumn(table, cell);
 		scope.querySelectorAll<HTMLElement>(TOOLBAR_SELECTOR).forEach((toolbar) => this.processToolbar(toolbar));
@@ -329,6 +350,7 @@ export class PillEnhancer {
 		const scope = findBaseTableHost(table);
 		const primary = scope ? getNativeMainProperty(this.app, scope) : null;
 		this.updateMainColumn(table, primary ?? undefined);
+		if (scope) this.refreshColumnAppearances(scope);
 	}
 
 	private updateMainColumn(table: HTMLElement, configuredPrimary?: string): void {
@@ -360,6 +382,10 @@ export class PillEnhancer {
 		table.classList.remove('bpc-table');
 		table.querySelectorAll<HTMLElement>('.bpc-main-column').forEach((cell) =>
 			cell.classList.remove('bpc-main-column'));
+		table.querySelectorAll<HTMLElement>('.bpc-column-appearance').forEach((element) => {
+			clearColumnAppearance(element);
+			this.columnAppearanceElements.delete(element);
+		});
 		this.tables.delete(table);
 	}
 
@@ -417,7 +443,10 @@ export class PillEnhancer {
 	private handleContextMenu(event: MouseEvent): void {
 		const target = asElement(event.target);
 		const pill = target?.closest<HTMLElement>('.bpc-pill');
-		if (!pill) return;
+		if (!pill) {
+			this.handleHeaderContextMenu(target);
+			return;
+		}
 		const metadata = this.tracked.get(pill);
 		const host = findBaseTableHost(pill);
 		if (!metadata || !host) return;
@@ -435,6 +464,103 @@ export class PillEnhancer {
 				.sort((first, second) => first.localeCompare(second)),
 			removeFromRow: () => removeButton?.click(),
 		});
+	}
+
+	private handleHeaderContextMenu(target: Element | null): void {
+		const headerCell = target?.closest<HTMLElement>('.bases-thead .bases-td');
+		if (!headerCell) return;
+		const scope = findBaseTableHost(headerCell);
+		if (!scope) return;
+		const header = getNativeColumnHeaders(this.app, scope).find(({ element }) =>
+			element === headerCell || element.contains(headerCell) || headerCell.contains(element));
+		if (!header) return;
+		this.waitForHeaderMenu(
+			headerCell.ownerDocument,
+			headerCell,
+			scope,
+			header.propertyId,
+		);
+	}
+
+	private waitForHeaderMenu(
+		doc: Document,
+		headerCell: HTMLElement,
+		scope: HTMLElement,
+		propertyId: string,
+	): void {
+		const Observer = doc.defaultView?.MutationObserver ?? MutationObserver;
+		let observer: MutationObserver | null = null;
+		let timeout = 0;
+		const finish = () => {
+			if (observer) {
+				observer.disconnect();
+				this.pendingMenuObservers.delete(observer);
+			}
+			if (timeout) doc.defaultView?.clearTimeout(timeout);
+		};
+		const inject = () => {
+			const menus = [...doc.body.querySelectorAll<HTMLElement>('.menu')];
+			const menu = [...menus].reverse().find((candidate) =>
+				candidate.isConnected && !candidate.classList.contains('bases-toolbar-menu'));
+			if (!menu) return false;
+			this.injectColumnAppearanceMenuItem(menu, headerCell, scope, propertyId);
+			finish();
+			return true;
+		};
+		observer = new Observer(() => inject());
+		observer.observe(doc.body, { childList: true, subtree: true });
+		this.pendingMenuObservers.add(observer);
+		timeout = doc.defaultView?.setTimeout(finish, 750) ?? 0;
+	}
+
+	private injectColumnAppearanceMenuItem(
+		menu: HTMLElement,
+		headerCell: HTMLElement,
+		scope: HTMLElement,
+		propertyId: string,
+	): void {
+		if (menu.querySelector('.bpc-column-appearance-menu-item')) return;
+		const appearance = getNativeColumnAppearance(this.app, scope, propertyId);
+		const content = menu.querySelector<HTMLElement>(':scope > .menu-scroll') ?? menu;
+		const item = content.createDiv('menu-item tappable bpc-column-appearance-menu-item');
+		item.setAttribute('role', 'menuitem');
+		item.tabIndex = -1;
+		const icon = item.createSpan('menu-item-icon');
+		setIcon(icon, 'paintbrush');
+		item.createDiv({ cls: 'menu-item-title', text: 'Column appearance' });
+		item.createDiv({ cls: 'menu-item-flair', text: describeColumnAppearance(appearance) });
+		const chevron = item.createSpan('menu-item-icon');
+		setIcon(chevron, 'chevron-right');
+		let openTimer = 0;
+		const open = () => {
+			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
+			item.classList.add('selected');
+			this.columnAppearancePopover.open(item, scope, propertyId, () =>
+				this.refreshColumnAppearances(scope, propertyId));
+		};
+		item.addEventListener('pointerenter', () => {
+			content.querySelectorAll<HTMLElement>('.menu-item.selected').forEach((candidate) => {
+				if (candidate !== item) candidate.classList.remove('selected');
+			});
+			item.classList.add('selected');
+			openTimer = item.ownerDocument.defaultView?.setTimeout(open, 120) ?? 0;
+		});
+		item.addEventListener('pointerleave', () => {
+			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
+			openTimer = 0;
+		});
+		item.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			open();
+		});
+		item.addEventListener('keydown', (event) => {
+			if (event.key !== 'Enter' && event.key !== ' ') return;
+			event.preventDefault();
+			open();
+		});
+		const firstSeparator = content.querySelector(':scope > .menu-separator');
+		if (firstSeparator) firstSeparator.before(item);
 	}
 
 	private applyPillAppearance(pill: HTMLElement, identity: OptionIdentity): void {
@@ -470,6 +596,36 @@ export class PillEnhancer {
 		applyOptionColorVariables(heading, resolved);
 	}
 
+	private applyColumnAppearance(
+		element: HTMLElement,
+		scope: HTMLElement,
+		propertyId: string,
+	): void {
+		const appearance = getNativeColumnAppearance(this.app, scope, propertyId);
+		clearColumnAppearance(element);
+		if (appearance.tone === 'default' && !appearance.bold) {
+			this.columnAppearanceElements.delete(element);
+			return;
+		}
+		element.classList.add('bpc-column-appearance', `bpc-column-tone-${appearance.tone}`);
+		element.classList.toggle('bpc-column-emphasized', appearance.bold);
+		if (appearance.tone === 'custom' && appearance.color) {
+			element.style.setProperty('--bpc-column-color', appearance.color);
+		}
+		this.columnAppearanceElements.add(element);
+	}
+
+	private refreshColumnAppearances(scope: HTMLElement, onlyPropertyId?: string): void {
+		for (const cell of scope.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
+			const propertyId = cell.dataset.property?.trim();
+			if (!propertyId || (onlyPropertyId && propertyId !== onlyPropertyId)) continue;
+			if (cell.closest('.bases-thead')) {
+				clearColumnAppearance(cell);
+				this.columnAppearanceElements.delete(cell);
+			} else this.applyColumnAppearance(cell, scope, propertyId);
+		}
+	}
+
 	private applyCellRule(cell: HTMLElement, propertyId: string): void {
 		clearRuleAppearance(cell, 'bpc-rule-cell');
 		const value = renderedCellValue(cell);
@@ -495,6 +651,8 @@ export class PillEnhancer {
 	private untrackCell(cell: HTMLElement): void {
 		this.visibleCells.delete(cell);
 		clearRuleAppearance(cell, 'bpc-rule-cell');
+		clearColumnAppearance(cell);
+		this.columnAppearanceElements.delete(cell);
 	}
 
 	private untrackRow(row: HTMLElement): void {
@@ -632,6 +790,27 @@ function clearOptionColorVariables(element: HTMLElement): void {
 function restoreAttribute(element: HTMLElement, name: string, value: string | null): void {
 	if (value === null) element.removeAttribute(name);
 	else element.setAttribute(name, value);
+}
+
+function clearColumnAppearance(element: HTMLElement): void {
+	element.classList.remove(
+		'bpc-column-appearance',
+		'bpc-column-tone-default',
+		'bpc-column-tone-muted',
+		'bpc-column-tone-faint',
+		'bpc-column-tone-custom',
+		'bpc-column-emphasized',
+	);
+	element.style.removeProperty('--bpc-column-color');
+}
+
+function describeColumnAppearance(appearance: NativeColumnAppearance): string {
+	const tone = appearance.tone === 'default'
+		? ''
+		: appearance.tone === 'custom'
+			? 'Custom'
+			: appearance.tone[0]?.toLocaleUpperCase() + appearance.tone.slice(1);
+	return [tone, appearance.bold ? 'Bold' : ''].filter(Boolean).join(' + ') || 'Default';
 }
 
 function findToolbarInsertionAnchor(toolbar: HTMLElement): Element | null {
