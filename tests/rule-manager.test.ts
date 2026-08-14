@@ -27,7 +27,7 @@ describe('RuleManagerView', () => {
 		expect(viewport?.tabIndex).toBe(0);
 		expect(viewport?.getAttribute('role')).toBe('region');
 		expect(viewport?.getAttribute('aria-label')).toBe('New formatting rule fields');
-		expect(viewport?.querySelectorAll('.bpc-rule-field')).toHaveLength(5);
+		expect(viewport?.querySelectorAll('.bpc-rule-field')).toHaveLength(6);
 		expect(container.querySelector<HTMLInputElement>('.bpc-rule-manager__toolbar input')?.placeholder).toBe('Search rules…');
 	});
 });

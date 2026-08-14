@@ -173,6 +173,12 @@ export class RuleManagerView {
 		target.value = rule.target;
 		target.addEventListener('change', () => this.store.updateRule(rule.id, { target: target.value as ConditionalRule['target'] }));
 
+		const scope = this.field(fields, 'Available in').createEl('select', { attr: { 'aria-label': 'Rule scope' } });
+		scope.createEl('option', { text: 'This view', value: 'view' });
+		scope.createEl('option', { text: 'All views', value: 'base' });
+		scope.value = rule.scope ?? 'base';
+		scope.addEventListener('change', () => this.store.updateRule(rule.id, { scope: scope.value as ConditionalRule['scope'] }));
+
 		const colorField = this.field(fields, 'Color');
 		const color = colorField.createEl('button', { cls: 'bpc-rule-color', attr: { type: 'button', 'aria-label': 'Choose formatting color' } });
 		const resolved = rule.color.kind === 'preset' ? resolvePreset(rule.color.name) : resolveRuleColor(rule.color.hex);

@@ -23,7 +23,8 @@ export class ColumnPillPopover {
 	open(request: ColumnMenuRequest): void {
 		this.close();
 		const selectedIdentity = { propertyId: request.propertyId, value: request.value };
-		for (const value of request.values) this.store.ensure({ propertyId: request.propertyId, value });
+		const store = request.store ?? this.store;
+		for (const value of request.values) store.ensure({ propertyId: request.propertyId, value });
 
 		const panel = request.document.body.createDiv('bpc-column-popover');
 		panel.setAttribute('role', 'dialog');
@@ -43,19 +44,19 @@ export class ColumnPillPopover {
 		const renderQuick = () => {
 			prepareView('quick', null);
 			const header = panel.createDiv('bpc-context-header');
-			createPreview(header, selectedIdentity, this.store);
+			createPreview(header, selectedIdentity, store);
 			header.createSpan({ text: displayPropertyName(request.propertyId), cls: 'bpc-context-header__property' });
 
 			const menu = panel.createDiv('bpc-context-menu');
-			const resolved = resolveColor(selectedIdentity, this.store.get(selectedIdentity)?.override);
+			const resolved = resolveColor(selectedIdentity, store.get(selectedIdentity)?.override);
 			const color = createMenuItem(menu, 'Change color', resolved.label, 'chevron');
 			color.prepend(createColorDot(color, resolved.dot));
 			color.addEventListener('click', () => renderPalette(selectedIdentity, renderQuick));
 
-			if (this.store.get(selectedIdentity)?.override) {
+			if (store.get(selectedIdentity)?.override) {
 				const reset = createMenuItem(menu, 'Reset to automatic', undefined, 'reset');
 				reset.addEventListener('click', () => {
-					this.store.setOverride(selectedIdentity);
+					store.setOverride(selectedIdentity);
 					this.close();
 				});
 			}
@@ -81,7 +82,7 @@ export class ColumnPillPopover {
 			const header = createNavigationHeader(panel, renderQuick);
 			header.createEl('strong', { text: 'Remove value?' });
 			const body = panel.createDiv('bpc-remove-confirm');
-			createPreview(body, selectedIdentity, this.store);
+			createPreview(body, selectedIdentity, store);
 			body.createEl('p', { text: 'Remove this value from the current row?' });
 			const actions = body.createDiv('bpc-remove-confirm__actions');
 			const cancel = actions.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
@@ -97,10 +98,10 @@ export class ColumnPillPopover {
 		const renderPalette = (identity: OptionIdentity, goBack: () => void) => {
 			prepareView('palette', goBack);
 			const header = createNavigationHeader(panel, goBack);
-			createPreview(header, identity, this.store);
+			createPreview(header, identity, store);
 			header.createSpan({ text: displayPropertyName(identity.propertyId), cls: 'bpc-context-header__property' });
 			const body = panel.createDiv('bpc-context-palette');
-			this.controls = renderColorControls(body, this.store, identity);
+			this.controls = renderColorControls(body, store, identity);
 			finishView(panel, request.point);
 			this.controls.focus();
 		};
@@ -122,7 +123,7 @@ export class ColumnPillPopover {
 					`Reset ${displayPropertyName(request.propertyId)} colors?`,
 					'Every value in this property will return to its stable automatic color.',
 					() => {
-						this.store.resetProperty(request.propertyId);
+						store.resetProperty(request.propertyId);
 						renderColumn();
 					},
 				).open();
@@ -149,13 +150,13 @@ export class ColumnPillPopover {
 				}
 				for (const value of values) {
 					const identity = { propertyId: request.propertyId, value };
-					const resolved = resolveColor(identity, this.store.get(identity)?.override);
+					const resolved = resolveColor(identity, store.get(identity)?.override);
 					const row = list.createEl('button', {
 						cls: 'clickable-icon bpc-column-manager__row',
 						attr: { type: 'button', 'data-bpc-menuitem': 'true' },
 					});
 					row.classList.toggle('is-selected', value === request.value);
-					createPreview(row, identity, this.store);
+					createPreview(row, identity, store);
 					const state = row.createSpan('bpc-column-manager__state');
 					state.append(createColorDot(state, resolved.dot));
 					state.createSpan({ text: resolved.label });

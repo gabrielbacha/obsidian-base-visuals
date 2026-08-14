@@ -9,6 +9,7 @@ import {
 } from './native-table-view';
 import { evaluateRule, ruleColorVariables } from './rules';
 import { SettingsStore } from './settings-store';
+import { BaseVisualStoreRepository } from './base-visual-store';
 import { ConditionalRule, OptionIdentity } from './types';
 import { TableLayoutPopover } from '../ui/table-layout-popover';
 import { ColumnAppearancePopover } from '../ui/column-appearance-popover';
@@ -43,7 +44,7 @@ interface RootBinding {
 	contextMenuHandler: (event: MouseEvent) => void;
 }
 
-export type OpenRuleManager = (propertyIds: string[]) => void;
+export type OpenRuleManager = (propertyIds: string[], scope?: HTMLElement) => void;
 export interface ColumnMenuRequest {
 	document: Document;
 	point: { x: number; y: number };
@@ -51,6 +52,7 @@ export interface ColumnMenuRequest {
 	value: string;
 	values: string[];
 	removeFromRow: () => void;
+	store?: SettingsStore;
 }
 export type OpenColumnManager = (request: ColumnMenuRequest) => void;
 
@@ -70,7 +72,6 @@ export class PillEnhancer {
 	private readonly tableLayoutPopover: TableLayoutPopover;
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
 	private unsubscribeStore: (() => void) | null = null;
-	private previousOverrides = new Map<string, string>();
 	private started = false;
 
 	constructor(
@@ -78,16 +79,17 @@ export class PillEnhancer {
 		private readonly store: SettingsStore,
 		private readonly openRuleManager: OpenRuleManager = () => undefined,
 		private readonly openColumnManager: OpenColumnManager = () => undefined,
+		private readonly storeForScope: (scope: HTMLElement) => SettingsStore = () => store,
+		private readonly baseStores?: BaseVisualStoreRepository,
 	) {
 		this.tableLayoutPopover = new TableLayoutPopover(app, store);
-		this.columnAppearancePopover = new ColumnAppearancePopover(app);
+		this.columnAppearancePopover = new ColumnAppearancePopover(app, baseStores);
 	}
 
 	start(registerEvent: (eventRef: EventRef) => void): void {
 		if (this.started) return;
 		this.started = true;
 		this.unsubscribeStore = this.store.subscribe(() => this.refreshFromStore());
-		this.previousOverrides = this.overrideSnapshot();
 		registerEvent(this.app.workspace.on('layout-change', () => this.refreshRoots()));
 		registerEvent(this.app.workspace.on('active-leaf-change', () => this.refreshRoots()));
 		this.refreshRoots();
@@ -238,7 +240,7 @@ export class PillEnhancer {
 		const propertyId = cell.dataset.property?.trim();
 		if (!propertyId) return;
 		this.visibleCells.add(cell);
-		this.store.discoverProperty(propertyId);
+		this.storeForScope(scope).discoverProperty(propertyId);
 		this.applyCellRule(cell, propertyId);
 		if (cell.closest('.bases-thead')) {
 			clearColumnAppearance(cell);
@@ -279,8 +281,8 @@ export class PillEnhancer {
 			this.visibleGroupsByKey.set(key, elements);
 		}
 		this.rememberTableValue(scope, identity);
-		this.store.ensure(identity);
-		this.applyGroupHeadingAppearance(heading, identity);
+		this.storeForScope(scope).ensure(identity);
+		this.applyGroupHeadingAppearance(heading, identity, scope);
 	}
 
 	private processToolbar(toolbar: HTMLElement): void {
@@ -294,7 +296,7 @@ export class PillEnhancer {
 			'palette',
 			'Format',
 			'Conditional formatting',
-			() => this.openRuleManager(this.propertyIdsInScope(scope)),
+			() => this.openRuleManager(this.propertyIdsInScope(scope), scope),
 		);
 		const layoutItem = this.ensureToolbarControl(
 			toolbar,
@@ -428,8 +430,8 @@ export class PillEnhancer {
 			elements.add(pill);
 			this.visibleByKey.set(key, elements);
 		}
-		this.store.ensure(identity);
-		this.applyPillAppearance(pill, identity);
+		this.storeForScope(host).ensure(identity);
+		this.applyPillAppearance(pill, identity, host);
 	}
 
 	private rememberTableValue(host: HTMLElement, identity: OptionIdentity): void {
@@ -463,6 +465,7 @@ export class PillEnhancer {
 			values: [...(this.tableValues.get(host)?.get(metadata.identity.propertyId) ?? [])]
 				.sort((first, second) => first.localeCompare(second)),
 			removeFromRow: () => removeButton?.click(),
+			store: this.storeForScope(host),
 		});
 	}
 
@@ -520,7 +523,12 @@ export class PillEnhancer {
 		propertyId: string,
 	): void {
 		if (menu.querySelector('.bpc-column-appearance-menu-item')) return;
-		const appearance = getNativeColumnAppearance(this.app, scope, propertyId);
+		const appearance = getNativeColumnAppearance(
+			this.app,
+			scope,
+			propertyId,
+			this.baseStores?.getBaseColumnAppearances(scope),
+		);
 		const content = menu.querySelector<HTMLElement>(':scope > .menu-scroll') ?? menu;
 		const item = content.createDiv('menu-item tappable bpc-column-appearance-menu-item');
 		item.setAttribute('role', 'menuitem');
@@ -563,8 +571,10 @@ export class PillEnhancer {
 		if (firstSeparator) firstSeparator.before(item);
 	}
 
-	private applyPillAppearance(pill: HTMLElement, identity: OptionIdentity): void {
-		const resolved = resolveColor(identity, this.store.get(identity)?.override);
+	private applyPillAppearance(pill: HTMLElement, identity: OptionIdentity, scope?: HTMLElement): void {
+		const host = scope ?? findBaseTableHost(pill);
+		const store = host ? this.storeForScope(host) : this.store;
+		const resolved = resolveColor(identity, store.get(identity)?.override);
 		pill.classList.add('bpc-pill');
 		pill.dataset.bpcKey = encodeOptionKey(identity);
 		pill.title = identity.value;
@@ -583,8 +593,10 @@ export class PillEnhancer {
 		pill.style.setProperty('--pill-background-hover', resolved.hoverBackground);
 	}
 
-	private applyGroupHeadingAppearance(heading: HTMLElement, identity: OptionIdentity): void {
-		const resolved = resolveColor(identity, this.store.get(identity)?.override);
+	private applyGroupHeadingAppearance(heading: HTMLElement, identity: OptionIdentity, scope?: HTMLElement): void {
+		const host = scope ?? findBaseTableHost(heading);
+		const store = host ? this.storeForScope(host) : this.store;
+		const resolved = resolveColor(identity, store.get(identity)?.override);
 		heading.classList.add('bpc-group-heading');
 		heading.dataset.bpcKey = encodeOptionKey(identity);
 		if (resolved.kind === 'disabled') {
@@ -629,7 +641,9 @@ export class PillEnhancer {
 	private applyCellRule(cell: HTMLElement, propertyId: string): void {
 		clearRuleAppearance(cell, 'bpc-rule-cell');
 		const value = renderedCellValue(cell);
-		const rule = this.store.settings.rules.find((candidate) =>
+		const scope = findBaseTableHost(cell);
+		const rules = scope ? this.storeForScope(scope).settings.rules : this.store.settings.rules;
+		const rule = rules.find((candidate) =>
 			candidate.enabled && candidate.target === 'cell' &&
 			candidate.propertyId === propertyId && evaluateRule(candidate, value));
 		if (rule) applyRuleAppearance(cell, 'bpc-rule-cell', rule);
@@ -638,7 +652,9 @@ export class PillEnhancer {
 	private applyRowRule(row: HTMLElement): void {
 		clearRuleAppearance(row, 'bpc-rule-row');
 		const cells = [...row.querySelectorAll<HTMLElement>(CELL_SELECTOR)];
-		for (const rule of this.store.settings.rules) {
+		const scope = findBaseTableHost(row);
+		const rules = scope ? this.storeForScope(scope).settings.rules : this.store.settings.rules;
+		for (const rule of rules) {
 			if (!rule.enabled || rule.target !== 'row') continue;
 			const cell = cells.find((candidate) => candidate.dataset.property?.trim() === rule.propertyId);
 			if (cell && evaluateRule(rule, renderedCellValue(cell))) {
@@ -687,20 +703,14 @@ export class PillEnhancer {
 	}
 
 	private refreshFromStore(): void {
-		const next = this.overrideSnapshot();
-		const keys = new Set([...this.previousOverrides.keys(), ...next.keys()]);
-		for (const key of keys) {
-			if (this.previousOverrides.get(key) === next.get(key)) continue;
-			for (const pill of this.visibleByKey.get(key) ?? []) {
-				const metadata = this.tracked.get(pill);
-				if (metadata) this.applyPillAppearance(pill, metadata.identity);
-			}
-			for (const heading of this.visibleGroupsByKey.get(key) ?? []) {
-				const metadata = this.trackedGroups.get(heading);
-				if (metadata) this.applyGroupHeadingAppearance(heading, metadata.identity);
-			}
+		for (const elements of this.visibleByKey.values()) for (const pill of elements) {
+			const metadata = this.tracked.get(pill);
+			if (metadata) this.applyPillAppearance(pill, metadata.identity);
 		}
-		this.previousOverrides = next;
+		for (const elements of this.visibleGroupsByKey.values()) for (const heading of elements) {
+			const metadata = this.trackedGroups.get(heading);
+			if (metadata) this.applyGroupHeadingAppearance(heading, metadata.identity);
+		}
 		for (const cell of this.visibleCells) {
 			if (cell.isConnected) this.processCell(cell);
 			else this.visibleCells.delete(cell);
@@ -711,13 +721,6 @@ export class PillEnhancer {
 		}
 	}
 
-	private overrideSnapshot(): Map<string, string> {
-		const snapshot = new Map<string, string>();
-		for (const [key, option] of Object.entries(this.store.settings.options)) {
-			snapshot.set(key, JSON.stringify(option.override ?? null));
-		}
-		return snapshot;
-	}
 }
 
 export function renderedCellValue(cell: HTMLElement): { text: string; values: string[] } {

@@ -3,17 +3,22 @@ import { normalizeHex } from '../core/colors';
 import {
 	DEFAULT_COLUMN_APPEARANCE,
 	getNativeColumnAppearance,
+	hasNativeColumnAppearance,
 	setNativeColumnAppearance,
 	type ColumnTextTone,
 	type NativeColumnAppearance,
 } from '../core/native-table-view';
+import type { BaseVisualStoreRepository } from '../core/base-visual-store';
 import { displayPropertyName } from './color-popover';
 
 export class ColumnAppearancePopover {
 	private panel: HTMLElement | null = null;
 	private cleanup: (() => void) | null = null;
 
-	constructor(private readonly app: App) {}
+	constructor(
+		private readonly app: App,
+		private readonly baseStores?: BaseVisualStoreRepository,
+	) {}
 
 	open(
 		anchor: HTMLElement,
@@ -39,12 +44,37 @@ export class ColumnAppearancePopover {
 		setIcon(close, 'x');
 		close.addEventListener('click', () => this.close());
 
-		let appearance = getNativeColumnAppearance(this.app, scope, propertyId);
+		const baseAppearances = this.baseStores?.getBaseColumnAppearances(scope) ?? {};
+		let applyToAllViews = !hasNativeColumnAppearance(this.app, scope, propertyId) &&
+			Object.prototype.hasOwnProperty.call(baseAppearances, propertyId);
+		let appearance = getNativeColumnAppearance(this.app, scope, propertyId, baseAppearances);
 		const commit = (next: NativeColumnAppearance) => {
 			appearance = next;
-			setNativeColumnAppearance(this.app, scope, propertyId, next);
+			if (applyToAllViews && this.baseStores) {
+				setNativeColumnAppearance(this.app, scope, propertyId, DEFAULT_COLUMN_APPEARANCE);
+				this.baseStores.setBaseColumnAppearance(scope, propertyId, next);
+			} else setNativeColumnAppearance(this.app, scope, propertyId, next);
 			onChange();
 		};
+
+		const scopeSection = panel.createDiv('bpc-column-appearance__section');
+		const scopeToggle = scopeSection.createEl('label', { cls: 'bpc-column-scope-toggle' });
+		const scopeInput = scopeToggle.createEl('input', {
+			type: 'checkbox',
+			attr: { 'aria-label': 'Apply column appearance to all views in this base' },
+		});
+		scopeInput.checked = applyToAllViews;
+		const scopeCopy = scopeToggle.createSpan();
+		scopeCopy.createEl('strong', { text: 'All views in this base' });
+		scopeCopy.createSpan({ text: 'Share this column appearance across views' });
+		scopeInput.addEventListener('change', () => {
+			applyToAllViews = scopeInput.checked;
+			if (applyToAllViews && this.baseStores) {
+				setNativeColumnAppearance(this.app, scope, propertyId, DEFAULT_COLUMN_APPEARANCE);
+				this.baseStores.setBaseColumnAppearance(scope, propertyId, appearance);
+			} else setNativeColumnAppearance(this.app, scope, propertyId, appearance);
+			onChange();
+		});
 
 		const toneSection = panel.createDiv('bpc-column-appearance__section');
 		toneSection.createDiv({ cls: 'bpc-column-appearance__label', text: 'Text color' });
@@ -139,7 +169,10 @@ export class ColumnAppearancePopover {
 		setIcon(resetIcon, 'rotate-ccw');
 		reset.createSpan({ text: 'Reset appearance' });
 		reset.addEventListener('click', () => {
-			commit({ ...DEFAULT_COLUMN_APPEARANCE });
+			if (applyToAllViews && this.baseStores) {
+				this.baseStores.setBaseColumnAppearance(scope, propertyId, null);
+				onChange();
+			} else commit({ ...DEFAULT_COLUMN_APPEARANCE });
 			this.close();
 		});
 

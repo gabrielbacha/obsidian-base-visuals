@@ -2,13 +2,9 @@ import { App, PluginSettingTab, Setting } from 'obsidian';
 import type { SettingDefinitionItem } from 'obsidian';
 import { SettingsStore } from '../core/settings-store';
 import { ColorPopover } from './color-popover';
-import { PillColorManagerView } from './pill-color-manager';
-import { RuleManagerView } from './rule-manager';
 import type BasesPillColorsPlugin from '../main';
 
 export class BasesPillColorsSettingTab extends PluginSettingTab {
-	private pillManager: PillColorManagerView | null = null;
-	private ruleManager: RuleManagerView | null = null;
 	private renderRoot: HTMLElement | null = null;
 
 	constructor(
@@ -50,25 +46,12 @@ export class BasesPillColorsSettingTab extends PluginSettingTab {
 		container.empty();
 		container.addClass('bpc-settings');
 
-		new Setting(container).setName('Pill colors').setHeading();
-		const pillHost = container.createDiv('bpc-settings-section');
-		this.pillManager = new PillColorManagerView(this.app, this.store, this.popover);
-		this.pillManager.mount(pillHost);
-
 		new Setting(container)
-			.setName('Conditional formatting')
-			.setHeading()
-			.settingEl.addClass('bpc-settings-section-title');
-		const ruleHost = container.createDiv('bpc-settings-section');
-		this.ruleManager = new RuleManagerView(this.app, this.store);
-		this.ruleManager.mount(ruleHost);
+			.setName('Visual settings live with each base')
+			.setDesc('Open a base and choose the format button to manage its pill colors and conditional formatting. These settings are stored with the base so they travel with it.');
 	}
 
 	private unmount(): void {
-		this.pillManager?.unmount();
-		this.pillManager = null;
-		this.ruleManager?.unmount();
-		this.ruleManager = null;
 		this.popover.close();
 		this.renderRoot = null;
 	}

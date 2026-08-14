@@ -33,7 +33,7 @@ export class PillColorManagerView {
 		this.container.empty();
 		this.container.addClass('bpc-pill-manager');
 		this.container.createEl('p', {
-			text: 'Manage every list value discovered in your base tables. Colors are global by property and exact value.',
+			text: 'Manage list values discovered in this base. Colors are shared by every view in this base.',
 			cls: 'setting-item-description bpc-pill-manager__intro',
 		});
 
@@ -163,7 +163,7 @@ export class PillColorManagerView {
 			cls: 'bpc-option-row__change',
 			attr: { type: 'button' },
 		});
-		change.addEventListener('click', () => this.popover.openAtElement(change, option));
+		change.addEventListener('click', () => this.popover.openAtElement(change, option, this.store));
 	}
 }
 

@@ -1316,9 +1316,9 @@
 
 .bpc-rule-card__fields {
 	display: grid;
-	min-width: 720px;
+	min-width: 840px;
 	box-sizing: border-box;
-	grid-template-columns: minmax(125px, 1.2fr) minmax(150px, 1.25fr) minmax(120px, 1fr) 108px 112px;
+	grid-template-columns: minmax(125px, 1.2fr) minmax(150px, 1.25fr) minmax(120px, 1fr) 108px 112px 112px;
 	gap: 10px;
 	padding: 11px;
 }
@@ -1525,4 +1525,21 @@
 	.bpc-popover {
 		max-width: calc(100vw - 24px);
 	}
+}
+.bpc-column-scope-toggle {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	cursor: pointer;
+}
+
+.bpc-column-scope-toggle > span {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.bpc-column-scope-toggle > span > span {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
 }

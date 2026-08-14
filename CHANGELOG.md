@@ -2,6 +2,17 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.6.0 — 2026-08-14
+
+- Store pill colors with each Base and share them across that Base's views.
+- Add per-rule **This view** and **All views** scopes for conditional formatting.
+- Add an **All views in this base** toggle for column text color and emphasis.
+- Copy existing global pill colors and rules into each Base on first use, then let Bases evolve independently.
+- Synchronize Base-wide visual settings to newly created views while keeping view-specific rules isolated.
+- Move Base-specific visual management to the native **Format** toolbar manager.
+- Keep reusable layout presets and manager preferences global.
+- Preserve normal Obsidian behavior when the plugin is disabled by using namespaced Base view configuration.
+
 ## 0.5.0 — 2026-08-14
 
 - Color grouped table headings with the same property/value color as their matching pills.

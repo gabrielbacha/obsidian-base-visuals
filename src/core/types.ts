@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const PRESET_NAMES = [
 	'default',
@@ -48,6 +48,7 @@ export const RULE_OPERATORS = [
 
 export type RuleOperator = (typeof RULE_OPERATORS)[number];
 export type RuleTarget = 'cell' | 'row';
+export type RuleScope = 'view' | 'base';
 export type RuleColor =
 	| { kind: 'preset'; name: PresetName }
 	| { kind: 'custom'; hex: string };
@@ -60,6 +61,7 @@ export interface ConditionalRule {
 	operator: RuleOperator;
 	operand?: string;
 	target: RuleTarget;
+	scope?: RuleScope;
 	color: RuleColor;
 }
 

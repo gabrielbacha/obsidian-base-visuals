@@ -157,6 +157,7 @@ export class SettingsStore {
 			operator: 'equals',
 			operand: '',
 			target: 'cell',
+			scope: 'view',
 			color: { kind: 'preset', name: 'yellow' },
 		};
 		this.settings.rules.push(rule);
@@ -271,6 +272,10 @@ export class SettingsStore {
 		await this.saveSettings(this.settings);
 	}
 
+	notify(): void {
+		this.emit();
+	}
+
 	dispose(): void {
 		this.listeners.clear();
 		void this.flush();
@@ -355,6 +360,7 @@ function normalizeRule(value: unknown, index: number): ConditionalRule | null {
 		operator: value.operator,
 		...(typeof value.operand === 'string' ? { operand: value.operand } : {}),
 		target: value.target,
+		scope: value.scope === 'view' ? 'view' : 'base',
 		color,
 	};
 }

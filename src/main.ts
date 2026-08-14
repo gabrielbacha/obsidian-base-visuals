@@ -1,6 +1,7 @@
 import { Plugin } from 'obsidian';
 import { PillEnhancer } from './core/pill-enhancer';
 import { SettingsStore } from './core/settings-store';
+import { BaseVisualStoreRepository } from './core/base-visual-store';
 import { ColorPopover } from './ui/color-popover';
 import { ColumnPillPopover } from './ui/column-pill-popover';
 import { BasesPillColorsSettingTab } from './ui/settings-tab';
@@ -11,6 +12,7 @@ export default class BasesPillColorsPlugin extends Plugin {
 	private popover!: ColorPopover;
 	private columnPopover!: ColumnPillPopover;
 	private enhancer!: PillEnhancer;
+	private baseStores!: BaseVisualStoreRepository;
 	private active = false;
 
 	async onload(): Promise<void> {
@@ -19,14 +21,15 @@ export default class BasesPillColorsPlugin extends Plugin {
 		this.store = new SettingsStore(settings, (nextSettings) =>
 			this.saveData(nextSettings),
 		);
+		this.baseStores = new BaseVisualStoreRepository(this.app, this.store);
 		this.popover = new ColorPopover(this.store);
 		this.columnPopover = new ColumnPillPopover(this.app, this.store);
 		this.enhancer = new PillEnhancer(
 			this.app,
 			this.store,
-			(propertyIds) => new BasesVisualsModal(
+			(propertyIds, scope) => new BasesVisualsModal(
 				this.app,
-				this.store,
+				scope ? this.baseStores.forScope(scope) : this.store,
 				this.popover,
 				propertyIds,
 				'conditional-formatting',
@@ -35,6 +38,8 @@ export default class BasesPillColorsPlugin extends Plugin {
 				this.popover.close();
 				this.columnPopover.open(request);
 			},
+			(scope) => this.baseStores.forScope(scope),
+			this.baseStores,
 		);
 
 		this.addSettingTab(
@@ -57,6 +62,7 @@ export default class BasesPillColorsPlugin extends Plugin {
 		this.enhancer?.stop();
 		this.popover?.close();
 		this.columnPopover?.close();
+		void this.baseStores?.dispose();
 		this.store?.dispose();
 	}
 }

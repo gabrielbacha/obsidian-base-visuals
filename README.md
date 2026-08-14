@@ -31,10 +31,10 @@ Open a Base table containing a list property. Values receive stable automatic co
 - Click **Layout** to adjust row height, test column-width presets, reset widths, or save the current combination as a reusable layout.
 - Use **Unset only** to preserve unrelated manual widths. Header indicators show which columns will change. **All columns** always asks for confirmation.
 - Group a table by a colored list property to carry each value's pill color into its group heading.
-- Right-click a column header and choose **Column appearance** to de-emphasize, recolor, or bold that field in the current view.
-- Open **Settings → Bases Visuals** to manage conditional formatting and every discovered property value.
+- Right-click a column header and choose **Column appearance** to de-emphasize, recolor, or bold that field in the current view or every view in the Base.
+- Choose **Format** in the Base toolbar to manage conditional formatting and every discovered property value for that Base.
 
-Rules are global by property ID, case-insensitive, and evaluated top-to-bottom. Color and conditional-formatting changes never modify note properties. Layout and column-appearance actions use Obsidian's native Base view configuration. The explicit **Remove from row** action delegates that one list edit to Obsidian.
+Pill colors are scoped to the current Base and shared by its views. Conditional-formatting rules can target only the current view or every view in the Base, remain case-insensitive, and are evaluated top-to-bottom. Color and conditional-formatting changes never modify note properties. Layout and column-appearance actions use Obsidian's native Base view configuration. Column appearance can also be shared across every view in the Base. The explicit **Remove from row** action delegates that one list edit to Obsidian.
 
 ## Installation
 
@@ -51,8 +51,8 @@ Bases Visuals is being prepared for the Obsidian Community Plugins directory. On
 ## Privacy and data access
 
 - Bases Visuals works entirely offline and makes no network requests.
-- It observes rendered Base tables and stores color preferences through Obsidian's plugin settings API.
-- It does not directly read or write Markdown or frontmatter. Layout and column-appearance changes are saved through Obsidian's native Base view configuration; **Remove from row** invokes Obsidian's native list-value removal control.
+- It observes rendered Base tables and stores visual preferences in namespaced Base view configuration.
+- It does not modify note Markdown or frontmatter. Pill colors, conditional formatting, layout, and column appearance are saved as namespaced Base view configuration; **Remove from row** invokes Obsidian's native list-value removal control.
 - It includes no telemetry or analytics.
 
 ## Development

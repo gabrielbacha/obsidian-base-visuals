@@ -1,4 +1,4 @@
-import type { App, WorkspaceLeaf } from 'obsidian';
+import type { App, TFile, WorkspaceLeaf } from 'obsidian';
 import { normalizeHex } from './colors';
 
 export const ROW_HEIGHTS = [
@@ -34,7 +34,7 @@ export const DEFAULT_COLUMN_APPEARANCE: NativeColumnAppearance = {
 
 const COLUMN_APPEARANCE_CONFIG_KEY = 'basesVisualsColumnAppearance';
 
-interface NativeViewConfig {
+export interface NativeViewConfig {
 	groupBy?: { property?: unknown };
 	get(key: string): unknown;
 	set(key: string, value: unknown): void;
@@ -204,11 +204,19 @@ export function getNativeColumnAppearance(
 	app: App,
 	scope: HTMLElement,
 	propertyId: string,
+	baseAppearances?: Record<string, unknown>,
 ): NativeColumnAppearance {
 	const view = findNativeTableView(app, scope);
 	const stored = view?.config.get(COLUMN_APPEARANCE_CONFIG_KEY);
-	if (!isObject(stored)) return { ...DEFAULT_COLUMN_APPEARANCE };
-	return normalizeColumnAppearance(stored[propertyId]);
+	if (isObject(stored) && Object.prototype.hasOwnProperty.call(stored, propertyId)) {
+		return normalizeColumnAppearance(stored[propertyId]);
+	}
+	return normalizeColumnAppearance(baseAppearances?.[propertyId]);
+}
+
+export function hasNativeColumnAppearance(app: App, scope: HTMLElement, propertyId: string): boolean {
+	const stored = findNativeTableView(app, scope)?.config.get(COLUMN_APPEARANCE_CONFIG_KEY);
+	return isObject(stored) && Object.prototype.hasOwnProperty.call(stored, propertyId);
 }
 
 export function setNativeColumnAppearance(
@@ -244,6 +252,46 @@ export function findNativeTableView(app: App, scope: HTMLElement): NativeTableVi
 		if (candidate) {
 			VIEW_CACHE.set(scope, candidate);
 			return candidate;
+		}
+	}
+	return null;
+}
+
+export function getNativeViewConfig(app: App, scope: HTMLElement): NativeViewConfig | null {
+	return findNativeTableView(app, scope)?.config ?? null;
+}
+
+export function getNativeBaseFile(app: App, scope: HTMLElement): TFile | null {
+	const nativeView = findNativeTableView(app, scope);
+	if (nativeView) {
+		const associated = findBaseFileInGraph(nativeView, app);
+		if (associated) return associated;
+	}
+	const leaves = [...app.workspace.getLeavesOfType('bases'), ...app.workspace.getLeavesOfType('markdown')];
+	for (const leaf of leaves) {
+		const view = leaf.view as typeof leaf.view & { containerEl?: HTMLElement; file?: TFile };
+		if (!view.containerEl || !elementsOverlap(view.containerEl, scope)) continue;
+		if (view.file?.extension === 'base') return view.file;
+	}
+	return null;
+}
+
+function findBaseFileInGraph(root: object, app: App): TFile | null {
+	const queue: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
+	const visited = new WeakSet<object>();
+	while (queue.length) {
+		const entry = queue.shift();
+		if (!entry || !isObject(entry.value) || visited.has(entry.value)) continue;
+		visited.add(entry.value);
+		const path = typeof entry.value.path === 'string' ? entry.value.path : '';
+		if (path.endsWith('.base')) {
+			const file = app.vault.getFileByPath?.(path);
+			if (file) return file;
+		}
+		if (entry.depth >= 8 || isDomNode(entry.value)) continue;
+		for (const [key, child] of Object.entries(entry.value)) {
+			if (SKIPPED_GRAPH_KEYS.has(key) || typeof child === 'function') continue;
+			if (isObject(child)) queue.push({ value: child, depth: entry.depth + 1 });
 		}
 	}
 	return null;
@@ -291,7 +339,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
 }
 
-function normalizeColumnAppearance(value: unknown): NativeColumnAppearance {
+export function normalizeColumnAppearance(value: unknown): NativeColumnAppearance {
 	if (!isObject(value)) return { ...DEFAULT_COLUMN_APPEARANCE };
 	const tone = value.tone === 'muted' || value.tone === 'faint' || value.tone === 'custom'
 		? value.tone

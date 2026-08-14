@@ -13,16 +13,18 @@ export class ColorPopover {
 		doc: Document,
 		point: { x: number; y: number },
 		identity: OptionIdentity,
+		store: SettingsStore = this.store,
 	): void {
-		this.open(doc, point, identity);
+		this.open(doc, point, identity, store);
 	}
 
-	openAtElement(anchor: HTMLElement, identity: OptionIdentity): void {
+	openAtElement(anchor: HTMLElement, identity: OptionIdentity, store: SettingsStore = this.store): void {
 		const rect = anchor.getBoundingClientRect();
 		this.open(
 			anchor.ownerDocument,
 			{ x: rect.left, y: rect.bottom + 6 },
 			identity,
+			store,
 		);
 	}
 
@@ -38,6 +40,7 @@ export class ColorPopover {
 		doc: Document,
 		point: { x: number; y: number },
 		identity: OptionIdentity,
+		store: SettingsStore,
 	): void {
 		this.close();
 		const panel = doc.body.createDiv('bpc-popover');
@@ -52,7 +55,7 @@ export class ColorPopover {
 		const property = header.createSpan('bpc-popover__property');
 		property.textContent = displayPropertyName(identity.propertyId);
 
-		this.controls = renderColorControls(panel, this.store, identity, () => this.close());
+		this.controls = renderColorControls(panel, store, identity, () => this.close());
 
 		this.panel = panel;
 		positionPanel(panel, point);

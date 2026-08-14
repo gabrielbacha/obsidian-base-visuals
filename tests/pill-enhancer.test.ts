@@ -302,7 +302,7 @@ describe('PillEnhancer', () => {
 		expect(buttons[0]?.querySelector('.text-button-label')?.textContent).toBe('Format');
 
 		buttons[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-		expect(opened).toHaveBeenCalledWith(['note.priority']);
+		expect(opened).toHaveBeenCalledWith(['note.priority'], expect.any(HTMLElement));
 		buttons[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true }));
 		expect(opened).toHaveBeenCalledTimes(2);
 
