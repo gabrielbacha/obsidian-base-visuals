@@ -20,7 +20,7 @@ describe('SettingsStore', () => {
 			},
 		});
 
-		expect(settings.schemaVersion).toBe(4);
+		expect(settings.schemaVersion).toBe(5);
 		expect(Object.values(settings.options)).toEqual([
 			{
 				propertyId: 'note.status',
@@ -36,7 +36,7 @@ describe('SettingsStore', () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), save);
 		store.setOverride(
 			{ propertyId: 'note.status', value: 'Done' },
-			{ kind: 'preset', name: 'green' },
+			{ kind: 'preset', name: 'green-sea' },
 		);
 		store.setOverride(
 			{ propertyId: 'note.status', value: 'done' },
@@ -63,10 +63,40 @@ describe('SettingsStore', () => {
 			],
 		});
 
-		expect(settings.schemaVersion).toBe(4);
+		expect(settings.schemaVersion).toBe(5);
 		expect(settings.rules).toHaveLength(1);
 		expect(settings.rules[0]?.color).toEqual({ kind: 'custom', hex: '#AABBCC' });
 		expect(settings.knownProperties['note.status']).toEqual({ propertyId: 'note.status' });
+	});
+
+	it('migrates every legacy preset ID and normalizes property strategies', () => {
+		const legacy = ['gray', 'brown', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'];
+		const expected = ['midnight-blue', 'chestnut', 'pomegranate', 'carrot', 'sun-flower', 'green-sea', 'peter-river', 'wisteria', 'raspberry'];
+		const settings = SettingsStore.normalize({
+			options: Object.fromEntries(legacy.map((name, index) => [name, {
+				propertyId: 'note.status', value: String(index), override: { kind: 'preset', name },
+			}])),
+			propertyStrategies: {
+				'note.tags': { mode: 'single', preset: 'blue' },
+				'note.category': { mode: 'neutral' },
+				bad: { mode: 'rainbow' },
+			},
+		});
+		expect(Object.values(settings.options).map((option) => option.override?.kind === 'preset' && option.override.name)).toEqual(expected);
+		expect(settings.propertyStrategies).toEqual({
+			'note.tags': { mode: 'single', preset: 'peter-river' },
+			'note.category': { mode: 'neutral' },
+		});
+	});
+
+	it('resets exact overrides and the property strategy back to Smart', () => {
+		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+		store.setPropertyStrategy('note.status', { mode: 'single', preset: 'raspberry' });
+		store.setOverride({ propertyId: 'note.status', value: 'Done' }, { kind: 'preset', name: 'green-sea' });
+		store.resetProperty('note.status');
+		expect(store.getExplicitPropertyStrategy('note.status')).toBeUndefined();
+		expect(store.get({ propertyId: 'note.status', value: 'Done' })?.override).toBeUndefined();
+		store.dispose();
 	});
 
 	it('adds, duplicates, reorders, updates, and deletes rules', () => {

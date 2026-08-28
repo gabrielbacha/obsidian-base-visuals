@@ -3,6 +3,8 @@ import { SettingsStore } from '../core/settings-store';
 import { ColorPopover } from './color-popover';
 import { PillColorManagerView } from './pill-color-manager';
 import { RuleManagerView } from './rule-manager';
+import { getNativePropertyDisplayName } from '../core/native-table-view';
+import { displayPropertyName } from './color-popover';
 
 type ManagerSection = 'pill-colors' | 'conditional-formatting';
 
@@ -16,6 +18,7 @@ export class BasesVisualsModal extends Modal {
 		private readonly popover: ColorPopover,
 		private readonly priorityProperties: string[] = [],
 		initialSection: ManagerSection = 'conditional-formatting',
+		private readonly tableScope?: HTMLElement,
 	) {
 		super(app);
 		this.section = initialSection;
@@ -48,7 +51,15 @@ export class BasesVisualsModal extends Modal {
 		const panel = this.contentEl.createDiv('bpc-visuals-panel');
 		panel.setAttribute('role', 'tabpanel');
 		if (this.section === 'pill-colors') {
-			this.activeView = new PillColorManagerView(this.app, this.store, this.popover);
+			this.activeView = new PillColorManagerView(
+				this.app,
+				this.store,
+				this.popover,
+				true,
+				(propertyId) => this.tableScope
+					? getNativePropertyDisplayName(this.app, this.tableScope, propertyId) ?? displayPropertyName(propertyId)
+					: displayPropertyName(propertyId),
+			);
 		} else {
 			this.activeView = new RuleManagerView(this.app, this.store, this.priorityProperties);
 		}

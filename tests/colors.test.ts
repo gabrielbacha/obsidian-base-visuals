@@ -5,6 +5,9 @@ import {
 	contrastRatio,
 	encodeOptionKey,
 	normalizeHex,
+	resolvePreset,
+	PALETTE,
+	tintedHex,
 } from '../src/core/colors';
 
 describe('color utilities', () => {
@@ -30,6 +33,28 @@ describe('color utilities', () => {
 		expect(normalizeHex(' #12aBef ')).toBe('#12ABEF');
 		expect(normalizeHex('#12')).toBeNull();
 		expect(normalizeHex('red')).toBeNull();
+	});
+
+	it('exposes exactly the final palette in its specified order', () => {
+		expect(PALETTE).toEqual([
+			{ name: 'green-sea', label: 'Green Sea', hex: '#16A085' },
+			{ name: 'peter-river', label: 'Peter River', hex: '#3498DB' },
+			{ name: 'wisteria', label: 'Wisteria', hex: '#8E44AD' },
+			{ name: 'midnight-blue', label: 'Midnight Blue', hex: '#2C3E50' },
+			{ name: 'raspberry', label: 'Raspberry', hex: '#D33682' },
+			{ name: 'sun-flower', label: 'Sun Flower', hex: '#F1C40F' },
+			{ name: 'carrot', label: 'Carrot', hex: '#E67E22' },
+			{ name: 'pomegranate', label: 'Pomegranate', hex: '#C0392B' },
+			{ name: 'chestnut', label: 'Chestnut', hex: '#8B5A2B' },
+		]);
+	});
+
+	it('gives every preset AA text contrast over light and dark tints', () => {
+		for (const entry of PALETTE) {
+			const resolved = resolvePreset(entry.name);
+			expect(contrastRatio(resolved.foregroundLight, tintedHex(entry.hex, '#FFFFFF'))).toBeGreaterThanOrEqual(4.5);
+			expect(contrastRatio(resolved.foregroundDark, tintedHex(entry.hex, '#1E1E1E'))).toBeGreaterThanOrEqual(4.5);
+		}
 	});
 
 	it('adjusts custom foregrounds to WCAG AA contrast', () => {

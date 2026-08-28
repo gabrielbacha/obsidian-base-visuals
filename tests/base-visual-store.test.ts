@@ -27,26 +27,30 @@ describe('BaseVisualStoreRepository', () => {
 		legacy.options[encodeOptionKey(identity)] = {
 			propertyId: 'note.status',
 			value: 'Done',
-			override: { kind: 'preset', name: 'green' },
+			override: { kind: 'preset', name: 'green-sea' },
 		};
 		legacy.knownProperties['note.status'] = { propertyId: 'note.status' };
 		legacy.rules.push({
 			id: 'legacy', name: 'Legacy', enabled: true, propertyId: 'note.status',
 			operator: 'equals', operand: 'Done', target: 'cell', scope: 'base',
-			color: { kind: 'preset', name: 'green' },
+			color: { kind: 'preset', name: 'green-sea' },
 		});
+		legacy.propertyStrategies['note.status'] = { mode: 'status' };
 		const global = new SettingsStore(legacy, async () => undefined);
 		const repository = new BaseVisualStoreRepository(app, global);
 		const store = repository.forScope(scope);
 
 		expect(store.get({ propertyId: 'note.status', value: 'Done' })?.override)
-			.toEqual({ kind: 'preset', name: 'green' });
+			.toEqual({ kind: 'preset', name: 'green-sea' });
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'status' });
 		store.addRule('note.status');
 		await store.flush();
 
-		const base = values.get(BASE_VISUALS_KEY) as { rules: Array<{ id: string }> };
+		const base = values.get(BASE_VISUALS_KEY) as { rules: Array<{ id: string }>; schemaVersion: number; propertyStrategies: unknown };
 		const view = values.get(VIEW_VISUALS_KEY) as { rules: Array<{ scope: string }> };
 		expect(base.rules.map((rule) => rule.id)).toEqual(['legacy']);
+		expect(base.schemaVersion).toBe(2);
+		expect(base.propertyStrategies).toEqual({ 'note.status': { mode: 'status' } });
 		expect(view.rules).toHaveLength(1);
 		expect(view.rules[0]?.scope).toBe('view');
 		await repository.dispose();

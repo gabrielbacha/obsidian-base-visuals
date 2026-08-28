@@ -34,7 +34,7 @@ describe('conditional formatting rules', () => {
 
 	it('normalizes valid colors and ignores malformed colors', () => {
 		expect(normalizeRuleColor({ kind: 'custom', hex: 'abc' })).toEqual({ kind: 'custom', hex: '#AABBCC' });
-		expect(normalizeRuleColor({ kind: 'preset', name: 'green' })).toEqual({ kind: 'preset', name: 'green' });
+		expect(normalizeRuleColor({ kind: 'preset', name: 'green' })).toEqual({ kind: 'preset', name: 'green-sea' });
 		expect(normalizeRuleColor({ kind: 'preset', name: 'teal' })).toBeNull();
 	});
 });
@@ -48,6 +48,6 @@ function rule(id: string, target: 'cell' | 'row'): ConditionalRule {
 		operator: 'equals',
 		operand: 'done',
 		target,
-		color: { kind: 'preset', name: 'green' },
+		color: { kind: 'preset', name: 'green-sea' },
 	};
 }

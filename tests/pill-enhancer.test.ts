@@ -240,9 +240,9 @@ describe('PillEnhancer', () => {
 		const row = harness.root.querySelector<HTMLElement>('.bases-tr');
 		const cell = harness.root.querySelector<HTMLElement>('.bases-td');
 		const rowRule = harness.store.addRule('note.status');
-		harness.store.updateRule(rowRule.id, { operand: 'done', target: 'row', color: { kind: 'preset', name: 'green' } });
+		harness.store.updateRule(rowRule.id, { operand: 'done', target: 'row', color: { kind: 'preset', name: 'green-sea' } });
 		const cellRule = harness.store.addRule('note.status');
-		harness.store.updateRule(cellRule.id, { operand: 'done', target: 'cell', color: { kind: 'preset', name: 'red' } });
+		harness.store.updateRule(cellRule.id, { operand: 'done', target: 'cell', color: { kind: 'preset', name: 'pomegranate' } });
 
 		expect(row?.dataset.bpcRuleId).toBe(rowRule.id);
 		expect(cell?.dataset.bpcRuleId).toBe(cellRule.id);

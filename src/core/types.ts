@@ -1,23 +1,36 @@
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
-export const PRESET_NAMES = [
-	'default',
-	'gray',
-	'brown',
-	'red',
-	'orange',
-	'yellow',
-	'green',
-	'blue',
-	'purple',
-	'pink',
+export const PALETTE_NAMES = [
+	'green-sea',
+	'peter-river',
+	'wisteria',
+	'midnight-blue',
+	'raspberry',
+	'sun-flower',
+	'carrot',
+	'pomegranate',
+	'chestnut',
 ] as const;
 
-export const AUTO_PRESET_NAMES = PRESET_NAMES.filter(
-	(name): name is Exclude<PresetName, 'default'> => name !== 'default',
-);
+/** Preset IDs retained only so colors saved by older versions still render. */
+export const PRESET_NAMES = PALETTE_NAMES;
+export const LEGACY_PRESET_NAMES = [
+	'default', 'gray', 'brown', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink',
+] as const;
 
-export type PresetName = (typeof PRESET_NAMES)[number];
+export const AUTO_PRESET_NAMES = PALETTE_NAMES;
+
+export type PaletteName = (typeof PALETTE_NAMES)[number];
+export type PresetName = PaletteName | 'default';
+
+export const PROPERTY_STRATEGY_MODES = [
+	'smart', 'distinct', 'status', 'priority', 'single', 'neutral', 'off',
+] as const;
+export type PropertyStrategyMode = (typeof PROPERTY_STRATEGY_MODES)[number];
+export interface PropertyColorStrategy {
+	mode: PropertyStrategyMode;
+	preset?: PaletteName;
+}
 
 export type ColorOverride =
 	| { kind: 'preset'; name: PresetName }
@@ -86,6 +99,7 @@ export interface BasesPillColorsSettings {
 	managerSearch: string;
 	rules: ConditionalRule[];
 	knownProperties: Record<string, KnownProperty>;
+	propertyStrategies: Record<string, PropertyColorStrategy>;
 	ruleManagerSearch: string;
 	layoutPresets: LayoutPreset[];
 	lastColumnWidthPreset: number | null;
@@ -97,6 +111,7 @@ export const DEFAULT_SETTINGS: BasesPillColorsSettings = {
 	managerSearch: '',
 	rules: [],
 	knownProperties: {},
+	propertyStrategies: {},
 	ruleManagerSearch: '',
 	layoutPresets: [],
 	lastColumnWidthPreset: null,

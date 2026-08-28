@@ -27,7 +27,7 @@ export function renderColorControls(
 	const customLabel = customSection.createEl('label', { cls: 'bpc-custom-color__label' });
 	customLabel.textContent = 'Custom';
 	const inputs = customSection.createDiv('bpc-custom-color__inputs');
-	const initialHex = option.override?.kind === 'custom' ? option.override.hex : '#5B8def';
+	const initialHex = option.override?.kind === 'custom' ? option.override.hex : '#3498DB';
 	const colorInput = inputs.createEl('input', { cls: 'bpc-custom-color__picker' });
 	colorInput.type = 'color';
 	colorInput.value = initialHex;
@@ -35,7 +35,7 @@ export function renderColorControls(
 	const textInput = inputs.createEl('input', { cls: 'bpc-custom-color__text' });
 	textInput.type = 'text';
 	textInput.value = initialHex;
-	textInput.placeholder = '#5B8def';
+	textInput.placeholder = 'Hex color';
 	textInput.setAttribute('aria-label', 'Custom hex color');
 	textInput.setAttribute('autocomplete', 'off');
 	textInput.name = 'bpc-custom-color';
@@ -79,7 +79,7 @@ export function renderColorControls(
 	});
 
 	const actions = container.createDiv('bpc-popover__actions');
-	const autoButton = actions.createEl('button', { text: 'Automatic', cls: 'clickable-icon bpc-action-button' });
+	const autoButton = actions.createEl('button', { text: 'Use strategy', cls: 'clickable-icon bpc-action-button' });
 	autoButton.type = 'button';
 	autoButton.addEventListener('click', () => {
 		store.setOverride(identity);

@@ -5,6 +5,7 @@ import {
 	getNativeColumnHeaders,
 	getNativeGroupProperty,
 	getNativeMainProperty,
+	getNativePropertyDisplayName,
 	type NativeColumnAppearance,
 } from './native-table-view';
 import { evaluateRule, ruleColorVariables } from './rules';
@@ -49,6 +50,7 @@ export interface ColumnMenuRequest {
 	document: Document;
 	point: { x: number; y: number };
 	propertyId: string;
+	propertyName?: string;
 	value: string;
 	values: string[];
 	removeFromRow: () => void;
@@ -461,6 +463,7 @@ export class PillEnhancer {
 			document: pill.ownerDocument,
 			point: { x: event.clientX, y: event.clientY },
 			propertyId: metadata.identity.propertyId,
+			propertyName: getNativePropertyDisplayName(this.app, host, metadata.identity.propertyId),
 			value: metadata.identity.value,
 			values: [...(this.tableValues.get(host)?.get(metadata.identity.propertyId) ?? [])]
 				.sort((first, second) => first.localeCompare(second)),
@@ -574,21 +577,24 @@ export class PillEnhancer {
 	private applyPillAppearance(pill: HTMLElement, identity: OptionIdentity, scope?: HTMLElement): void {
 		const host = scope ?? findBaseTableHost(pill);
 		const store = host ? this.storeForScope(host) : this.store;
-		const resolved = resolveColor(identity, store.get(identity)?.override);
+		const displayName = host ? getNativePropertyDisplayName(this.app, host, identity.propertyId) : undefined;
+		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName));
 		pill.classList.add('bpc-pill');
 		pill.dataset.bpcKey = encodeOptionKey(identity);
 		pill.title = identity.value;
 		pill.setAttribute('aria-label', identity.value);
 		if (resolved.kind === 'disabled') {
-			pill.classList.remove('bpc-pill--colored');
+			pill.classList.remove('bpc-pill--colored', 'bpc-pill--neutral');
 			clearPillVariables(pill);
 			return;
 		}
 		pill.classList.add('bpc-pill--colored');
+		pill.classList.toggle('bpc-pill--neutral', resolved.kind === 'neutral');
 		pill.style.setProperty('--bpc-bg', resolved.background);
 		pill.style.setProperty('--bpc-bg-hover', resolved.hoverBackground);
 		pill.style.setProperty('--bpc-fg-light', resolved.foregroundLight);
 		pill.style.setProperty('--bpc-fg-dark', resolved.foregroundDark);
+		pill.style.setProperty('--bpc-border', resolved.border);
 		pill.style.setProperty('--pill-background', resolved.background);
 		pill.style.setProperty('--pill-background-hover', resolved.hoverBackground);
 	}
@@ -596,15 +602,17 @@ export class PillEnhancer {
 	private applyGroupHeadingAppearance(heading: HTMLElement, identity: OptionIdentity, scope?: HTMLElement): void {
 		const host = scope ?? findBaseTableHost(heading);
 		const store = host ? this.storeForScope(host) : this.store;
-		const resolved = resolveColor(identity, store.get(identity)?.override);
+		const displayName = host ? getNativePropertyDisplayName(this.app, host, identity.propertyId) : undefined;
+		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName));
 		heading.classList.add('bpc-group-heading');
 		heading.dataset.bpcKey = encodeOptionKey(identity);
 		if (resolved.kind === 'disabled') {
-			heading.classList.remove('bpc-group-heading--colored');
+			heading.classList.remove('bpc-group-heading--colored', 'bpc-group-heading--neutral');
 			clearOptionColorVariables(heading);
 			return;
 		}
 		heading.classList.add('bpc-group-heading--colored');
+		heading.classList.toggle('bpc-group-heading--neutral', resolved.kind === 'neutral');
 		applyOptionColorVariables(heading, resolved);
 	}
 
@@ -682,7 +690,7 @@ export class PillEnhancer {
 		const elements = this.visibleGroupsByKey.get(metadata.key);
 		elements?.delete(heading);
 		if (elements?.size === 0) this.visibleGroupsByKey.delete(metadata.key);
-		heading.classList.remove('bpc-group-heading', 'bpc-group-heading--colored');
+		heading.classList.remove('bpc-group-heading', 'bpc-group-heading--colored', 'bpc-group-heading--neutral');
 		delete heading.dataset.bpcKey;
 		clearOptionColorVariables(heading);
 		this.trackedGroups.delete(heading);
@@ -694,7 +702,7 @@ export class PillEnhancer {
 		const elements = this.visibleByKey.get(metadata.key);
 		elements?.delete(pill);
 		if (elements?.size === 0) this.visibleByKey.delete(metadata.key);
-		pill.classList.remove('bpc-pill', 'bpc-pill--colored');
+		pill.classList.remove('bpc-pill', 'bpc-pill--colored', 'bpc-pill--neutral');
 		delete pill.dataset.bpcKey;
 		clearPillVariables(pill);
 		restoreAttribute(pill, 'title', metadata.originalTitle);
@@ -748,6 +756,8 @@ function applyRuleAppearance(element: HTMLElement, className: string, rule: Cond
 	element.dataset.bpcRuleId = rule.id;
 	element.style.setProperty('--bpc-rule-bg', color.background);
 	element.style.setProperty('--bpc-rule-bg-hover', color.hover);
+	element.style.setProperty('--bpc-rule-fg-light', color.foregroundLight);
+	element.style.setProperty('--bpc-rule-fg-dark', color.foregroundDark);
 }
 
 function clearRuleAppearance(element: HTMLElement, className: string): void {
@@ -755,6 +765,8 @@ function clearRuleAppearance(element: HTMLElement, className: string): void {
 	delete element.dataset.bpcRuleId;
 	element.style.removeProperty('--bpc-rule-bg');
 	element.style.removeProperty('--bpc-rule-bg-hover');
+	element.style.removeProperty('--bpc-rule-fg-light');
+	element.style.removeProperty('--bpc-rule-fg-dark');
 }
 
 function leafContainer(leaf: WorkspaceLeaf): HTMLElement | null {
@@ -770,6 +782,7 @@ function asElement(value: unknown): Element | null {
 function clearPillVariables(element: HTMLElement): void {
 	for (const variable of [
 		'--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark',
+		'--bpc-border',
 		'--pill-background', '--pill-background-hover',
 	]) element.style.removeProperty(variable);
 }
@@ -782,10 +795,11 @@ function applyOptionColorVariables(
 	element.style.setProperty('--bpc-bg-hover', color.hoverBackground);
 	element.style.setProperty('--bpc-fg-light', color.foregroundLight);
 	element.style.setProperty('--bpc-fg-dark', color.foregroundDark);
+	element.style.setProperty('--bpc-border', color.border);
 }
 
 function clearOptionColorVariables(element: HTMLElement): void {
-	for (const variable of ['--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark']) {
+	for (const variable of ['--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark', '--bpc-border']) {
 		element.style.removeProperty(variable);
 	}
 }

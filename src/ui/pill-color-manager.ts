@@ -3,6 +3,7 @@ import { resolveColor } from '../core/colors';
 import { SettingsStore } from '../core/settings-store';
 import { StoredOption } from '../core/types';
 import { ColorPopover, displayPropertyName } from './color-popover';
+import { renderPropertyStrategyControls } from './property-strategy-controls';
 
 export class PillColorManagerView {
 	private container: HTMLElement | null = null;
@@ -13,6 +14,7 @@ export class PillColorManagerView {
 		private readonly store: SettingsStore,
 		private readonly popover: ColorPopover,
 		private readonly reactive = true,
+		private readonly propertyNameFor: (propertyId: string) => string = displayPropertyName,
 	) {}
 
 	mount(container: HTMLElement): void {
@@ -56,7 +58,7 @@ export class PillColorManagerView {
 				new ConfirmResetModal(
 					this.app,
 					'Reset all pill colors?',
-					'Every value will return to its stable automatic color. Your note properties will not be changed.',
+					'Value overrides and explicit property strategies will be cleared. Smart strategies will be inferred again; your notes will not be changed.',
 					() => this.store.resetAll(),
 				).open();
 			});
@@ -79,7 +81,7 @@ export class PillColorManagerView {
 		const normalizedQuery = query.trim().toLocaleLowerCase();
 		const options = allOptions
 			.filter((option) => !normalizedQuery ||
-				`${displayPropertyName(option.propertyId)} ${option.value}`
+				`${this.propertyNameFor(option.propertyId)} ${option.value}`
 					.toLocaleLowerCase()
 					.includes(normalizedQuery))
 			.sort(compareOptions);
@@ -113,7 +115,7 @@ export class PillColorManagerView {
 		const header = section.createDiv('bpc-property-group__header');
 		const titleGroup = header.createDiv('bpc-property-group__title-group');
 		const heading = titleGroup.createSpan({
-			text: displayPropertyName(propertyId),
+			text: this.propertyNameFor(propertyId),
 			cls: 'bpc-property-group__title',
 			attr: { role: 'heading', 'aria-level': '3' },
 		});
@@ -124,7 +126,7 @@ export class PillColorManagerView {
 			attr: { 'aria-label': `${options.length} values` },
 		});
 
-		if (options.some((option) => option.override !== undefined)) {
+		if (options.some((option) => option.override !== undefined) || this.store.getExplicitPropertyStrategy(propertyId)) {
 			const reset = header.createEl('button', {
 				text: 'Reset property',
 				cls: 'bpc-property-group__reset',
@@ -133,12 +135,14 @@ export class PillColorManagerView {
 			reset.addEventListener('click', () => {
 				new ConfirmResetModal(
 					this.app,
-					`Reset ${displayPropertyName(propertyId)} colors?`,
-					'All values in this property will return to their stable automatic colors.',
+					`Reset ${this.propertyNameFor(propertyId)} colors?`,
+					'Value overrides will be cleared and this property will return to its Smart strategy.',
 					() => this.store.resetProperty(propertyId),
 				).open();
 			});
 		}
+
+		renderPropertyStrategyControls(section, this.store, propertyId, this.propertyNameFor(propertyId));
 
 		const list = section.createDiv('bpc-option-list');
 		for (const option of options) this.renderOption(list, option);
@@ -151,10 +155,10 @@ export class PillColorManagerView {
 			cls: 'bpc-pill bpc-pill--colored bpc-settings-pill',
 		});
 		preview.title = option.value;
-		applyPreviewColor(preview, option);
+		applyPreviewColor(preview, option, this.store, this.propertyNameFor(option.propertyId));
 
 		row.createSpan({
-			text: resolveColor(option, option.override).label,
+			text: resolveColor(option, option.override, this.store.getPropertyStrategy(option.propertyId, this.propertyNameFor(option.propertyId))).label,
 			cls: 'bpc-option-row__state',
 		});
 
@@ -201,20 +205,22 @@ export class ConfirmResetModal extends Modal {
 	}
 }
 
-export function applyPreviewColor(element: HTMLElement, option: StoredOption): void {
-	const color = resolveColor(option, option.override);
+export function applyPreviewColor(element: HTMLElement, option: StoredOption, store?: SettingsStore, propertyName?: string): void {
+	const color = resolveColor(option, option.override, store?.getPropertyStrategy(option.propertyId, propertyName));
 	if (color.kind === 'disabled') {
-		element.classList.remove('bpc-pill--colored');
-		for (const variable of ['--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark']) {
+		element.classList.remove('bpc-pill--colored', 'bpc-pill--neutral');
+		for (const variable of ['--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark', '--bpc-border']) {
 			element.style.removeProperty(variable);
 		}
 		return;
 	}
 	element.classList.add('bpc-pill--colored');
+	element.classList.toggle('bpc-pill--neutral', color.kind === 'neutral');
 	element.style.setProperty('--bpc-bg', color.background);
 	element.style.setProperty('--bpc-bg-hover', color.hoverBackground);
 	element.style.setProperty('--bpc-fg-light', color.foregroundLight);
 	element.style.setProperty('--bpc-fg-dark', color.foregroundDark);
+	element.style.setProperty('--bpc-border', color.border);
 }
 
 function compareOptions(first: StoredOption, second: StoredOption): number {

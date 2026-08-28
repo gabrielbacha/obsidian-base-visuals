@@ -33,6 +33,7 @@ export default class BasesPillColorsPlugin extends Plugin {
 				this.popover,
 				propertyIds,
 				'conditional-formatting',
+				scope,
 			).open(),
 			(request) => {
 				this.popover.close();

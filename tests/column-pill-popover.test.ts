@@ -29,13 +29,13 @@ describe('ColumnPillPopover', () => {
 		const { popover, store } = createPopover();
 		popover.open(createRequest());
 		findMenuItem('Change color')?.click();
-		expect(document.querySelectorAll('.bpc-context-palette .bpc-swatch')).toHaveLength(10);
-		document.querySelector<HTMLButtonElement>('.bpc-context-palette [data-preset="red"]')?.click();
-		expect(store.get({ propertyId: 'note.status', value: 'Doing' })?.override).toEqual({ kind: 'preset', name: 'red' });
+		expect(document.querySelectorAll('.bpc-context-palette .bpc-swatch')).toHaveLength(9);
+		document.querySelector<HTMLButtonElement>('.bpc-context-palette [data-preset="pomegranate"]')?.click();
+		expect(store.get({ propertyId: 'note.status', value: 'Doing' })?.override).toEqual({ kind: 'preset', name: 'pomegranate' });
 
 		document.querySelector<HTMLButtonElement>('.bpc-context-header__back')?.click();
-		expect(menuLabels()).toEqual(['Change color', 'Reset to automatic', 'Manage “status” colors', 'Remove from row']);
-		findMenuItem('Reset to automatic')?.click();
+		expect(menuLabels()).toEqual(['Change color', 'Use property strategy', 'Manage “status” colors', 'Remove from row']);
+		findMenuItem('Use property strategy')?.click();
 		expect(store.get({ propertyId: 'note.status', value: 'Doing' })?.override).toBeUndefined();
 		expect(document.querySelector('.bpc-column-popover')).toBeNull();
 	});
@@ -51,10 +51,25 @@ describe('ColumnPillPopover', () => {
 		expect(document.querySelector('button')?.textContent).not.toContain('Change');
 
 		rows[1]?.click();
-		document.querySelector<HTMLButtonElement>('.bpc-context-palette [data-preset="green"]')?.click();
-		expect(store.get({ propertyId: 'note.status', value: 'Done' })?.override).toEqual({ kind: 'preset', name: 'green' });
+		document.querySelector<HTMLButtonElement>('.bpc-context-palette [data-preset="green-sea"]')?.click();
+		expect(store.get({ propertyId: 'note.status', value: 'Done' })?.override).toEqual({ kind: 'preset', name: 'green-sea' });
 		document.querySelector<HTMLButtonElement>('.bpc-context-header__back')?.click();
 		expect(document.querySelectorAll('.bpc-column-manager__row')).toHaveLength(3);
+	});
+
+	it('edits the property strategy from the column manager', () => {
+		const { popover, store } = createPopover();
+		popover.open(createRequest());
+		findMenuItem('Manage “status” colors')?.click();
+		const select = document.querySelector<HTMLSelectElement>('.bpc-property-strategy select');
+		expect(select?.value).toBe('smart');
+		expect(document.querySelector('.bpc-property-strategy__text')?.textContent).toContain('Smart · Status');
+		if (select) select.value = 'single';
+		select?.dispatchEvent(new Event('change', { bubbles: true }));
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'single', preset: 'peter-river' });
+		expect(document.querySelectorAll('.bpc-property-strategy__swatch')).toHaveLength(9);
+		document.querySelector<HTMLButtonElement>('.bpc-property-strategy__swatch[aria-label="Raspberry"]')?.click();
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'single', preset: 'raspberry' });
 	});
 
 	it('adds search only for larger columns and filters the value list', () => {
@@ -73,7 +88,7 @@ describe('ColumnPillPopover', () => {
 
 	it('resets column overrides with confirmation and removes through the native callback', () => {
 		const { popover, store } = createPopover();
-		store.setOverride({ propertyId: 'note.status', value: 'Done' }, { kind: 'preset', name: 'green' });
+		store.setOverride({ propertyId: 'note.status', value: 'Done' }, { kind: 'preset', name: 'green-sea' });
 		const request = createRequest();
 		popover.open(request);
 		findMenuItem('Manage “status” colors')?.click();

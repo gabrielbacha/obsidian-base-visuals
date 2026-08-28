@@ -12,10 +12,11 @@ export const BASE_VISUALS_KEY = 'basesVisualsBase';
 export const VIEW_VISUALS_KEY = 'basesVisualsView';
 
 interface BaseVisualData {
-	schemaVersion: 1;
+	schemaVersion: 2;
 	options: Record<string, StoredOption>;
 	knownProperties: Record<string, { propertyId: string }>;
 	rules: ConditionalRule[];
+	propertyStrategies: BasesPillColorsSettings['propertyStrategies'];
 	columnAppearances?: Record<string, unknown>;
 }
 
@@ -108,6 +109,7 @@ export class BaseVisualStoreRepository {
 				...structuredClone(sibling.knownProperties),
 			};
 			store.settings.rules = [...structuredClone(sibling.rules), ...viewRules];
+			store.settings.propertyStrategies = structuredClone(sibling.propertyStrategies);
 			config.set(BASE_VISUALS_KEY, sibling);
 			this.globalStore.notify();
 			return;
@@ -166,6 +168,7 @@ function scopedSettings(
 		...structuredClone(DEFAULT_SETTINGS),
 		options: structuredClone(base.options),
 		knownProperties: structuredClone(base.knownProperties),
+		propertyStrategies: structuredClone(base.propertyStrategies),
 		rules: [...structuredClone(base.rules), ...structuredClone(view.rules)],
 		managerSearch: global.managerSearch,
 		ruleManagerSearch: global.ruleManagerSearch,
@@ -176,20 +179,22 @@ function scopedSettings(
 
 function migrateGlobalVisuals(global: BasesPillColorsSettings): BaseVisualData {
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		options: structuredClone(global.options),
 		knownProperties: structuredClone(global.knownProperties),
 		rules: global.rules.map((rule) => ({ ...structuredClone(rule), scope: 'base' })),
+		propertyStrategies: structuredClone(global.propertyStrategies),
 	};
 }
 
 function baseDataFromSettings(settings: BasesPillColorsSettings, current: unknown): BaseVisualData {
 	const previous = normalizeBaseData(current);
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		options: structuredClone(settings.options),
 		knownProperties: structuredClone(settings.knownProperties),
 		rules: settings.rules.filter((rule) => rule.scope === 'base').map((rule) => structuredClone(rule)),
+		propertyStrategies: structuredClone(settings.propertyStrategies),
 		...(previous?.columnAppearances ? { columnAppearances: structuredClone(previous.columnAppearances) } : {}),
 	};
 }
@@ -207,12 +212,14 @@ function normalizeBaseData(value: unknown): BaseVisualData | null {
 		options: value.options,
 		knownProperties: value.knownProperties,
 		rules: value.rules,
+		propertyStrategies: value.propertyStrategies,
 	});
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		options: normalized.options,
 		knownProperties: normalized.knownProperties,
 		rules: normalized.rules.map((rule) => ({ ...rule, scope: 'base' })),
+		propertyStrategies: normalized.propertyStrategies,
 		...(isRecord(value.columnAppearances) ? { columnAppearances: structuredClone(value.columnAppearances) } : {}),
 	};
 }

@@ -6,6 +6,7 @@ import { OptionIdentity } from '../core/types';
 import { ColorControlsHandle, renderColorControls } from './color-controls';
 import { displayPropertyName } from './color-popover';
 import { applyPreviewColor, ConfirmResetModal } from './pill-color-manager';
+import { renderPropertyStrategyControls } from './property-strategy-controls';
 
 type BackAction = (() => void) | null;
 
@@ -24,6 +25,7 @@ export class ColumnPillPopover {
 		this.close();
 		const selectedIdentity = { propertyId: request.propertyId, value: request.value };
 		const store = request.store ?? this.store;
+		const propertyName = request.propertyName ?? displayPropertyName(request.propertyId);
 		for (const value of request.values) store.ensure({ propertyId: request.propertyId, value });
 
 		const panel = request.document.body.createDiv('bpc-column-popover');
@@ -44,17 +46,17 @@ export class ColumnPillPopover {
 		const renderQuick = () => {
 			prepareView('quick', null);
 			const header = panel.createDiv('bpc-context-header');
-			createPreview(header, selectedIdentity, store);
-			header.createSpan({ text: displayPropertyName(request.propertyId), cls: 'bpc-context-header__property' });
+			createPreview(header, selectedIdentity, store, propertyName);
+			header.createSpan({ text: propertyName, cls: 'bpc-context-header__property' });
 
 			const menu = panel.createDiv('bpc-context-menu');
-			const resolved = resolveColor(selectedIdentity, store.get(selectedIdentity)?.override);
+			const resolved = resolveColor(selectedIdentity, store.get(selectedIdentity)?.override, store.getPropertyStrategy(request.propertyId, propertyName));
 			const color = createMenuItem(menu, 'Change color', resolved.label, 'chevron');
 			color.prepend(createColorDot(color, resolved.dot));
 			color.addEventListener('click', () => renderPalette(selectedIdentity, renderQuick));
 
 			if (store.get(selectedIdentity)?.override) {
-				const reset = createMenuItem(menu, 'Reset to automatic', undefined, 'reset');
+				const reset = createMenuItem(menu, 'Use property strategy', undefined, 'reset');
 				reset.addEventListener('click', () => {
 					store.setOverride(selectedIdentity);
 					this.close();
@@ -63,7 +65,7 @@ export class ColumnPillPopover {
 
 			const manage = createMenuItem(
 				menu,
-				`Manage “${displayPropertyName(request.propertyId)}” colors`,
+				`Manage “${propertyName}” colors`,
 				`${request.values.length}`,
 				'chevron',
 			);
@@ -82,7 +84,7 @@ export class ColumnPillPopover {
 			const header = createNavigationHeader(panel, renderQuick);
 			header.createEl('strong', { text: 'Remove value?' });
 			const body = panel.createDiv('bpc-remove-confirm');
-			createPreview(body, selectedIdentity, store);
+			createPreview(body, selectedIdentity, store, propertyName);
 			body.createEl('p', { text: 'Remove this value from the current row?' });
 			const actions = body.createDiv('bpc-remove-confirm__actions');
 			const cancel = actions.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
@@ -98,8 +100,8 @@ export class ColumnPillPopover {
 		const renderPalette = (identity: OptionIdentity, goBack: () => void) => {
 			prepareView('palette', goBack);
 			const header = createNavigationHeader(panel, goBack);
-			createPreview(header, identity, store);
-			header.createSpan({ text: displayPropertyName(identity.propertyId), cls: 'bpc-context-header__property' });
+			createPreview(header, identity, store, propertyName);
+			header.createSpan({ text: propertyName, cls: 'bpc-context-header__property' });
 			const body = panel.createDiv('bpc-context-palette');
 			this.controls = renderColorControls(body, store, identity);
 			finishView(panel, request.point);
@@ -110,18 +112,18 @@ export class ColumnPillPopover {
 			prepareView('column', renderQuick);
 			const header = createNavigationHeader(panel, renderQuick);
 			const heading = header.createDiv('bpc-column-manager__heading');
-			heading.createEl('strong', { text: displayPropertyName(request.propertyId) });
+			heading.createEl('strong', { text: propertyName });
 			heading.createSpan({ text: `${request.values.length} values` });
 			const reset = header.createEl('button', {
 				text: 'Reset',
 				cls: 'clickable-icon bpc-column-manager__reset',
-				attr: { type: 'button', 'aria-label': `Reset ${displayPropertyName(request.propertyId)} colors` },
+				attr: { type: 'button', 'aria-label': `Reset ${propertyName} colors` },
 			});
 			reset.addEventListener('click', () => {
 				new ConfirmResetModal(
 					this.app,
-					`Reset ${displayPropertyName(request.propertyId)} colors?`,
-					'Every value in this property will return to its stable automatic color.',
+					`Reset ${propertyName} colors?`,
+					'Value overrides will be cleared and this property will return to its Smart strategy.',
 					() => {
 						store.resetProperty(request.propertyId);
 						renderColumn();
@@ -130,6 +132,7 @@ export class ColumnPillPopover {
 			});
 
 			const body = panel.createDiv('bpc-column-manager');
+			renderPropertyStrategyControls(body, store, request.propertyId, propertyName, renderColumn);
 			let search: HTMLInputElement | null = null;
 			if (request.values.length >= 7) {
 				search = body.createEl('input', {
@@ -150,13 +153,13 @@ export class ColumnPillPopover {
 				}
 				for (const value of values) {
 					const identity = { propertyId: request.propertyId, value };
-					const resolved = resolveColor(identity, store.get(identity)?.override);
+					const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(request.propertyId, propertyName));
 					const row = list.createEl('button', {
 						cls: 'clickable-icon bpc-column-manager__row',
 						attr: { type: 'button', 'data-bpc-menuitem': 'true' },
 					});
 					row.classList.toggle('is-selected', value === request.value);
-					createPreview(row, identity, store);
+					createPreview(row, identity, store, propertyName);
 					const state = row.createSpan('bpc-column-manager__state');
 					state.append(createColorDot(state, resolved.dot));
 					state.createSpan({ text: resolved.label });
@@ -244,13 +247,13 @@ function createNavigationHeader(container: HTMLElement, back: () => void): HTMLE
 	return header;
 }
 
-function createPreview(container: HTMLElement, identity: OptionIdentity, store: SettingsStore): HTMLElement {
+function createPreview(container: HTMLElement, identity: OptionIdentity, store: SettingsStore, propertyName?: string): HTMLElement {
 	const preview = container.createSpan({
 		text: identity.value,
 		cls: 'bpc-pill bpc-pill--colored bpc-settings-pill',
 	});
 	preview.title = identity.value;
-	applyPreviewColor(preview, store.ensure(identity));
+	applyPreviewColor(preview, store.ensure(identity), store, propertyName);
 	return preview;
 }
 

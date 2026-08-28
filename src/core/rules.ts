@@ -1,4 +1,4 @@
-import { isPresetName, normalizeHex, resolvePreset, resolveRuleColor } from './colors';
+import { normalizeHex, normalizePresetName, resolvePreset, resolveRuleColor } from './colors';
 import {
 	ConditionalRule,
 	RULE_OPERATORS,
@@ -68,18 +68,21 @@ export function matchingRule(
 export function ruleColorVariables(color: RuleColor): {
 	background: string;
 	hover: string;
+	foregroundLight: string;
+	foregroundDark: string;
 } {
 	const resolved = color.kind === 'preset'
 		? resolvePreset(color.name)
 		: resolveRuleColor(color.hex);
-	return { background: resolved.background, hover: resolved.hoverBackground };
+	return { background: resolved.background, hover: resolved.hoverBackground, foregroundLight: resolved.foregroundLight, foregroundDark: resolved.foregroundDark };
 }
 
 export function normalizeRuleColor(value: unknown): RuleColor | null {
 	if (!value || typeof value !== 'object') return null;
 	const candidate = value as Record<string, unknown>;
-	if (candidate.kind === 'preset' && isPresetName(candidate.name)) {
-		return { kind: 'preset', name: candidate.name };
+	if (candidate.kind === 'preset') {
+		const name = normalizePresetName(candidate.name);
+		if (name) return { kind: 'preset', name };
 	}
 	if (candidate.kind === 'custom' && typeof candidate.hex === 'string') {
 		const hex = normalizeHex(candidate.hex);

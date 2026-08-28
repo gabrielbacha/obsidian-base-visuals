@@ -39,6 +39,7 @@ export interface NativeViewConfig {
 	get(key: string): unknown;
 	set(key: string, value: unknown): void;
 	getOrder?(): unknown[];
+	getDisplayName?(propertyId: string): unknown;
 }
 
 interface NativeTableView {
@@ -198,6 +199,14 @@ export function getNativeGroupProperty(app: App, scope: HTMLElement): string | n
 	if (!isObject(groupBy)) return null;
 	const property = groupBy.property;
 	return typeof property === 'string' ? property.trim() || null : null;
+}
+
+export function getNativePropertyDisplayName(app: App, scope: HTMLElement, propertyId: string): string | undefined {
+	const value = findNativeTableView(app, scope)?.config.getDisplayName?.(propertyId);
+	if (typeof value === 'string' && value.trim()) return value.trim();
+	const header = getNativeColumnHeaders(app, scope).find((candidate) => candidate.propertyId === propertyId)?.element;
+	const text = header?.textContent?.trim();
+	return text || undefined;
 }
 
 export function getNativeColumnAppearance(

@@ -233,7 +233,7 @@ class RuleColorPopover {
 		const custom = panel.createDiv('bpc-custom-color');
 		custom.createEl('label', { text: 'Custom', cls: 'bpc-custom-color__label' });
 		const inputs = custom.createDiv('bpc-custom-color__inputs');
-		const initial = current.kind === 'custom' ? current.hex : '#5B8DEF';
+		const initial = current.kind === 'custom' ? current.hex : '#3498DB';
 		const picker = inputs.createEl('input', { cls: 'bpc-custom-color__picker', attr: { type: 'color', 'aria-label': 'Custom color' } });
 		picker.value = initial;
 		const text = inputs.createEl('input', {

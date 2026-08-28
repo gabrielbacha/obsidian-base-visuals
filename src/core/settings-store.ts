@@ -1,4 +1,5 @@
-import { encodeOptionKey, isPresetName, normalizeHex } from './colors';
+import { encodeOptionKey, normalizeHex, normalizePresetName } from './colors';
+import { effectivePropertyStrategy, inferPropertyStrategy } from './property-strategies';
 import {
 	BasesPillColorsSettings,
 	LayoutPreset,
@@ -8,6 +9,9 @@ import {
 	OptionIdentity,
 	SCHEMA_VERSION,
 	StoredOption,
+	PropertyColorStrategy,
+	PROPERTY_STRATEGY_MODES,
+	PALETTE_NAMES,
 } from './types';
 import { isRuleOperator, normalizeRuleColor } from './rules';
 
@@ -63,6 +67,10 @@ export class SettingsStore {
 			: [];
 		const layoutPresets = normalizeLayoutPresets(raw.layoutPresets);
 		const lastColumnWidthPreset = normalizeColumnWidth(raw.lastColumnWidthPreset);
+		const propertyStrategies = normalizePropertyStrategies(raw.propertyStrategies);
+		for (const propertyId of Object.keys(propertyStrategies)) {
+			knownProperties[propertyId] = { propertyId };
+		}
 
 		return {
 			schemaVersion: SCHEMA_VERSION,
@@ -71,6 +79,7 @@ export class SettingsStore {
 				typeof raw.managerSearch === 'string' ? raw.managerSearch : '',
 			rules,
 			knownProperties,
+			propertyStrategies,
 			ruleManagerSearch:
 				typeof raw.ruleManagerSearch === 'string' ? raw.ruleManagerSearch : '',
 			layoutPresets,
@@ -102,8 +111,32 @@ export class SettingsStore {
 		this.emit();
 	}
 
+	getExplicitPropertyStrategy(propertyId: string): PropertyColorStrategy | undefined {
+		return this.settings.propertyStrategies[propertyId];
+	}
+
+	getPropertyStrategy(propertyId: string, displayName?: string): PropertyColorStrategy {
+		return effectivePropertyStrategy(propertyId, displayName, this.getExplicitPropertyStrategy(propertyId));
+	}
+
+	getInferredPropertyStrategy(propertyId: string, displayName?: string): PropertyColorStrategy {
+		return inferPropertyStrategy(propertyId, displayName);
+	}
+
+	setPropertyStrategy(propertyId: string, strategy: PropertyColorStrategy | undefined): void {
+		const normalized = normalizePropertyStrategy(strategy);
+		if (!normalized || normalized.mode === 'smart') delete this.settings.propertyStrategies[propertyId];
+		else this.settings.propertyStrategies[propertyId] = normalized;
+		this.discoverProperty(propertyId);
+		this.changed();
+	}
+
 	resetProperty(propertyId: string): void {
 		let changed = false;
+		if (this.settings.propertyStrategies[propertyId]) {
+			delete this.settings.propertyStrategies[propertyId];
+			changed = true;
+		}
 		for (const option of Object.values(this.settings.options)) {
 			if (option.propertyId === propertyId && option.override) {
 				delete option.override;
@@ -118,6 +151,10 @@ export class SettingsStore {
 
 	resetAll(): void {
 		let changed = false;
+		if (Object.keys(this.settings.propertyStrategies).length > 0) {
+			this.settings.propertyStrategies = {};
+			changed = true;
+		}
 		for (const option of Object.values(this.settings.options)) {
 			if (option.override) {
 				delete option.override;
@@ -158,7 +195,7 @@ export class SettingsStore {
 			operand: '',
 			target: 'cell',
 			scope: 'view',
-			color: { kind: 'preset', name: 'yellow' },
+			color: { kind: 'preset', name: 'sun-flower' },
 		};
 		this.settings.rules.push(rule);
 		this.discoverProperty(rule.propertyId);
@@ -256,7 +293,8 @@ export class SettingsStore {
 	}
 
 	hasOverrides(): boolean {
-		return this.allOptions().some((option) => option.override !== undefined);
+		return this.allOptions().some((option) => option.override !== undefined) ||
+			Object.keys(this.settings.propertyStrategies).length > 0;
 	}
 
 	subscribe(listener: Listener): () => void {
@@ -368,14 +406,35 @@ function normalizeRule(value: unknown, index: number): ConditionalRule | null {
 function normalizeOverride(value: unknown): ColorOverride | undefined {
 	if (!isRecord(value) || typeof value.kind !== 'string') return undefined;
 	if (value.kind === 'disabled') return { kind: 'disabled' };
-	if (value.kind === 'preset' && isPresetName(value.name)) {
-		return { kind: 'preset', name: value.name };
+	if (value.kind === 'preset') {
+		const name = normalizePresetName(value.name);
+		if (name) return { kind: 'preset', name };
 	}
 	if (value.kind === 'custom' && typeof value.hex === 'string') {
 		const hex = normalizeHex(value.hex);
 		if (hex) return { kind: 'custom', hex };
 	}
 	return undefined;
+}
+
+function normalizePropertyStrategies(value: unknown): Record<string, PropertyColorStrategy> {
+	if (!isRecord(value)) return {};
+	const strategies: Record<string, PropertyColorStrategy> = {};
+	for (const [rawPropertyId, candidate] of Object.entries(value)) {
+		const propertyId = rawPropertyId.trim();
+		const strategy = normalizePropertyStrategy(candidate);
+		if (propertyId && strategy && strategy.mode !== 'smart') strategies[propertyId] = strategy;
+	}
+	return strategies;
+}
+
+function normalizePropertyStrategy(value: unknown): PropertyColorStrategy | undefined {
+	if (!isRecord(value) || !PROPERTY_STRATEGY_MODES.includes(value.mode as never)) return undefined;
+	if (value.mode === 'single') {
+		const preset = normalizePresetName(value.preset);
+		return { mode: 'single', preset: preset && preset !== 'default' && PALETTE_NAMES.includes(preset) ? preset : 'peter-river' };
+	}
+	return { mode: value.mode as PropertyColorStrategy['mode'] };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

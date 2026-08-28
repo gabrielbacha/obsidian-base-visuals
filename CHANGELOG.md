@@ -2,6 +2,19 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.7.0 — 2026-08-28
+
+- Add Smart, Distinct, Status, Priority, Single color, Neutral, and Off strategies for each property.
+- Infer restrained defaults from property IDs and display names while keeping exact value overrides authoritative.
+- Add semantic Status and Priority mappings, including ordered labels such as `1. In Progress` and `2. Done`.
+- Replace the legacy palette with nine stable named accents and migrate existing preset overrides automatically.
+- Generate WCAG AA pill text colors separately for light and dark themes over softer 12% backgrounds.
+- Add property-strategy controls to the Format manager and the column-focused pill manager.
+- Replace full-width group color banners with neutral headings and accessible colored value badges.
+- Render main-column links neutrally at rest, revealing Obsidian's accent on hover and keyboard focus.
+- Apply the same contrast system to custom colors, previews, group badges, and conditional formatting.
+- Persist explicit property strategies with Base-wide visual data while leaving derived Smart choices unstored.
+
 ## 0.6.0 — 2026-08-14
 
 - Store pill colors with each Base and share them across that Base's views.
