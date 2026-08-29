@@ -6,6 +6,7 @@ import { SettingsStore } from '../src/core/settings-store';
 interface Harness {
 	root: HTMLElement;
 	store: SettingsStore;
+	stores: SettingsStore[];
 	enhancer: PillEnhancer;
 }
 
@@ -19,6 +20,7 @@ interface PillSpec {
 interface NativeFixtureOptions {
 	groupProperty?: string;
 	columnAppearances?: Record<string, unknown>;
+	useScopedStore?: boolean;
 }
 
 const activeHarnesses: Harness[] = [];
@@ -26,7 +28,7 @@ const activeHarnesses: Harness[] = [];
 afterEach(() => {
 	for (const harness of activeHarnesses.splice(0)) {
 		harness.enhancer.stop();
-		harness.store.dispose();
+		for (const store of harness.stores) store.dispose();
 	}
 	document.body.replaceChildren();
 });
@@ -140,6 +142,48 @@ describe('PillEnhancer', () => {
 		const pills = harness.root.querySelectorAll<HTMLElement>('.multi-select-pill');
 		expect(pills[0]?.style.getPropertyValue('--bpc-bg')).toContain('#123456');
 		expect(pills[1]?.style.getPropertyValue('--bpc-bg')).not.toContain('#123456');
+	});
+
+	it('applies and updates the property pill style across visible pills', () => {
+		const harness = createHarness([{ propertyId: 'note.status', value: 'Done' }]);
+		const pill = harness.root.querySelector<HTMLElement>('.bpc-pill');
+		expect(pill?.classList.contains('bpc-pill-style-soft')).toBe(true);
+		harness.store.setPropertyStyle('note.status', 'solid');
+		expect(pill?.classList.contains('bpc-pill-style-solid')).toBe(true);
+		expect(pill?.style.getPropertyValue('--bpc-accent')).toBe('#16A085');
+		harness.store.setPropertyStyle('note.status', 'outline');
+		expect(pill?.classList.contains('bpc-pill-style-outline')).toBe(true);
+		expect(pill?.classList.contains('bpc-pill-style-solid')).toBe(false);
+	});
+
+	it('refreshes style changes immediately from a Base-scoped store', () => {
+		const harness = createHarness(
+			[{ propertyId: 'note.status', value: 'Done' }],
+			undefined,
+			undefined,
+			undefined,
+			{ useScopedStore: true },
+		);
+		const pill = harness.root.querySelector<HTMLElement>('.bpc-pill');
+		harness.store.setPropertyStyle('note.status', 'solid');
+		expect(pill?.classList.contains('bpc-pill-style-solid')).toBe(true);
+		harness.store.setPropertyStyle('note.status', 'outline');
+		expect(pill?.classList.contains('bpc-pill-style-outline')).toBe(true);
+		expect(pill?.classList.contains('bpc-pill-style-solid')).toBe(false);
+	});
+
+	it('restores Outline styling after Obsidian rewrites a pill class in place', async () => {
+		const harness = createHarness([{ propertyId: 'note.status', value: 'Done' }]);
+		const pill = harness.root.querySelector<HTMLElement>('.bpc-pill');
+		harness.store.setPropertyStyle('note.status', 'outline');
+		expect(pill?.classList.contains('bpc-pill-style-outline')).toBe(true);
+
+		if (pill) pill.className = 'multi-select-pill';
+		await mutationCycle();
+
+		expect(pill?.classList.contains('bpc-pill')).toBe(true);
+		expect(pill?.classList.contains('bpc-pill-style-outline')).toBe(true);
+		expect(pill?.classList.contains('bpc-pill-style-solid')).toBe(false);
 	});
 
 	it('supports Unicode, punctuation, and long exact values', () => {
@@ -437,7 +481,10 @@ function createHarness(
 		appendPill(spec.inBase === false ? root : baseView, spec);
 	}
 	configure?.(baseView);
-	const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+	const globalStore = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+	const store = nativeOptions?.useScopedStore
+		? new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined))
+		: globalStore;
 	const view: Record<string, unknown> = { containerEl: root };
 	if (nativeOptions) {
 		const table = baseView.querySelector<HTMLElement>('.bases-table-container, .bases-table') ?? baseView;
@@ -471,12 +518,13 @@ function createHarness(
 	};
 	const enhancer = new PillEnhancer(
 		{ workspace } as unknown as App,
-		store,
+		globalStore,
 		openRuleManager,
 		openColumnManager,
+		() => store,
 	);
 	enhancer.start(() => undefined);
-	const harness = { root, store, enhancer };
+	const harness = { root, store, stores: store === globalStore ? [store] : [store, globalStore], enhancer };
 	activeHarnesses.push(harness);
 	return harness;
 }

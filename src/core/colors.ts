@@ -1,4 +1,5 @@
 import { strategyColor } from './property-strategies';
+import { leadingOrderNumber } from './value-order';
 import { AUTO_PRESET_NAMES, type ColorOverride, type OptionIdentity, type PaletteName, type PresetName, type PropertyColorStrategy } from './types';
 
 export interface ResolvedColor {
@@ -10,6 +11,9 @@ export interface ResolvedColor {
 	foregroundDark: string;
 	border: string;
 	dot: string;
+	solidBackground: string;
+	solidForeground: string;
+	solidHoverBackground: string;
 }
 interface Rgb { r: number; g: number; b: number }
 
@@ -48,6 +52,10 @@ export function normalizePresetName(value: unknown): PresetName | null {
 export function isPresetName(value: unknown): value is PresetName { return normalizePresetName(value) !== null; }
 
 export function automaticPreset(identity: OptionIdentity): PaletteName {
+	const order = leadingOrderNumber(identity.value);
+	if (order !== null) {
+		return AUTO_PRESET_NAMES[(order - 1) % AUTO_PRESET_NAMES.length] ?? 'peter-river';
+	}
 	const key = `${identity.propertyId}\u0000${identity.value}`;
 	let hash = 2166136261;
 	for (let index = 0; index < key.length; index += 1) {
@@ -95,6 +103,7 @@ function presetColor(name: PaletteName, kind: 'auto' | 'preset'): ResolvedColor 
 function filledColor(hex: string, label: string, kind: 'auto' | 'preset' | 'custom'): ResolvedColor {
 	const lightBackground = tintedHex(hex, '#FFFFFF');
 	const darkBackground = tintedHex(hex, '#1E1E1E');
+	const solidBackground = solidBackgroundForWhite(hex);
 	return {
 		kind, label,
 		background: `color-mix(in srgb, ${hex} 12%, transparent)`,
@@ -102,13 +111,27 @@ function filledColor(hex: string, label: string, kind: 'auto' | 'preset' | 'cust
 		foregroundLight: adjustForContrast(hex, lightBackground),
 		foregroundDark: adjustForContrast(hex, darkBackground),
 		border: `color-mix(in srgb, ${hex} 28%, transparent)`, dot: hex,
+		solidBackground,
+		solidForeground: '#FFFFFF',
+		solidHoverBackground: `color-mix(in srgb, ${solidBackground} 88%, black)`,
 	};
 }
 function neutralColor(label: string): ResolvedColor {
-	return { kind: 'neutral', label, background: 'color-mix(in srgb, var(--text-muted) 5%, transparent)', hoverBackground: 'color-mix(in srgb, var(--text-muted) 10%, transparent)', foregroundLight: 'var(--text-normal)', foregroundDark: 'var(--text-normal)', border: 'var(--background-modifier-border)', dot: 'var(--text-muted)' };
+	return { kind: 'neutral', label, background: 'color-mix(in srgb, var(--text-muted) 5%, transparent)', hoverBackground: 'color-mix(in srgb, var(--text-muted) 10%, transparent)', foregroundLight: 'var(--text-normal)', foregroundDark: 'var(--text-normal)', border: 'var(--background-modifier-border)', dot: 'var(--text-muted)', solidBackground: '#666666', solidForeground: '#FFFFFF', solidHoverBackground: '#555555' };
 }
 function disabledColor(): ResolvedColor {
-	return { kind: 'disabled', label: 'Off', background: '', hoverBackground: '', foregroundLight: '', foregroundDark: '', border: '', dot: 'var(--text-faint)' };
+	return { kind: 'disabled', label: 'Off', background: '', hoverBackground: '', foregroundLight: '', foregroundDark: '', border: '', dot: 'var(--text-faint)', solidBackground: '', solidForeground: '', solidHoverBackground: '' };
+}
+
+function solidBackgroundForWhite(accentHex: string): string {
+	if (contrastRatio('#FFFFFF', accentHex) >= 4.5) return accentHex;
+	const accent = hexToRgb(accentHex);
+	const black = { r: 0, g: 0, b: 0 };
+	for (let step = 1; step <= 100; step += 1) {
+		const candidate = rgbToHex(mixRgb(accent, black, step / 100));
+		if (contrastRatio('#FFFFFF', candidate) >= 4.5) return candidate;
+	}
+	return '#000000';
 }
 
 export function contrastRatio(firstHex: string, secondHex: string): number {

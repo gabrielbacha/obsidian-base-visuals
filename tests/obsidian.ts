@@ -16,6 +16,10 @@ export class Modal {
 	}
 }
 
+export class Notice {
+	constructor(public readonly message: string) {}
+}
+
 export function setIcon(element: HTMLElement, icon: string): void {
 	const svg = element.createSvg('svg');
 	svg.setAttribute('data-icon', icon);

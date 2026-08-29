@@ -21,8 +21,12 @@ export function inferPropertyStrategy(propertyId: string, displayName?: string):
 }
 
 export function effectivePropertyStrategy(propertyId: string, displayName: string | undefined, explicit?: PropertyColorStrategy): PropertyColorStrategy {
-	if (!explicit || explicit.mode === 'smart') return inferPropertyStrategy(propertyId, displayName);
-	return explicit.mode === 'single' ? { mode: 'single', preset: explicit.preset ?? 'peter-river' } : explicit;
+	if (!explicit || explicit.mode === 'smart') {
+		return { ...inferPropertyStrategy(propertyId, displayName), ...(explicit?.style ? { style: explicit.style } : {}) };
+	}
+	return explicit.mode === 'single'
+		? { mode: 'single', preset: explicit.preset ?? 'peter-river', ...(explicit.style ? { style: explicit.style } : {}) }
+		: explicit;
 }
 
 export function strategyColor(identity: OptionIdentity, strategy: PropertyColorStrategy, automatic: (identity: OptionIdentity) => PaletteName): StrategyColor {

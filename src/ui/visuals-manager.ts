@@ -5,6 +5,7 @@ import { PillColorManagerView } from './pill-color-manager';
 import { RuleManagerView } from './rule-manager';
 import { getNativePropertyDisplayName } from '../core/native-table-view';
 import { displayPropertyName } from './color-popover';
+import { findUnusedOptions } from '../core/unused-options';
 
 type ManagerSection = 'pill-colors' | 'conditional-formatting';
 
@@ -59,6 +60,14 @@ export class BasesVisualsModal extends Modal {
 				(propertyId) => this.tableScope
 					? getNativePropertyDisplayName(this.app, this.tableScope, propertyId) ?? displayPropertyName(propertyId)
 					: displayPropertyName(propertyId),
+				this.tableScope
+					? () => findUnusedOptions(
+						this.app,
+						this.tableScope!,
+						this.store.allOptions(),
+						this.store.allKnownProperties(),
+					)
+					: undefined,
 			);
 		} else {
 			this.activeView = new RuleManagerView(this.app, this.store, this.priorityProperties);

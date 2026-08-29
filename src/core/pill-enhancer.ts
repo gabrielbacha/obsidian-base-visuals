@@ -14,6 +14,7 @@ import { BaseVisualStoreRepository } from './base-visual-store';
 import { ConditionalRule, OptionIdentity } from './types';
 import { TableLayoutPopover } from '../ui/table-layout-popover';
 import { ColumnAppearancePopover } from '../ui/column-appearance-popover';
+import { compareNaturalValues } from './value-order';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
@@ -70,6 +71,7 @@ export class PillEnhancer {
 	private readonly tables = new Set<HTMLElement>();
 	private readonly columnAppearanceElements = new Set<HTMLElement>();
 	private readonly pendingMenuObservers = new Set<MutationObserver>();
+	private readonly scopedStoreUnsubscribers = new Map<SettingsStore, () => void>();
 	private readonly mainPropertyByTable = new WeakMap<HTMLElement, string>();
 	private readonly tableLayoutPopover: TableLayoutPopover;
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
@@ -105,6 +107,10 @@ export class PillEnhancer {
 				for (const node of Array.from(mutation.removedNodes)) this.untrackTree(node);
 				for (const node of Array.from(mutation.addedNodes)) this.processTree(node);
 				const target = asElement(mutation.target);
+				if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+					if (target) this.recoverPluginClasses(target as HTMLElement);
+					continue;
+				}
 				if (target) this.refreshAround(target);
 			}
 		});
@@ -113,7 +119,7 @@ export class PillEnhancer {
 			subtree: true,
 			characterData: true,
 			attributes: true,
-			attributeFilter: ['data-property', 'aria-checked'],
+			attributeFilter: ['data-property', 'aria-checked', 'class'],
 		});
 
 		const inputHandler = (event: Event) => {
@@ -132,6 +138,8 @@ export class PillEnhancer {
 		this.started = false;
 		this.unsubscribeStore?.();
 		this.unsubscribeStore = null;
+		for (const unsubscribe of this.scopedStoreUnsubscribers.values()) unsubscribe();
+		this.scopedStoreUnsubscribers.clear();
 		for (const root of [...this.roots.keys()]) this.detachRoot(root);
 		this.visibleByKey.clear();
 		this.visibleGroupsByKey.clear();
@@ -236,13 +244,25 @@ export class PillEnhancer {
 		if (table) this.processTable(table);
 	}
 
+	private recoverPluginClasses(element: HTMLElement): void {
+		if (this.tracked.has(element) || element.matches(PILL_SELECTOR)) {
+			this.processPill(element);
+			return;
+		}
+		if (this.trackedGroups.has(element) || element.matches(GROUP_HEADING_SELECTOR)) {
+			this.processGroupHeading(element);
+			return;
+		}
+		if (element.matches(TABLE_SELECTOR)) this.processTable(element);
+	}
+
 	private processCell(cell: HTMLElement): void {
 		const scope = findBaseTableHost(cell);
 		if (!scope) return;
 		const propertyId = cell.dataset.property?.trim();
 		if (!propertyId) return;
 		this.visibleCells.add(cell);
-		this.storeForScope(scope).discoverProperty(propertyId);
+		this.scopedStore(scope).discoverProperty(propertyId);
 		this.applyCellRule(cell, propertyId);
 		if (cell.closest('.bases-thead')) {
 			clearColumnAppearance(cell);
@@ -283,7 +303,7 @@ export class PillEnhancer {
 			this.visibleGroupsByKey.set(key, elements);
 		}
 		this.rememberTableValue(scope, identity);
-		this.storeForScope(scope).ensure(identity);
+		this.scopedStore(scope).ensure(identity);
 		this.applyGroupHeadingAppearance(heading, identity, scope);
 	}
 
@@ -349,7 +369,7 @@ export class PillEnhancer {
 
 	private processTable(table: HTMLElement): void {
 		if (!table.closest(BASE_SCOPE_SELECTOR)) return;
-		table.classList.add('bpc-table');
+		setClass(table, 'bpc-table', true);
 		this.tables.add(table);
 		const scope = findBaseTableHost(table);
 		const primary = scope ? getNativeMainProperty(this.app, scope) : null;
@@ -432,7 +452,7 @@ export class PillEnhancer {
 			elements.add(pill);
 			this.visibleByKey.set(key, elements);
 		}
-		this.storeForScope(host).ensure(identity);
+		this.scopedStore(host).ensure(identity);
 		this.applyPillAppearance(pill, identity, host);
 	}
 
@@ -466,9 +486,9 @@ export class PillEnhancer {
 			propertyName: getNativePropertyDisplayName(this.app, host, metadata.identity.propertyId),
 			value: metadata.identity.value,
 			values: [...(this.tableValues.get(host)?.get(metadata.identity.propertyId) ?? [])]
-				.sort((first, second) => first.localeCompare(second)),
+				.sort(compareNaturalValues),
 			removeFromRow: () => removeButton?.click(),
-			store: this.storeForScope(host),
+			store: this.scopedStore(host),
 		});
 	}
 
@@ -576,43 +596,55 @@ export class PillEnhancer {
 
 	private applyPillAppearance(pill: HTMLElement, identity: OptionIdentity, scope?: HTMLElement): void {
 		const host = scope ?? findBaseTableHost(pill);
-		const store = host ? this.storeForScope(host) : this.store;
+		const store = host ? this.scopedStore(host) : this.store;
 		const displayName = host ? getNativePropertyDisplayName(this.app, host, identity.propertyId) : undefined;
 		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName));
-		pill.classList.add('bpc-pill');
+		const style = store.getPropertyStyle(identity.propertyId);
+		setClass(pill, 'bpc-pill', true);
 		pill.dataset.bpcKey = encodeOptionKey(identity);
 		pill.title = identity.value;
 		pill.setAttribute('aria-label', identity.value);
 		if (resolved.kind === 'disabled') {
-			pill.classList.remove('bpc-pill--colored', 'bpc-pill--neutral');
+			setClass(pill, 'bpc-pill--colored', false);
+			setClass(pill, 'bpc-pill--neutral', false);
+			clearPillStyle(pill);
 			clearPillVariables(pill);
 			return;
 		}
-		pill.classList.add('bpc-pill--colored');
-		pill.classList.toggle('bpc-pill--neutral', resolved.kind === 'neutral');
+		setClass(pill, 'bpc-pill--colored', true);
+		setClass(pill, 'bpc-pill--neutral', resolved.kind === 'neutral');
+		applyPillStyle(pill, style);
 		pill.style.setProperty('--bpc-bg', resolved.background);
 		pill.style.setProperty('--bpc-bg-hover', resolved.hoverBackground);
 		pill.style.setProperty('--bpc-fg-light', resolved.foregroundLight);
 		pill.style.setProperty('--bpc-fg-dark', resolved.foregroundDark);
 		pill.style.setProperty('--bpc-border', resolved.border);
+		pill.style.setProperty('--bpc-accent', resolved.dot);
+		pill.style.setProperty('--bpc-solid-bg', resolved.solidBackground);
+		pill.style.setProperty('--bpc-solid-fg', resolved.solidForeground);
+		pill.style.setProperty('--bpc-solid-bg-hover', resolved.solidHoverBackground);
 		pill.style.setProperty('--pill-background', resolved.background);
 		pill.style.setProperty('--pill-background-hover', resolved.hoverBackground);
 	}
 
 	private applyGroupHeadingAppearance(heading: HTMLElement, identity: OptionIdentity, scope?: HTMLElement): void {
 		const host = scope ?? findBaseTableHost(heading);
-		const store = host ? this.storeForScope(host) : this.store;
+		const store = host ? this.scopedStore(host) : this.store;
 		const displayName = host ? getNativePropertyDisplayName(this.app, host, identity.propertyId) : undefined;
 		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName));
-		heading.classList.add('bpc-group-heading');
+		const style = store.getPropertyStyle(identity.propertyId);
+		setClass(heading, 'bpc-group-heading', true);
 		heading.dataset.bpcKey = encodeOptionKey(identity);
 		if (resolved.kind === 'disabled') {
-			heading.classList.remove('bpc-group-heading--colored', 'bpc-group-heading--neutral');
+			setClass(heading, 'bpc-group-heading--colored', false);
+			setClass(heading, 'bpc-group-heading--neutral', false);
+			clearPillStyle(heading);
 			clearOptionColorVariables(heading);
 			return;
 		}
-		heading.classList.add('bpc-group-heading--colored');
-		heading.classList.toggle('bpc-group-heading--neutral', resolved.kind === 'neutral');
+		setClass(heading, 'bpc-group-heading--colored', true);
+		setClass(heading, 'bpc-group-heading--neutral', resolved.kind === 'neutral');
+		applyPillStyle(heading, style);
 		applyOptionColorVariables(heading, resolved);
 	}
 
@@ -650,7 +682,7 @@ export class PillEnhancer {
 		clearRuleAppearance(cell, 'bpc-rule-cell');
 		const value = renderedCellValue(cell);
 		const scope = findBaseTableHost(cell);
-		const rules = scope ? this.storeForScope(scope).settings.rules : this.store.settings.rules;
+		const rules = scope ? this.scopedStore(scope).settings.rules : this.store.settings.rules;
 		const rule = rules.find((candidate) =>
 			candidate.enabled && candidate.target === 'cell' &&
 			candidate.propertyId === propertyId && evaluateRule(candidate, value));
@@ -661,7 +693,7 @@ export class PillEnhancer {
 		clearRuleAppearance(row, 'bpc-rule-row');
 		const cells = [...row.querySelectorAll<HTMLElement>(CELL_SELECTOR)];
 		const scope = findBaseTableHost(row);
-		const rules = scope ? this.storeForScope(scope).settings.rules : this.store.settings.rules;
+		const rules = scope ? this.scopedStore(scope).settings.rules : this.store.settings.rules;
 		for (const rule of rules) {
 			if (!rule.enabled || rule.target !== 'row') continue;
 			const cell = cells.find((candidate) => candidate.dataset.property?.trim() === rule.propertyId);
@@ -691,6 +723,7 @@ export class PillEnhancer {
 		elements?.delete(heading);
 		if (elements?.size === 0) this.visibleGroupsByKey.delete(metadata.key);
 		heading.classList.remove('bpc-group-heading', 'bpc-group-heading--colored', 'bpc-group-heading--neutral');
+		clearPillStyle(heading);
 		delete heading.dataset.bpcKey;
 		clearOptionColorVariables(heading);
 		this.trackedGroups.delete(heading);
@@ -703,6 +736,7 @@ export class PillEnhancer {
 		elements?.delete(pill);
 		if (elements?.size === 0) this.visibleByKey.delete(metadata.key);
 		pill.classList.remove('bpc-pill', 'bpc-pill--colored', 'bpc-pill--neutral');
+		clearPillStyle(pill);
 		delete pill.dataset.bpcKey;
 		clearPillVariables(pill);
 		restoreAttribute(pill, 'title', metadata.originalTitle);
@@ -727,6 +761,14 @@ export class PillEnhancer {
 			if (row.isConnected) this.processRow(row);
 			else this.visibleRows.delete(row);
 		}
+	}
+
+	private scopedStore(scope: HTMLElement): SettingsStore {
+		const store = this.storeForScope(scope);
+		if (store !== this.store && !this.scopedStoreUnsubscribers.has(store)) {
+			this.scopedStoreUnsubscribers.set(store, store.subscribe(() => this.refreshFromStore()));
+		}
+		return store;
 	}
 
 }
@@ -783,6 +825,7 @@ function clearPillVariables(element: HTMLElement): void {
 	for (const variable of [
 		'--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark',
 		'--bpc-border',
+		'--bpc-accent', '--bpc-solid-bg', '--bpc-solid-fg', '--bpc-solid-bg-hover',
 		'--pill-background', '--pill-background-hover',
 	]) element.style.removeProperty(variable);
 }
@@ -796,12 +839,38 @@ function applyOptionColorVariables(
 	element.style.setProperty('--bpc-fg-light', color.foregroundLight);
 	element.style.setProperty('--bpc-fg-dark', color.foregroundDark);
 	element.style.setProperty('--bpc-border', color.border);
+	element.style.setProperty('--bpc-accent', color.dot);
+	element.style.setProperty('--bpc-solid-bg', color.solidBackground);
+	element.style.setProperty('--bpc-solid-fg', color.solidForeground);
+	element.style.setProperty('--bpc-solid-bg-hover', color.solidHoverBackground);
 }
 
 function clearOptionColorVariables(element: HTMLElement): void {
-	for (const variable of ['--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark', '--bpc-border']) {
+	for (const variable of ['--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark', '--bpc-border', '--bpc-accent', '--bpc-solid-bg', '--bpc-solid-fg', '--bpc-solid-bg-hover']) {
 		element.style.removeProperty(variable);
 	}
+}
+
+function applyPillStyle(element: HTMLElement, style: 'soft' | 'solid' | 'outline'): void {
+	const targetClass = `bpc-pill-style-${style}`;
+	if (
+		element.classList.contains(targetClass) &&
+		['soft', 'solid', 'outline'].every((candidate) =>
+			candidate === style || !element.classList.contains(`bpc-pill-style-${candidate}`))
+	) return;
+	clearPillStyle(element);
+	element.classList.add(targetClass);
+}
+
+function clearPillStyle(element: HTMLElement): void {
+	for (const className of ['bpc-pill-style-soft', 'bpc-pill-style-solid', 'bpc-pill-style-outline']) {
+		setClass(element, className, false);
+	}
+}
+
+function setClass(element: HTMLElement, className: string, enabled: boolean): void {
+	if (element.classList.contains(className) === enabled) return;
+	element.classList.toggle(className, enabled);
 }
 
 function restoreAttribute(element: HTMLElement, name: string, value: string | null): void {

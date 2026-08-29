@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 export const PALETTE_NAMES = [
 	'green-sea',
@@ -27,9 +27,12 @@ export const PROPERTY_STRATEGY_MODES = [
 	'smart', 'distinct', 'status', 'priority', 'single', 'neutral', 'off',
 ] as const;
 export type PropertyStrategyMode = (typeof PROPERTY_STRATEGY_MODES)[number];
+export const PILL_STYLES = ['soft', 'solid', 'outline'] as const;
+export type PillStyle = (typeof PILL_STYLES)[number];
 export interface PropertyColorStrategy {
 	mode: PropertyStrategyMode;
 	preset?: PaletteName;
+	style?: PillStyle;
 }
 
 export type ColorOverride =

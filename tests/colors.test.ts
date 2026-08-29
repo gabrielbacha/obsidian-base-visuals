@@ -28,6 +28,13 @@ describe('color utilities', () => {
 		expect(results.size).toBeGreaterThan(1);
 	});
 
+	it('cycles ordered Distinct values through the palette by their leading number', () => {
+		expect(automaticPreset({ propertyId: 'note.capabilities', value: '1. Onboarding' })).toBe('green-sea');
+		expect(automaticPreset({ propertyId: 'note.capabilities', value: '2. Orientation' })).toBe('peter-river');
+		expect(automaticPreset({ propertyId: 'note.capabilities', value: '12. Change' })).toBe('wisteria');
+		expect(automaticPreset({ propertyId: 'note.capabilities', value: '13. Open' })).toBe('midnight-blue');
+	});
+
 	it('normalizes three and six digit hex colors', () => {
 		expect(normalizeHex('abc')).toBe('#AABBCC');
 		expect(normalizeHex(' #12aBef ')).toBe('#12ABEF');
@@ -54,6 +61,14 @@ describe('color utilities', () => {
 			const resolved = resolvePreset(entry.name);
 			expect(contrastRatio(resolved.foregroundLight, tintedHex(entry.hex, '#FFFFFF'))).toBeGreaterThanOrEqual(4.5);
 			expect(contrastRatio(resolved.foregroundDark, tintedHex(entry.hex, '#1E1E1E'))).toBeGreaterThanOrEqual(4.5);
+		}
+	});
+
+	it('chooses AA text contrast for every Solid palette background', () => {
+		for (const entry of PALETTE) {
+			const resolved = resolvePreset(entry.name);
+			expect(resolved.solidForeground).toBe('#FFFFFF');
+			expect(contrastRatio(resolved.solidForeground, resolved.solidBackground)).toBeGreaterThanOrEqual(4.5);
 		}
 	});
 

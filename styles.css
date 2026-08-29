@@ -486,9 +486,12 @@
 .bases-table .bases-group-heading.bpc-group-heading--colored .bases-group-value {
 	display: inline-flex;
 	align-items: center;
+	align-self: stretch;
+	box-sizing: border-box;
 	padding: 2px 7px;
 	border: 1px solid var(--bpc-border);
-	border-radius: 4px;
+	border-top: 0;
+	border-radius: 0 0 4px 4px;
 	background-color: var(--bpc-bg);
 	color: var(--bases-group-heading-value-color);
 }
@@ -499,6 +502,36 @@
 
 .bases-table .bases-group-heading.bpc-group-heading--colored .bases-group-property {
 	color: var(--text-muted);
+}
+
+.bases-table .bases-group-heading.bpc-group-heading--colored.bpc-pill-style-solid .bases-group-value {
+	border-color: transparent;
+	background-color: var(--bpc-solid-bg);
+	color: var(--bpc-solid-fg);
+}
+
+.bases-table .bases-group-heading.bpc-group-heading--colored.bpc-pill-style-solid:hover .bases-group-value {
+	background-color: var(--bpc-solid-bg-hover);
+}
+
+.bases-table .bases-group-heading.bpc-group-heading--colored.bpc-pill-style-outline .bases-group-value {
+	border-color: currentColor;
+	background-color: var(--background-primary);
+	color: var(--bpc-fg-light);
+}
+
+.theme-dark .bases-table .bases-group-heading.bpc-group-heading--colored.bpc-pill-style-outline .bases-group-value {
+	color: var(--bpc-fg-dark);
+}
+
+.bases-table .bases-group-heading.bpc-group-heading--colored.bpc-pill-style-outline:hover .bases-group-value {
+	background-color: var(--bpc-bg);
+}
+
+.bases-table .bases-group-heading.bpc-group-heading--neutral.bpc-pill-style-solid .bases-group-value {
+	border-color: transparent;
+	background-color: var(--bpc-solid-bg);
+	color: var(--bpc-solid-fg);
 }
 
 .bases-view .bpc-column-appearance,
@@ -754,6 +787,7 @@
 	min-width: 0;
 	max-width: 100%;
 	box-sizing: border-box;
+	margin: 0;
 	padding: 2px 6px;
 	overflow: hidden;
 	border: 0;
@@ -761,6 +795,7 @@
 	font: inherit;
 	line-height: 1.35;
 	vertical-align: middle;
+	text-indent: 0;
 }
 
 .bases-view .bpc-pill--colored,
@@ -787,11 +822,54 @@
 	background-color: var(--bpc-bg-hover);
 }
 
+:is(.bases-view, .bases-embed) .bpc-pill--colored.bpc-pill-style-solid,
+.bpc-settings-pill.bpc-pill--colored.bpc-pill-style-solid {
+	border: 1px solid transparent;
+	background-color: var(--bpc-solid-bg);
+	color: var(--bpc-solid-fg);
+}
+
+.theme-dark :is(.bases-view, .bases-embed) .bpc-pill--colored.bpc-pill-style-solid,
+.theme-dark .bpc-settings-pill.bpc-pill--colored.bpc-pill-style-solid {
+	color: var(--bpc-solid-fg);
+}
+
+:is(.bases-view, .bases-embed) .bpc-pill--colored.bpc-pill-style-solid:hover,
+.bpc-settings-pill.bpc-pill--colored.bpc-pill-style-solid:hover {
+	background-color: var(--bpc-solid-bg-hover);
+}
+
+:is(.bases-view, .bases-embed) .bpc-pill--colored.bpc-pill-style-outline,
+.bpc-settings-pill.bpc-pill--colored.bpc-pill-style-outline {
+	border: 1px solid currentColor;
+	background-color: var(--background-primary);
+	color: var(--bpc-fg-light);
+}
+
+.theme-dark :is(.bases-view, .bases-embed) .bpc-pill--colored.bpc-pill-style-outline,
+.theme-dark .bpc-settings-pill.bpc-pill--colored.bpc-pill-style-outline {
+	color: var(--bpc-fg-dark);
+}
+
+:is(.bases-view, .bases-embed) .bpc-pill--colored.bpc-pill-style-outline:hover,
+.bpc-settings-pill.bpc-pill--colored.bpc-pill-style-outline:hover {
+	background-color: var(--bpc-bg);
+}
+
+:is(.bases-view, .bases-embed) .bpc-pill--neutral.bpc-pill-style-solid,
+.bpc-settings-pill.bpc-pill--neutral.bpc-pill-style-solid {
+	border-color: transparent;
+	background-color: var(--bpc-solid-bg);
+	color: var(--bpc-solid-fg);
+}
+
 .bases-view .bpc-pill .multi-select-pill-content,
 .bases-embed .bpc-pill .multi-select-pill-content {
 	display: block;
 	min-width: 0;
 	max-width: 100%;
+	margin: 0;
+	padding: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1500,6 +1578,12 @@
 
 .bpc-property-strategy__text strong {
 	font-size: var(--font-ui-small);
+}
+
+.bpc-property-strategy__style-row {
+	margin-top: 10px;
+	padding-top: 10px;
+	border-top: 1px solid var(--background-modifier-border-hover);
 }
 
 .bpc-property-strategy__palette {

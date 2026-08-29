@@ -46,7 +46,7 @@ interface NativeTableView {
 	type: string;
 	containerEl: HTMLElement;
 	config: NativeViewConfig;
-	data?: { properties?: unknown[] };
+	data?: { properties?: unknown[]; data?: unknown[] };
 	columnInfo?: Record<string, NativeColumnInfo>;
 	minColWidth?: number;
 	maxColWidth?: number;
@@ -69,6 +69,19 @@ interface NativeColumnInfo {
 	headerWidth: number;
 	contentWidth: number;
 	customWidth: number;
+}
+
+interface NativeResultEntry {
+	getValue(propertyId: string): unknown;
+}
+
+interface ListLikeValue {
+	length(): number;
+	get(index: number): unknown;
+}
+
+interface TextLikeValue {
+	toString(): string;
 }
 
 const VIEW_CACHE = new WeakMap<HTMLElement, NativeTableView>();
@@ -207,6 +220,29 @@ export function getNativePropertyDisplayName(app: App, scope: HTMLElement, prope
 	const header = getNativeColumnHeaders(app, scope).find((candidate) => candidate.propertyId === propertyId)?.element;
 	const text = header?.textContent?.trim();
 	return text || undefined;
+}
+
+export function getNativeResultPropertyValues(
+	app: App,
+	scope: HTMLElement,
+	propertyIds: readonly string[],
+): { available: boolean; properties: Set<string>; values: Map<string, Set<string>> } {
+	const result = findNativeTableView(app, scope)?.data;
+	if (!result || !Array.isArray(result.data)) {
+		return { available: false, properties: new Set(), values: new Map() };
+	}
+	const properties = new Set(result.properties?.filter((value): value is string => typeof value === 'string') ?? []);
+	const values = new Map<string, Set<string>>();
+	for (const propertyId of propertyIds) {
+		const propertyValues = new Set<string>();
+		for (const entry of result.data) {
+			if (!isNativeResultEntry(entry)) continue;
+			const value = entry.getValue(propertyId);
+			for (const text of valueTexts(value)) propertyValues.add(text);
+		}
+		values.set(propertyId, propertyValues);
+	}
+	return { available: true, properties, values };
 }
 
 export function getNativeColumnAppearance(
@@ -389,6 +425,31 @@ function finiteOr(value: unknown, fallback: number): number {
 function nativeProperties(view: NativeTableView | null): string[] {
 	return view?.data?.properties?.filter((property): property is string =>
 		typeof property === 'string') ?? [];
+}
+
+function valueTexts(value: unknown): string[] {
+	if (isListLikeValue(value)) {
+		const length = value.length();
+		if (typeof length !== 'number' || !Number.isSafeInteger(length) || length < 0) return [];
+		const values: string[] = [];
+		for (let index = 0; index < length; index += 1) values.push(...valueTexts(value.get(index)));
+		return values;
+	}
+	if (!isTextLikeValue(value)) return [];
+	const text = value.toString().trim();
+	return text ? [text] : [];
+}
+
+function isNativeResultEntry(value: unknown): value is NativeResultEntry {
+	return isObject(value) && typeof value.getValue === 'function';
+}
+
+function isListLikeValue(value: unknown): value is ListLikeValue {
+	return isObject(value) && typeof value.length === 'function' && typeof value.get === 'function';
+}
+
+function isTextLikeValue(value: unknown): value is TextLikeValue {
+	return isObject(value) && typeof value.toString === 'function' && value.toString !== Object.prototype.toString;
 }
 
 function saveNativeColumnSizes(

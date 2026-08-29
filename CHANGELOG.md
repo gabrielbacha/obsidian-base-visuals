@@ -2,6 +2,18 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.8.0 — 2026-08-29
+
+- Add Soft, Solid, and Outline pill styles per property, independently of its color strategy.
+- Use white text for Solid pills and darken bright accents only as much as needed for readable contrast.
+- Apply pill styles consistently to live tables, previews, contextual managers, and grouped-value badges.
+- Add a confirmed **Clean unused** action that removes stale saved pill settings without changing notes.
+- Sort numbered values naturally, so `2` appears before `10` and `17`.
+- Assign leading-numbered Distinct values predictably across the nine-color palette.
+- Rework grouped-value badges into a flush U shape with square top corners and rounded bottom corners.
+- Normalize native pill spacing to remove inconsistent left padding across property types.
+- Refresh pill styles immediately after settings changes and recover them when Obsidian rewrites rendered classes.
+
 ## 0.7.0 — 2026-08-28
 
 - Add Smart, Distinct, Status, Priority, Single color, Neutral, and Off strategies for each property.

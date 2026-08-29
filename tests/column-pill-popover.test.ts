@@ -72,6 +72,19 @@ describe('ColumnPillPopover', () => {
 		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'single', preset: 'raspberry' });
 	});
 
+	it('edits pill style independently from the color strategy', () => {
+		const { popover, store } = createPopover();
+		popover.open(createRequest());
+		findMenuItem('Manage “status” colors')?.click();
+		const style = document.querySelector<HTMLSelectElement>('[aria-label="Pill style for status"]');
+		expect(style?.value).toBe('soft');
+		if (style) style.value = 'outline';
+		style?.dispatchEvent(new Event('change', { bubbles: true }));
+		expect(store.getPropertyStyle('note.status')).toBe('outline');
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'smart', style: 'outline' });
+		expect(document.querySelector('.bpc-column-manager__row .bpc-settings-pill')?.classList.contains('bpc-pill-style-outline')).toBe(true);
+	});
+
 	it('adds search only for larger columns and filters the value list', () => {
 		const { popover } = createPopover();
 		const request = createRequest();

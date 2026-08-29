@@ -1,9 +1,11 @@
-import { App, Modal } from 'obsidian';
+import { App, Modal, Notice } from 'obsidian';
 import { resolveColor } from '../core/colors';
 import { SettingsStore } from '../core/settings-store';
 import { StoredOption } from '../core/types';
 import { ColorPopover, displayPropertyName } from './color-popover';
 import { renderPropertyStrategyControls } from './property-strategy-controls';
+import { compareNaturalValues } from '../core/value-order';
+import type { UnusedOptionsPlan } from '../core/unused-options';
 
 export class PillColorManagerView {
 	private container: HTMLElement | null = null;
@@ -15,6 +17,7 @@ export class PillColorManagerView {
 		private readonly popover: ColorPopover,
 		private readonly reactive = true,
 		private readonly propertyNameFor: (propertyId: string) => string = displayPropertyName,
+		private readonly unusedOptionsPlan?: () => UnusedOptionsPlan,
 	) {}
 
 	mount(container: HTMLElement): void {
@@ -47,6 +50,32 @@ export class PillColorManagerView {
 			attr: { 'aria-label': 'Search properties and values', autocomplete: 'off', name: 'bpc-property-value-search' },
 		});
 		search.value = this.store.settings.managerSearch;
+
+		if (this.unusedOptionsPlan) {
+			const cleanup = toolbar.createEl('button', {
+				text: 'Clean unused',
+				cls: 'bpc-manager-cleanup',
+				attr: { type: 'button' },
+			});
+			cleanup.addEventListener('click', () => {
+				const plan = this.unusedOptionsPlan?.();
+				if (!plan || plan.verifiedProperties === 0) {
+					new Notice('No base values are currently available to verify.');
+					return;
+				}
+				const strategyCount = plan.removedProperties.filter((propertyId) =>
+					Boolean(this.store.getExplicitPropertyStrategy(propertyId))).length;
+				const total = plan.options.length + strategyCount;
+				if (total === 0) {
+					new Notice('No unused pill color settings found.');
+					return;
+				}
+				new ConfirmCleanupModal(this.app, plan.options.length, strategyCount, () => {
+					const removed = this.store.removeUnusedOptions(plan.options, plan.removedProperties);
+					new Notice(`Cleaned ${removed} unused visual ${removed === 1 ? 'setting' : 'settings'}.`);
+				}).open();
+			});
+		}
 
 		if (this.store.hasOverrides()) {
 			const resetAll = toolbar.createEl('button', {
@@ -205,26 +234,69 @@ export class ConfirmResetModal extends Modal {
 	}
 }
 
+class ConfirmCleanupModal extends Modal {
+	constructor(
+		app: App,
+		private readonly valueCount: number,
+		private readonly strategyCount: number,
+		private readonly onConfirm: () => void,
+	) {
+		super(app);
+	}
+
+	onOpen(): void {
+		this.setTitle('Clean unused pill settings?');
+		this.contentEl.addClass('bpc-confirm-modal');
+		const total = this.valueCount + this.strategyCount;
+		this.contentEl.createEl('p', {
+			text: `${total} saved visual ${total === 1 ? 'setting is' : 'settings are'} no longer used. This removes only Bases Visuals configuration; notes and property values will not be changed.`,
+		});
+		const detail = this.contentEl.createEl('p', { cls: 'setting-item-description' });
+		detail.textContent = 'Note properties are checked across the vault. Calculated properties are checked against the current base results.';
+		const actions = this.contentEl.createDiv('bpc-confirm-modal__actions');
+		const cancel = actions.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
+		cancel.addEventListener('click', () => this.close());
+		const confirm = actions.createEl('button', { text: 'Clean unused', cls: 'mod-warning', attr: { type: 'button' } });
+		confirm.addEventListener('click', () => {
+			this.onConfirm();
+			this.close();
+		});
+		confirm.focus();
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
+}
+
 export function applyPreviewColor(element: HTMLElement, option: StoredOption, store?: SettingsStore, propertyName?: string): void {
 	const color = resolveColor(option, option.override, store?.getPropertyStrategy(option.propertyId, propertyName));
+	const style = store?.getPropertyStyle(option.propertyId) ?? 'soft';
 	if (color.kind === 'disabled') {
 		element.classList.remove('bpc-pill--colored', 'bpc-pill--neutral');
-		for (const variable of ['--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark', '--bpc-border']) {
+		element.classList.remove('bpc-pill-style-soft', 'bpc-pill-style-solid', 'bpc-pill-style-outline');
+		for (const variable of ['--bpc-bg', '--bpc-bg-hover', '--bpc-fg-light', '--bpc-fg-dark', '--bpc-border', '--bpc-accent', '--bpc-solid-bg', '--bpc-solid-fg', '--bpc-solid-bg-hover']) {
 			element.style.removeProperty(variable);
 		}
 		return;
 	}
 	element.classList.add('bpc-pill--colored');
 	element.classList.toggle('bpc-pill--neutral', color.kind === 'neutral');
+	element.classList.remove('bpc-pill-style-soft', 'bpc-pill-style-solid', 'bpc-pill-style-outline');
+	element.classList.add(`bpc-pill-style-${style}`);
 	element.style.setProperty('--bpc-bg', color.background);
 	element.style.setProperty('--bpc-bg-hover', color.hoverBackground);
 	element.style.setProperty('--bpc-fg-light', color.foregroundLight);
 	element.style.setProperty('--bpc-fg-dark', color.foregroundDark);
 	element.style.setProperty('--bpc-border', color.border);
+	element.style.setProperty('--bpc-accent', color.dot);
+	element.style.setProperty('--bpc-solid-bg', color.solidBackground);
+	element.style.setProperty('--bpc-solid-fg', color.solidForeground);
+	element.style.setProperty('--bpc-solid-bg-hover', color.solidHoverBackground);
 }
 
 function compareOptions(first: StoredOption, second: StoredOption): number {
-	return first.propertyId.localeCompare(second.propertyId) || first.value.localeCompare(second.value);
+	return first.propertyId.localeCompare(second.propertyId) || compareNaturalValues(first.value, second.value);
 }
 
 function groupOptions(options: StoredOption[]): Map<string, StoredOption[]> {

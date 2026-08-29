@@ -20,7 +20,7 @@ describe('SettingsStore', () => {
 			},
 		});
 
-		expect(settings.schemaVersion).toBe(5);
+		expect(settings.schemaVersion).toBe(6);
 		expect(Object.values(settings.options)).toEqual([
 			{
 				propertyId: 'note.status',
@@ -63,10 +63,24 @@ describe('SettingsStore', () => {
 			],
 		});
 
-		expect(settings.schemaVersion).toBe(5);
+		expect(settings.schemaVersion).toBe(6);
 		expect(settings.rules).toHaveLength(1);
 		expect(settings.rules[0]?.color).toEqual({ kind: 'custom', hex: '#AABBCC' });
 		expect(settings.knownProperties['note.status']).toEqual({ propertyId: 'note.status' });
+	});
+
+	it('stores pill style independently from the inferred or explicit strategy', () => {
+		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+		store.setPropertyStyle('note.status', 'solid');
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'smart', style: 'solid' });
+		expect(store.getPropertyStrategy('note.status')).toEqual({ mode: 'status', style: 'solid' });
+		store.setPropertyStrategy('note.status', { mode: 'priority' });
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'priority', style: 'solid' });
+		store.setPropertyStyle('note.status', 'soft');
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'priority' });
+		store.setPropertyStrategy('note.status', undefined);
+		expect(store.getExplicitPropertyStrategy('note.status')).toBeUndefined();
+		store.dispose();
 	});
 
 	it('migrates every legacy preset ID and normalizes property strategies', () => {
@@ -96,6 +110,29 @@ describe('SettingsStore', () => {
 		store.resetProperty('note.status');
 		expect(store.getExplicitPropertyStrategy('note.status')).toBeUndefined();
 		expect(store.get({ propertyId: 'note.status', value: 'Done' })?.override).toBeUndefined();
+		store.dispose();
+	});
+
+	it('removes only confirmed stale option and property records', () => {
+		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+		store.ensure({ propertyId: 'note.category', value: 'Current' });
+		store.ensure({ propertyId: 'note.category', value: 'Deleted' });
+		store.setPropertyStrategy('note.category', { mode: 'distinct' });
+		store.ensure({ propertyId: 'note.removed', value: 'Old' });
+		store.setPropertyStrategy('note.removed', { mode: 'neutral' });
+
+		const removed = store.removeUnusedOptions(
+			[
+				{ propertyId: 'note.category', value: 'Deleted' },
+				{ propertyId: 'note.removed', value: 'Old' },
+			],
+			['note.removed'],
+		);
+		expect(removed).toBe(3);
+		expect(store.get({ propertyId: 'note.category', value: 'Current' })).toBeDefined();
+		expect(store.get({ propertyId: 'note.category', value: 'Deleted' })).toBeUndefined();
+		expect(store.getExplicitPropertyStrategy('note.category')).toEqual({ mode: 'distinct' });
+		expect(store.getExplicitPropertyStrategy('note.removed')).toBeUndefined();
 		store.dispose();
 	});
 

@@ -2,6 +2,7 @@ import { resolvePreset } from '../core/colors';
 import { strategyLabel } from '../core/property-strategies';
 import { SettingsStore } from '../core/settings-store';
 import { PALETTE_NAMES, type PropertyStrategyMode } from '../core/types';
+import type { PillStyle } from '../core/types';
 
 const STRATEGIES: Array<{ value: PropertyStrategyMode; label: string }> = [
 	{ value: 'smart', label: 'Smart' }, { value: 'distinct', label: 'Distinct values' },
@@ -42,6 +43,32 @@ export function renderPropertyStrategyControls(
 			mode,
 			...(mode === 'single' ? { preset: explicit?.preset ?? 'peter-river' } : {}),
 		});
+		onChange?.();
+	});
+
+	const styleRow = wrapper.createDiv('bpc-property-strategy__row bpc-property-strategy__style-row');
+	const styleText = styleRow.createDiv('bpc-property-strategy__text');
+	styleText.createEl('strong', { text: 'Pill style' });
+	styleText.createSpan({
+		text: ({ soft: 'Soft background', solid: 'Saturated background', outline: 'Colored border' })[store.getPropertyStyle(propertyId)],
+		cls: 'setting-item-description',
+	});
+	const styleSelect = styleRow.createEl('select', {
+		cls: 'dropdown',
+		attr: { 'aria-label': `Pill style for ${displayName}` },
+	});
+	const styles: Array<{ value: PillStyle; label: string }> = [
+		{ value: 'soft', label: 'Soft' },
+		{ value: 'solid', label: 'Solid' },
+		{ value: 'outline', label: 'Outline' },
+	];
+	for (const option of styles) {
+		const element = styleSelect.createEl('option', { text: option.label });
+		element.value = option.value;
+	}
+	styleSelect.value = store.getPropertyStyle(propertyId);
+	styleSelect.addEventListener('change', () => {
+		store.setPropertyStyle(propertyId, styleSelect.value as PillStyle);
 		onChange?.();
 	});
 

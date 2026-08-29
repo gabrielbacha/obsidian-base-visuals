@@ -12,7 +12,7 @@ export const BASE_VISUALS_KEY = 'basesVisualsBase';
 export const VIEW_VISUALS_KEY = 'basesVisualsView';
 
 interface BaseVisualData {
-	schemaVersion: 2;
+	schemaVersion: 3;
 	options: Record<string, StoredOption>;
 	knownProperties: Record<string, { propertyId: string }>;
 	rules: ConditionalRule[];
@@ -179,7 +179,7 @@ function scopedSettings(
 
 function migrateGlobalVisuals(global: BasesPillColorsSettings): BaseVisualData {
 	return {
-		schemaVersion: 2,
+		schemaVersion: 3,
 		options: structuredClone(global.options),
 		knownProperties: structuredClone(global.knownProperties),
 		rules: global.rules.map((rule) => ({ ...structuredClone(rule), scope: 'base' })),
@@ -190,7 +190,7 @@ function migrateGlobalVisuals(global: BasesPillColorsSettings): BaseVisualData {
 function baseDataFromSettings(settings: BasesPillColorsSettings, current: unknown): BaseVisualData {
 	const previous = normalizeBaseData(current);
 	return {
-		schemaVersion: 2,
+		schemaVersion: 3,
 		options: structuredClone(settings.options),
 		knownProperties: structuredClone(settings.knownProperties),
 		rules: settings.rules.filter((rule) => rule.scope === 'base').map((rule) => structuredClone(rule)),
@@ -215,7 +215,7 @@ function normalizeBaseData(value: unknown): BaseVisualData | null {
 		propertyStrategies: value.propertyStrategies,
 	});
 	return {
-		schemaVersion: 2,
+		schemaVersion: 3,
 		options: normalized.options,
 		knownProperties: normalized.knownProperties,
 		rules: normalized.rules.map((rule) => ({ ...rule, scope: 'base' })),

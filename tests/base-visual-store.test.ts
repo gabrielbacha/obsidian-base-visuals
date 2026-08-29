@@ -49,7 +49,7 @@ describe('BaseVisualStoreRepository', () => {
 		const base = values.get(BASE_VISUALS_KEY) as { rules: Array<{ id: string }>; schemaVersion: number; propertyStrategies: unknown };
 		const view = values.get(VIEW_VISUALS_KEY) as { rules: Array<{ scope: string }> };
 		expect(base.rules.map((rule) => rule.id)).toEqual(['legacy']);
-		expect(base.schemaVersion).toBe(2);
+		expect(base.schemaVersion).toBe(3);
 		expect(base.propertyStrategies).toEqual({ 'note.status': { mode: 'status' } });
 		expect(view.rules).toHaveLength(1);
 		expect(view.rules[0]?.scope).toBe('view');
