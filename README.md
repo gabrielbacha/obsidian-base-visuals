@@ -6,6 +6,7 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 
 - Stable automatic colors scoped by property and value
 - Named presets plus custom hex colors
+- Eight switchable palette templates with full live previews: Default · Bases Visuals plus Sunset spectrum, Desert coast, Editorial, Ocean depth, Ember, Citrus grove, and Electric bloom. Changing a template updates automatic and preset colors per Base while preserving custom colors.
 - A centralized manager for every discovered pill color
 - Searchable settings manager grouped by property
 - Long labels stay compact with ellipsis and a full-value tooltip
@@ -26,15 +27,17 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 Open a Base table containing a list property. Values receive stable automatic colors as they appear.
 
 - **Left-click** a cell to keep using Obsidian's native value editor.
+- Hover or focus a pill to reveal its **×** control. When an individual pill is active, **Delete** or **Backspace** removes only that value rather than clearing the cell.
 - **Right-click** a pill for a compact action menu. Open its palette only when changing color, manage every encountered value in that table column, or remove the clicked value from its row.
-- Click **Format** in a Base table toolbar to open the unified Pill colors and Conditional formatting manager.
+- Click **Format** in a Base table toolbar to open the Base-scoped manager directly on Pill colors; Conditional formatting remains available in its second tab.
 - Click **Layout** to adjust row height, test column-width presets, reset widths, or save the current combination as a reusable layout.
 - Use **Unset only** to preserve unrelated manual widths. Header indicators show which columns will change. **All columns** always asks for confirmation.
 - Group a table by a colored list property to carry each value's pill color into its group heading.
 - Right-click a column header and choose **Column appearance** to de-emphasize, recolor, or bold that field in the current view or every view in the Base.
+- For list columns, right-click the header and choose **Pill appearance** to change its color strategy and Soft, Solid, or Outline style without opening the full manager.
 - Choose **Format** in the Base toolbar to manage conditional formatting and every discovered property value for that Base.
 
-Pill colors are scoped to the current Base and shared by its views. Conditional-formatting rules can target only the current view or every view in the Base, remain case-insensitive, and are evaluated top-to-bottom. Color and conditional-formatting changes never modify note properties. Layout and column-appearance actions use Obsidian's native Base view configuration. Column appearance can also be shared across every view in the Base. The explicit **Remove from row** action delegates that one list edit to Obsidian.
+Pill colors are scoped to the current Base and shared by its views. Friendly column names are display-only: settings remain attached to the underlying note property even when a Base renames the column. Conditional-formatting rules can target only the current view or every view in the Base, remain case-insensitive, and are evaluated top-to-bottom. Color and conditional-formatting changes never modify note properties. Layout and column-appearance actions use Obsidian's native Base view configuration. Column appearance can also be shared across every view in the Base. The explicit **Remove from row** action delegates that one list edit to Obsidian.
 
 ## Installation
 

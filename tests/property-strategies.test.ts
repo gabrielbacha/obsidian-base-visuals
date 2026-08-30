@@ -5,7 +5,11 @@ import { effectivePropertyStrategy, inferPropertyStrategy, strategyColor } from 
 describe('property color strategies', () => {
 	it('infers Smart strategies from exact IDs and display names across separators and case', () => {
 		expect(inferPropertyStrategy('note.STATUS')).toEqual({ mode: 'status' });
+		expect(inferPropertyStrategy('note.status_todo')).toEqual({ mode: 'status' });
+		expect(inferPropertyStrategy('note.status-review')).toEqual({ mode: 'status' });
+		expect(inferPropertyStrategy('note.project_status')).toEqual({ mode: 'distinct' });
 		expect(inferPropertyStrategy('formula.unknown', 'Work_flow')).toEqual({ mode: 'status' });
+		expect(inferPropertyStrategy('note.priority_customer')).toEqual({ mode: 'priority' });
 		expect(inferPropertyStrategy('note.priority-level', 'Priority')).toEqual({ mode: 'priority' });
 		expect(inferPropertyStrategy('note.tags')).toEqual({ mode: 'single', preset: 'peter-river' });
 		expect(inferPropertyStrategy('note.add-in')).toEqual({ mode: 'neutral' });

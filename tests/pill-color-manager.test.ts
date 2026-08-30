@@ -36,4 +36,29 @@ describe('pill color manager cleanup', () => {
 		store.dispose();
 		container.remove();
 	});
+
+	it('shows and resets only properties allowed by the opened base', () => {
+		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+		store.ensure({ propertyId: 'note.status', value: 'Done' });
+		store.ensure({ propertyId: 'note.other', value: 'Elsewhere' });
+		store.setPropertyStyle('note.status', 'solid');
+		store.setPropertyStyle('note.other', 'outline');
+		const popover = { close: vi.fn(), openAtElement: vi.fn() } as unknown as ColorPopover;
+		const view = new PillColorManagerView(
+			{} as App, store, popover, true, undefined, undefined, new Set(['note.status']),
+		);
+		const container = document.body.createDiv();
+		view.mount(container);
+
+		expect(container.textContent).toContain('Done');
+		expect(container.textContent).not.toContain('Elsewhere');
+		container.querySelector<HTMLButtonElement>('.bpc-manager-reset')?.click();
+		document.querySelector<HTMLButtonElement>('.modal-content .mod-warning')?.click();
+		expect(store.getPropertyStyle('note.status')).toBe('soft');
+		expect(store.getPropertyStyle('note.other')).toBe('outline');
+
+		view.unmount();
+		store.dispose();
+		container.remove();
+	});
 });

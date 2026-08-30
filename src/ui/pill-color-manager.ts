@@ -1,7 +1,8 @@
-import { App, Modal, Notice } from 'obsidian';
+import { App, Modal, Notice, setIcon } from 'obsidian';
 import { resolveColor } from '../core/colors';
 import { SettingsStore } from '../core/settings-store';
-import { StoredOption } from '../core/types';
+import { PALETTE_TEMPLATE_IDS, StoredOption } from '../core/types';
+import { PALETTE_TEMPLATES } from '../core/colors';
 import { ColorPopover, displayPropertyName } from './color-popover';
 import { renderPropertyStrategyControls } from './property-strategy-controls';
 import { compareNaturalValues } from '../core/value-order';
@@ -10,6 +11,7 @@ import type { UnusedOptionsPlan } from '../core/unused-options';
 export class PillColorManagerView {
 	private container: HTMLElement | null = null;
 	private unsubscribe: (() => void) | null = null;
+	private palettePickerCleanup: (() => void) | null = null;
 
 	constructor(
 		private readonly app: App,
@@ -18,6 +20,7 @@ export class PillColorManagerView {
 		private readonly reactive = true,
 		private readonly propertyNameFor: (propertyId: string) => string = displayPropertyName,
 		private readonly unusedOptionsPlan?: () => UnusedOptionsPlan,
+		private readonly allowedPropertyIds?: ReadonlySet<string>,
 	) {}
 
 	mount(container: HTMLElement): void {
@@ -29,18 +32,115 @@ export class PillColorManagerView {
 	unmount(): void {
 		this.unsubscribe?.();
 		this.unsubscribe = null;
+		this.palettePickerCleanup?.();
+		this.palettePickerCleanup = null;
 		this.popover.close();
 		this.container = null;
 	}
 
 	private render(): void {
 		if (!this.container) return;
+		this.palettePickerCleanup?.();
+		this.palettePickerCleanup = null;
 		this.container.empty();
 		this.container.addClass('bpc-pill-manager');
 		this.container.createEl('p', {
 			text: 'Manage list values discovered in this base. Colors are shared by every view in this base.',
 			cls: 'setting-item-description bpc-pill-manager__intro',
 		});
+
+		const selectedTemplate = PALETTE_TEMPLATES.find((template) =>
+			template.id === this.store.getPaletteTemplateId()) ?? PALETTE_TEMPLATES[0]!;
+		const paletteBar = this.container.createDiv('bpc-palette-template');
+		const paletteCopy = paletteBar.createDiv('bpc-palette-template__copy');
+		paletteCopy.createEl('strong', { text: 'Color palette' });
+		paletteCopy.createSpan({
+			text: selectedTemplate.description,
+			cls: 'setting-item-description',
+		});
+		const picker = paletteBar.createDiv('bpc-palette-picker');
+		const trigger = picker.createEl('button', {
+			cls: 'bpc-palette-picker__trigger',
+			attr: { type: 'button', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' },
+		});
+		trigger.createSpan({ text: selectedTemplate.label, cls: 'bpc-palette-picker__trigger-label' });
+		const chevron = trigger.createSpan('bpc-palette-picker__chevron');
+		setIcon(chevron, 'chevron-down');
+		renderPaletteStrip(trigger, selectedTemplate.colors.map((color) => color.hex), 'bpc-palette-strip--trigger');
+
+		const menu = picker.createDiv('bpc-palette-picker__menu');
+		menu.hidden = true;
+		menu.setAttribute('role', 'listbox');
+		menu.setAttribute('aria-label', 'Color palette templates');
+		let selectedOption: HTMLButtonElement | null = null;
+		for (const template of PALETTE_TEMPLATES) {
+			const option = menu.createEl('button', {
+				cls: 'bpc-palette-option',
+				attr: {
+					type: 'button', role: 'option',
+					'aria-selected': String(template.id === selectedTemplate.id),
+				},
+			});
+			if (template.id === selectedTemplate.id) {
+				option.addClass('is-selected');
+				selectedOption = option;
+			}
+			const optionHeader = option.createDiv('bpc-palette-option__header');
+			const optionCopy = optionHeader.createDiv('bpc-palette-option__copy');
+			optionCopy.createEl('strong', { text: template.label });
+			optionCopy.createSpan({ text: template.description });
+			const mark = optionHeader.createSpan('bpc-palette-option__check');
+			if (template.id === selectedTemplate.id) setIcon(mark, 'check');
+			renderPaletteStrip(option, template.colors.map((color) => color.hex), 'bpc-palette-strip--option');
+			option.addEventListener('click', () => {
+				if (PALETTE_TEMPLATE_IDS.includes(template.id)) this.store.setPaletteTemplateId(template.id);
+			});
+		}
+
+		const closePicker = (restoreFocus = false) => {
+			if (menu.hidden) return;
+			menu.hidden = true;
+			picker.removeClass('is-open');
+			trigger.setAttribute('aria-expanded', 'false');
+			if (restoreFocus) trigger.focus();
+		};
+		const openPicker = (focusSelection = false) => {
+			menu.hidden = false;
+			picker.addClass('is-open');
+			trigger.setAttribute('aria-expanded', 'true');
+			if (focusSelection) (selectedOption ?? menu.querySelector<HTMLButtonElement>('.bpc-palette-option'))?.focus();
+		};
+		trigger.addEventListener('click', () => menu.hidden ? openPicker() : closePicker());
+		trigger.addEventListener('keydown', (event) => {
+			if (event.key !== 'ArrowDown') return;
+			event.preventDefault();
+			openPicker(true);
+		});
+		menu.addEventListener('keydown', (event) => {
+			if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+			const options = [...menu.querySelectorAll<HTMLButtonElement>('.bpc-palette-option')];
+			const current = options.indexOf(event.target as HTMLButtonElement);
+			let next = current;
+			if (event.key === 'ArrowDown') next = Math.min(options.length - 1, current + 1);
+			if (event.key === 'ArrowUp') next = Math.max(0, current - 1);
+			if (event.key === 'Home') next = 0;
+			if (event.key === 'End') next = options.length - 1;
+			event.preventDefault();
+			options[next]?.focus();
+		});
+		const onDocumentPointerDown = (event: PointerEvent) => {
+			if (!picker.contains(event.target as Node)) closePicker();
+		};
+		const onDocumentKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Escape' && !menu.hidden) closePicker(true);
+		};
+		const doc = paletteBar.ownerDocument;
+		doc.addEventListener('pointerdown', onDocumentPointerDown, true);
+		doc.addEventListener('keydown', onDocumentKeyDown);
+		this.palettePickerCleanup = () => {
+			doc.removeEventListener('pointerdown', onDocumentPointerDown, true);
+			doc.removeEventListener('keydown', onDocumentKeyDown);
+		};
 
 		const toolbar = this.container.createDiv('bpc-manager-toolbar');
 		const search = toolbar.createEl('input', {
@@ -77,7 +177,7 @@ export class PillColorManagerView {
 			});
 		}
 
-		if (this.store.hasOverrides()) {
+		if (this.store.hasOverrides(this.allowedPropertyIds)) {
 			const resetAll = toolbar.createEl('button', {
 				text: 'Reset all overrides',
 				cls: 'bpc-manager-reset',
@@ -88,7 +188,7 @@ export class PillColorManagerView {
 					this.app,
 					'Reset all pill colors?',
 					'Value overrides and explicit property strategies will be cleared. Smart strategies will be inferred again; your notes will not be changed.',
-					() => this.store.resetAll(),
+					() => this.store.resetProperties(this.allowedPropertyIds),
 				).open();
 			});
 		}
@@ -106,7 +206,8 @@ export class PillColorManagerView {
 	}
 
 	private renderGroups(container: HTMLElement, query: string): void {
-		const allOptions = this.store.allOptions();
+		const allOptions = this.store.allOptions().filter((option) =>
+			this.allowedPropertyIds?.has(option.propertyId) ?? true);
 		const normalizedQuery = query.trim().toLocaleLowerCase();
 		const options = allOptions
 			.filter((option) => !normalizedQuery ||
@@ -187,7 +288,7 @@ export class PillColorManagerView {
 		applyPreviewColor(preview, option, this.store, this.propertyNameFor(option.propertyId));
 
 		row.createSpan({
-			text: resolveColor(option, option.override, this.store.getPropertyStrategy(option.propertyId, this.propertyNameFor(option.propertyId))).label,
+			text: resolveColor(option, option.override, this.store.getPropertyStrategy(option.propertyId, this.propertyNameFor(option.propertyId)), this.store.getPaletteTemplateId()).label,
 			cls: 'bpc-option-row__state',
 		});
 
@@ -269,8 +370,18 @@ class ConfirmCleanupModal extends Modal {
 	}
 }
 
+function renderPaletteStrip(container: HTMLElement, colors: readonly string[], modifier: string): HTMLElement {
+	const strip = container.createDiv(`bpc-palette-strip ${modifier}`);
+	strip.setAttribute('aria-hidden', 'true');
+	for (const color of colors) {
+		const swatch = strip.createSpan('bpc-palette-strip__color');
+		swatch.style.backgroundColor = color;
+	}
+	return strip;
+}
+
 export function applyPreviewColor(element: HTMLElement, option: StoredOption, store?: SettingsStore, propertyName?: string): void {
-	const color = resolveColor(option, option.override, store?.getPropertyStrategy(option.propertyId, propertyName));
+	const color = resolveColor(option, option.override, store?.getPropertyStrategy(option.propertyId, propertyName), store?.getPaletteTemplateId());
 	const style = store?.getPropertyStyle(option.propertyId) ?? 'soft';
 	if (color.kind === 'disabled') {
 		element.classList.remove('bpc-pill--colored', 'bpc-pill--neutral');

@@ -50,7 +50,7 @@ export class ColumnPillPopover {
 			header.createSpan({ text: propertyName, cls: 'bpc-context-header__property' });
 
 			const menu = panel.createDiv('bpc-context-menu');
-			const resolved = resolveColor(selectedIdentity, store.get(selectedIdentity)?.override, store.getPropertyStrategy(request.propertyId, propertyName));
+			const resolved = resolveColor(selectedIdentity, store.get(selectedIdentity)?.override, store.getPropertyStrategy(request.propertyId, propertyName), store.getPaletteTemplateId());
 			const color = createMenuItem(menu, 'Change color', resolved.label, 'chevron');
 			color.prepend(createColorDot(color, resolved.dot));
 			color.addEventListener('click', () => renderPalette(selectedIdentity, renderQuick));
@@ -153,7 +153,7 @@ export class ColumnPillPopover {
 				}
 				for (const value of values) {
 					const identity = { propertyId: request.propertyId, value };
-					const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(request.propertyId, propertyName));
+					const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(request.propertyId, propertyName), store.getPaletteTemplateId());
 					const row = list.createEl('button', {
 						cls: 'clickable-icon bpc-column-manager__row',
 						attr: { type: 'button', 'data-bpc-menuitem': 'true' },

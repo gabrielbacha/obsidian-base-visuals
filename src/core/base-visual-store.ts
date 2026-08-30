@@ -1,5 +1,14 @@
 import { parseYaml, stringifyYaml, type App } from 'obsidian';
-import { getNativeBaseFile, getNativeViewConfig, type NativeViewConfig } from './native-table-view';
+import {
+	getNativeBaseFile,
+	COLUMN_APPEARANCE_CONFIG_KEY,
+	getNativePropertyDisplayName,
+	getNativePropertyIds,
+	getNativePropertyKind,
+	getNativeViewConfig,
+	resolveNativePropertyId,
+	type NativeViewConfig,
+} from './native-table-view';
 import { SettingsStore } from './settings-store';
 import {
 	DEFAULT_SETTINGS,
@@ -12,7 +21,8 @@ export const BASE_VISUALS_KEY = 'basesVisualsBase';
 export const VIEW_VISUALS_KEY = 'basesVisualsView';
 
 interface BaseVisualData {
-	schemaVersion: 3;
+	schemaVersion: 6;
+	paletteTemplateId: BasesPillColorsSettings['paletteTemplateId'];
 	options: Record<string, StoredOption>;
 	knownProperties: Record<string, { propertyId: string }>;
 	rules: ConditionalRule[];
@@ -30,6 +40,8 @@ export class BaseVisualStoreRepository {
 	private readonly liveStores = new Set<SettingsStore>();
 	private readonly scopeByStore = new WeakMap<SettingsStore, HTMLElement>();
 	private readonly unsubscribers = new Map<SettingsStore, () => void>();
+	private readonly propertyContexts = new WeakMap<HTMLElement, Promise<BasePropertyContext>>();
+	private readonly canonicalProperties = new WeakMap<HTMLElement, Map<string, string>>();
 
 	constructor(
 		private readonly app: App,
@@ -59,8 +71,39 @@ export class BaseVisualStoreRepository {
 		this.liveStores.add(store);
 		this.scopeByStore.set(store, scope);
 		this.unsubscribers.set(store, store.subscribe(() => this.globalStore.notify()));
-		if (!storedBase) void this.hydrateOrMigrate(scope, config, store, base);
+		if (!storedBase) {
+			void this.hydrateOrMigrate(scope, config, store, base)
+				.then(() => this.initializePropertyIdentity(scope, config, store));
+		} else void this.initializePropertyIdentity(scope, config, store);
 		return store;
+	}
+
+	resolvePropertyId(scope: HTMLElement, propertyId: string): string {
+		const native = resolveNativePropertyId(this.app, scope, propertyId) ?? propertyId.trim();
+		const aliases = this.canonicalProperties.get(scope);
+		return aliases?.get(propertyId) ?? aliases?.get(native) ?? native;
+	}
+
+	async propertyIdsForScope(
+		scope: HTMLElement,
+		fallback: readonly string[] = [],
+	): Promise<ReadonlySet<string>> {
+		const context = await this.propertyContext(scope);
+		const ids = new Set(context.listPropertyIds);
+		for (const propertyId of context.referencedPropertyIds) {
+			if (!context.nonListPropertyIds.has(propertyId)) ids.add(propertyId);
+		}
+		for (const propertyId of getNativePropertyIds(this.app, scope)) {
+			if (getNativePropertyKind(this.app, scope, propertyId) === 'list') {
+				ids.add(resolveWithAliases(context.aliases, propertyId));
+			}
+		}
+		for (const propertyId of fallback) {
+			if (getNativePropertyKind(this.app, scope, propertyId) === 'list') {
+				ids.add(resolveWithAliases(context.aliases, propertyId));
+			}
+		}
+		return ids;
 	}
 
 	getBaseColumnAppearances(scope: HTMLElement): Record<string, unknown> {
@@ -104,6 +147,7 @@ export class BaseVisualStoreRepository {
 				...store.settings.options,
 				...structuredClone(sibling.options),
 			};
+			store.settings.paletteTemplateId = sibling.paletteTemplateId;
 			store.settings.knownProperties = {
 				...store.settings.knownProperties,
 				...structuredClone(sibling.knownProperties),
@@ -117,6 +161,47 @@ export class BaseVisualStoreRepository {
 		const migrated = baseDataFromSettings(store.settings, fallback);
 		config.set(BASE_VISUALS_KEY, migrated);
 		await this.syncBaseViews(scope, migrated);
+	}
+
+	private async initializePropertyIdentity(
+		scope: HTMLElement,
+		config: NativeViewConfig,
+		store: SettingsStore,
+	): Promise<void> {
+		const context = await this.propertyContext(scope);
+		this.canonicalProperties.set(scope, context.aliases);
+		const resolve = (propertyId: string) => resolveWithAliases(context.aliases, propertyId);
+		const rawBase = config.get(BASE_VISUALS_KEY);
+		let current = normalizeBaseData(rawBase);
+		let baseChanged = isRecord(rawBase) && rawBase.schemaVersion !== 6;
+		if (current?.columnAppearances) {
+			const columnAppearances = rekeyRecord(current.columnAppearances, resolve);
+			if (JSON.stringify(columnAppearances) !== JSON.stringify(current.columnAppearances)) {
+				current = { ...current, columnAppearances };
+				baseChanged = true;
+			}
+		}
+		const viewAppearances = config.get(COLUMN_APPEARANCE_CONFIG_KEY);
+		if (isRecord(viewAppearances)) {
+			const canonicalAppearances = rekeyRecord(viewAppearances, resolve);
+			if (JSON.stringify(canonicalAppearances) !== JSON.stringify(viewAppearances)) {
+				config.set(COLUMN_APPEARANCE_CONFIG_KEY, canonicalAppearances);
+			}
+		}
+		if (current && baseChanged) config.set(BASE_VISUALS_KEY, current);
+		const storeChanged = store.rekeyProperties(resolve);
+		if (current && baseChanged && !storeChanged) {
+			await this.syncBaseViews(scope, current);
+		}
+		this.globalStore.notify();
+	}
+
+	private propertyContext(scope: HTMLElement): Promise<BasePropertyContext> {
+		const existing = this.propertyContexts.get(scope);
+		if (existing) return existing;
+		const pending = loadBasePropertyContext(this.app, scope);
+		this.propertyContexts.set(scope, pending);
+		return pending;
 	}
 
 	private async readSiblingBaseData(scope: HTMLElement): Promise<BaseVisualData | null> {
@@ -167,6 +252,7 @@ function scopedSettings(
 	return {
 		...structuredClone(DEFAULT_SETTINGS),
 		options: structuredClone(base.options),
+		paletteTemplateId: base.paletteTemplateId,
 		knownProperties: structuredClone(base.knownProperties),
 		propertyStrategies: structuredClone(base.propertyStrategies),
 		rules: [...structuredClone(base.rules), ...structuredClone(view.rules)],
@@ -179,7 +265,8 @@ function scopedSettings(
 
 function migrateGlobalVisuals(global: BasesPillColorsSettings): BaseVisualData {
 	return {
-		schemaVersion: 3,
+		schemaVersion: 6,
+		paletteTemplateId: global.paletteTemplateId,
 		options: structuredClone(global.options),
 		knownProperties: structuredClone(global.knownProperties),
 		rules: global.rules.map((rule) => ({ ...structuredClone(rule), scope: 'base' })),
@@ -190,7 +277,8 @@ function migrateGlobalVisuals(global: BasesPillColorsSettings): BaseVisualData {
 function baseDataFromSettings(settings: BasesPillColorsSettings, current: unknown): BaseVisualData {
 	const previous = normalizeBaseData(current);
 	return {
-		schemaVersion: 3,
+		schemaVersion: 6,
+		paletteTemplateId: settings.paletteTemplateId,
 		options: structuredClone(settings.options),
 		knownProperties: structuredClone(settings.knownProperties),
 		rules: settings.rules.filter((rule) => rule.scope === 'base').map((rule) => structuredClone(rule)),
@@ -209,19 +297,156 @@ function viewDataFromSettings(settings: BasesPillColorsSettings): ViewVisualData
 function normalizeBaseData(value: unknown): BaseVisualData | null {
 	if (!isRecord(value)) return null;
 	const normalized = SettingsStore.normalize({
+		paletteTemplateId: value.paletteTemplateId,
 		options: value.options,
 		knownProperties: value.knownProperties,
 		rules: value.rules,
 		propertyStrategies: value.propertyStrategies,
 	});
 	return {
-		schemaVersion: 3,
+		schemaVersion: 6,
+		paletteTemplateId: normalized.paletteTemplateId,
 		options: normalized.options,
 		knownProperties: normalized.knownProperties,
 		rules: normalized.rules.map((rule) => ({ ...rule, scope: 'base' })),
 		propertyStrategies: normalized.propertyStrategies,
 		...(isRecord(value.columnAppearances) ? { columnAppearances: structuredClone(value.columnAppearances) } : {}),
 	};
+}
+
+interface BasePropertyContext {
+	aliases: Map<string, string>;
+	listPropertyIds: Set<string>;
+	nonListPropertyIds: Set<string>;
+	referencedPropertyIds: Set<string>;
+}
+
+async function loadBasePropertyContext(app: App, scope: HTMLElement): Promise<BasePropertyContext> {
+	const aliases = new Map<string, string>();
+	const listPropertyIds = new Set<string>();
+	const nonListPropertyIds = new Set<string>();
+	const nativeIds = getNativePropertyIds(app, scope);
+	for (const propertyId of nativeIds) {
+		aliases.set(propertyId, propertyId);
+		const displayName = getNativePropertyDisplayName(app, scope, propertyId);
+		if (displayName) aliases.set(displayName, propertyId);
+	}
+
+	const file = getNativeBaseFile(app, scope);
+	if (!file || !app.vault?.cachedRead) {
+		return { aliases, listPropertyIds, nonListPropertyIds, referencedPropertyIds: new Set() };
+	}
+	try {
+		const parsed = parseYaml(await app.vault.cachedRead(file)) as Record<string, unknown> | null;
+		if (!parsed) return { aliases, listPropertyIds, nonListPropertyIds, referencedPropertyIds: new Set() };
+		const definitions = isRecord(parsed.properties) ? parsed.properties : {};
+		const lowerAliases = new Map<string, string | null>();
+		for (const [name, definition] of Object.entries(definitions)) {
+			const canonical = canonicalDefinitionId(name);
+			registerAlias(aliases, lowerAliases, name, canonical);
+			registerAlias(aliases, lowerAliases, canonical, canonical);
+			if (isRecord(definition) && typeof definition.displayName === 'string') {
+				registerAlias(aliases, lowerAliases, definition.displayName, canonical);
+			}
+			if (isListDefinition(definition)) listPropertyIds.add(canonical);
+			else if (isTypedDefinition(definition)) nonListPropertyIds.add(canonical);
+		}
+		for (const [alias, canonical] of lowerAliases) {
+			if (canonical) aliases.set(alias, canonical);
+		}
+		for (const alias of [...aliases.keys()]) {
+			const canonical = lowerAliases.get(alias.replace(/^note\./, '').toLocaleLowerCase());
+			if (canonical) aliases.set(alias, canonical);
+		}
+		for (const [alias, canonical] of [...aliases]) {
+			aliases.set(`note.${alias}`.replace(/^note\.note\./, 'note.'), canonical);
+		}
+		const referencedPropertyIds = new Set(
+			collectViewPropertyReferences(parsed.views).map((propertyId) =>
+				resolveWithAliases(aliases, canonicalDefinitionId(propertyId))),
+		);
+		return { aliases, listPropertyIds, nonListPropertyIds, referencedPropertyIds };
+	} catch {
+		return { aliases, listPropertyIds, nonListPropertyIds, referencedPropertyIds: new Set() };
+	}
+}
+
+function canonicalDefinitionId(name: string): string {
+	const trimmed = name.trim();
+	return /^(?:note|file|formula)\./.test(trimmed) ? trimmed : `note.${trimmed}`;
+}
+
+function isListDefinition(value: unknown): boolean {
+	if (!isRecord(value)) return false;
+	if (isRecord(value.options) || Array.isArray(value.options)) return true;
+	if (typeof value.type !== 'string') return false;
+	return ['select', 'multi', 'multiselect', 'list', 'tags'].includes(value.type.toLocaleLowerCase());
+}
+
+function isTypedDefinition(value: unknown): boolean {
+	return isRecord(value) && typeof value.type === 'string';
+}
+
+function collectViewPropertyReferences(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	const references = new Set<string>();
+	const visit = (candidate: unknown, key?: string): void => {
+		if (typeof candidate === 'string') {
+			if (key === 'property' || key === 'order') references.add(candidate);
+			return;
+		}
+		if (Array.isArray(candidate)) {
+			for (const item of candidate) visit(item, key);
+			return;
+		}
+		if (!isRecord(candidate)) return;
+		if (key === 'order') {
+			const id = typeof candidate.id === 'string'
+				? candidate.id
+				: typeof candidate.property === 'string' ? candidate.property : '';
+			if (id) references.add(id);
+		}
+		for (const [childKey, child] of Object.entries(candidate)) {
+			if (childKey === 'order' || childKey === 'property') visit(child, childKey);
+			else if (childKey === 'sort' || childKey === 'groupBy') visit(child);
+		}
+	};
+	for (const view of value) visit(view);
+	return [...references];
+}
+
+function registerAlias(
+	aliases: Map<string, string>,
+	lowerAliases: Map<string, string | null>,
+	alias: string,
+	canonical: string,
+): void {
+	const trimmed = alias.trim();
+	if (!trimmed) return;
+	aliases.set(trimmed, canonical);
+	const lower = trimmed.toLocaleLowerCase();
+	const existing = lowerAliases.get(lower);
+	lowerAliases.set(lower, existing === undefined || existing === canonical ? canonical : null);
+}
+
+function resolveWithAliases(aliases: Map<string, string>, propertyId: string): string {
+	const trimmed = propertyId.trim();
+	return aliases.get(trimmed)
+		?? aliases.get(trimmed.replace(/^note\./, ''))
+		?? aliases.get(trimmed.toLocaleLowerCase())
+		?? aliases.get(trimmed.replace(/^note\./, '').toLocaleLowerCase())
+		?? trimmed;
+}
+
+function rekeyRecord(value: Record<string, unknown>, resolve: (propertyId: string) => string): Record<string, unknown> {
+	const result: Record<string, unknown> = {};
+	const entries = Object.entries(value).sort(([first], [second]) =>
+		Number(resolve(first) !== first) - Number(resolve(second) !== second));
+	for (const [propertyId, item] of entries) {
+		const canonical = resolve(propertyId);
+		if (!(canonical in result)) result[canonical] = item;
+	}
+	return result;
 }
 
 function normalizeViewData(value: unknown): ViewVisualData {

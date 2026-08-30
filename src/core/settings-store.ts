@@ -1,4 +1,4 @@
-import { encodeOptionKey, normalizeHex, normalizePresetName } from './colors';
+import { encodeOptionKey, normalizeHex, normalizePaletteTemplateId, normalizePresetName } from './colors';
 import { effectivePropertyStrategy, inferPropertyStrategy } from './property-strategies';
 import {
 	BasesPillColorsSettings,
@@ -11,9 +11,9 @@ import {
 	StoredOption,
 	PropertyColorStrategy,
 	PROPERTY_STRATEGY_MODES,
-	PALETTE_NAMES,
 	PILL_STYLES,
 	PillStyle,
+	PaletteTemplateId,
 } from './types';
 import { isRuleOperator, normalizeRuleColor } from './rules';
 
@@ -76,6 +76,7 @@ export class SettingsStore {
 
 		return {
 			schemaVersion: SCHEMA_VERSION,
+			paletteTemplateId: normalizePaletteTemplateId(raw.paletteTemplateId),
 			options,
 			managerSearch:
 				typeof raw.managerSearch === 'string' ? raw.managerSearch : '',
@@ -87,6 +88,17 @@ export class SettingsStore {
 			layoutPresets,
 			lastColumnWidthPreset,
 		};
+	}
+
+	getPaletteTemplateId(): PaletteTemplateId {
+		return this.settings.paletteTemplateId;
+	}
+
+	setPaletteTemplateId(id: PaletteTemplateId): void {
+		const normalized = normalizePaletteTemplateId(id);
+		if (this.settings.paletteTemplateId === normalized) return;
+		this.settings.paletteTemplateId = normalized;
+		this.changed();
 	}
 
 	get(identity: OptionIdentity): StoredOption | undefined {
@@ -173,13 +185,18 @@ export class SettingsStore {
 	}
 
 	resetAll(): void {
+		this.resetProperties();
+	}
+
+	resetProperties(propertyIds?: ReadonlySet<string>): void {
 		let changed = false;
-		if (Object.keys(this.settings.propertyStrategies).length > 0) {
-			this.settings.propertyStrategies = {};
+		for (const propertyId of Object.keys(this.settings.propertyStrategies)) {
+			if (propertyIds && !propertyIds.has(propertyId)) continue;
+			delete this.settings.propertyStrategies[propertyId];
 			changed = true;
 		}
 		for (const option of Object.values(this.settings.options)) {
-			if (option.override) {
+			if ((!propertyIds || propertyIds.has(option.propertyId)) && option.override) {
 				delete option.override;
 				changed = true;
 			}
@@ -208,6 +225,54 @@ export class SettingsStore {
 		}
 		if (removed > 0) this.changed();
 		return removed;
+	}
+
+	rekeyProperties(resolve: (propertyId: string) => string): boolean {
+		let changed = false;
+		const options: typeof this.settings.options = {};
+		const orderedOptions = Object.values(this.settings.options).sort((first, second) =>
+			Number(resolve(first.propertyId) !== first.propertyId) - Number(resolve(second.propertyId) !== second.propertyId));
+		for (const option of orderedOptions) {
+			const propertyId = resolve(option.propertyId);
+			if (propertyId !== option.propertyId) changed = true;
+			const next = { ...option, propertyId };
+			const key = encodeOptionKey(next);
+			const existing = options[key];
+			options[key] = existing
+				? { ...next, ...existing, override: existing.override ?? next.override }
+				: next;
+		}
+
+		const knownProperties: typeof this.settings.knownProperties = {};
+		for (const property of Object.values(this.settings.knownProperties)) {
+			const propertyId = resolve(property.propertyId);
+			if (propertyId !== property.propertyId) changed = true;
+			knownProperties[propertyId] = { propertyId };
+		}
+
+		const propertyStrategies: typeof this.settings.propertyStrategies = {};
+		const orderedStrategies = Object.entries(this.settings.propertyStrategies).sort(([first], [second]) =>
+			Number(resolve(first) !== first) - Number(resolve(second) !== second));
+		for (const [legacyId, strategy] of orderedStrategies) {
+			const propertyId = resolve(legacyId);
+			if (propertyId !== legacyId) changed = true;
+			if (!propertyStrategies[propertyId] || propertyId === legacyId) {
+				propertyStrategies[propertyId] = strategy;
+			}
+		}
+
+		const rules = this.settings.rules.map((rule) => {
+			const propertyId = resolve(rule.propertyId);
+			if (propertyId !== rule.propertyId) changed = true;
+			return propertyId === rule.propertyId ? rule : { ...rule, propertyId };
+		});
+		if (!changed) return false;
+		this.settings.options = options;
+		this.settings.knownProperties = knownProperties;
+		this.settings.propertyStrategies = propertyStrategies;
+		this.settings.rules = rules;
+		this.changed();
+		return true;
 	}
 
 	setManagerSearch(search: string): void {
@@ -335,9 +400,11 @@ export class SettingsStore {
 		return Object.values(this.settings.options);
 	}
 
-	hasOverrides(): boolean {
-		return this.allOptions().some((option) => option.override !== undefined) ||
-			Object.keys(this.settings.propertyStrategies).length > 0;
+	hasOverrides(propertyIds?: ReadonlySet<string>): boolean {
+		return this.allOptions().some((option) =>
+			(!propertyIds || propertyIds.has(option.propertyId)) && option.override !== undefined) ||
+			Object.keys(this.settings.propertyStrategies).some((propertyId) =>
+				!propertyIds || propertyIds.has(propertyId));
 	}
 
 	subscribe(listener: Listener): () => void {
@@ -480,7 +547,7 @@ function normalizePropertyStrategy(value: unknown): PropertyColorStrategy | unde
 		const preset = normalizePresetName(value.preset);
 		return {
 			mode: 'single',
-			preset: preset && preset !== 'default' && PALETTE_NAMES.includes(preset) ? preset : 'peter-river',
+			preset: preset && preset !== 'default' ? preset : 'peter-river',
 			...(style ? { style } : {}),
 		};
 	}

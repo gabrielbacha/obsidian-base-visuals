@@ -1,6 +1,6 @@
-import { normalizeHex, resolvePreset } from '../core/colors';
+import { normalizeHex, palettePresetName, paletteTemplate, resolvePreset } from '../core/colors';
 import { SettingsStore } from '../core/settings-store';
-import { OptionIdentity, PRESET_NAMES, PresetName } from '../core/types';
+import { OptionIdentity, PresetName } from '../core/types';
 
 export interface ColorControlsHandle {
 	focus(): void;
@@ -21,7 +21,9 @@ export function renderColorControls(
 	const grid = container.createDiv('bpc-swatch-grid');
 	grid.setAttribute('role', 'group');
 	grid.setAttribute('aria-label', `Preset colors for ${identity.value}`);
-	const swatches = PRESET_NAMES.map((name) => createSwatch(grid, name));
+	const paletteId = store.getPaletteTemplateId();
+	const swatches = paletteTemplate(paletteId).colors
+		.map((_entry, index) => createSwatch(grid, palettePresetName(paletteId, index), paletteId));
 
 	const customSection = container.createDiv('bpc-custom-color');
 	const customLabel = customSection.createEl('label', { cls: 'bpc-custom-color__label' });
@@ -122,12 +124,12 @@ export function renderColorControls(
 	};
 }
 
-function createSwatch(grid: HTMLElement, name: PresetName): HTMLButtonElement {
-	const resolved = resolvePreset(name);
+function createSwatch(grid: HTMLElement, name: PresetName, paletteId: import('../core/types').PaletteTemplateId): HTMLButtonElement {
+	const resolved = resolvePreset(name, paletteId);
 	const button = grid.createEl('button', { cls: 'clickable-icon bpc-swatch' });
 	button.type = 'button';
 	button.dataset.preset = name;
-	button.title = resolved.label;
+	button.title = `${resolved.label} · ${resolved.dot}`;
 	button.setAttribute('aria-label', resolved.label);
 	button.style.setProperty('--bpc-swatch', resolved.dot);
 	return button;

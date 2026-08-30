@@ -5,16 +5,20 @@ import {
 	getNativeColumnHeaders,
 	getNativeGroupProperty,
 	getNativeMainProperty,
+	getNativePropertyKind,
 	getNativePropertyDisplayName,
+	resolveNativePropertyId,
 	type NativeColumnAppearance,
 } from './native-table-view';
 import { evaluateRule, ruleColorVariables } from './rules';
 import { SettingsStore } from './settings-store';
 import { BaseVisualStoreRepository } from './base-visual-store';
-import { ConditionalRule, OptionIdentity } from './types';
+import { ConditionalRule, OptionIdentity, type PaletteTemplateId } from './types';
 import { TableLayoutPopover } from '../ui/table-layout-popover';
 import { ColumnAppearancePopover } from '../ui/column-appearance-popover';
+import { ColumnPillAppearancePopover } from '../ui/column-pill-appearance-popover';
 import { compareNaturalValues } from './value-order';
+import { strategyLabel } from './property-strategies';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
@@ -44,6 +48,10 @@ interface RootBinding {
 	observer: MutationObserver;
 	inputHandler: (event: Event) => void;
 	contextMenuHandler: (event: MouseEvent) => void;
+	pointerDownHandler: (event: PointerEvent) => void;
+	focusInHandler: (event: FocusEvent) => void;
+	keyDownHandler: (event: KeyboardEvent) => void;
+	activePill: HTMLElement | null;
 }
 
 export type OpenRuleManager = (propertyIds: string[], scope?: HTMLElement) => void;
@@ -75,6 +83,7 @@ export class PillEnhancer {
 	private readonly mainPropertyByTable = new WeakMap<HTMLElement, string>();
 	private readonly tableLayoutPopover: TableLayoutPopover;
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
+	private readonly columnPillAppearancePopover: ColumnPillAppearancePopover;
 	private unsubscribeStore: (() => void) | null = null;
 	private started = false;
 
@@ -88,6 +97,7 @@ export class PillEnhancer {
 	) {
 		this.tableLayoutPopover = new TableLayoutPopover(app, store);
 		this.columnAppearancePopover = new ColumnAppearancePopover(app, baseStores);
+		this.columnPillAppearancePopover = new ColumnPillAppearancePopover();
 	}
 
 	start(registerEvent: (eventRef: EventRef) => void): void {
@@ -127,10 +137,24 @@ export class PillEnhancer {
 			if (target) this.refreshAround(target);
 		};
 		const contextMenuHandler = (event: MouseEvent) => this.handleContextMenu(event);
+		const pointerDownHandler = (event: PointerEvent) => this.handlePillPointerDown(root, event);
+		const focusInHandler = (event: FocusEvent) => this.handlePillFocusIn(root, event);
+		const keyDownHandler = (event: KeyboardEvent) => this.handlePillKeyDown(root, event);
 		root.addEventListener('input', inputHandler);
 		root.addEventListener('change', inputHandler);
 		root.addEventListener('contextmenu', contextMenuHandler, true);
-		this.roots.set(root, { observer, inputHandler, contextMenuHandler });
+		root.addEventListener('pointerdown', pointerDownHandler, true);
+		root.addEventListener('focusin', focusInHandler, true);
+		root.addEventListener('keydown', keyDownHandler, true);
+		this.roots.set(root, {
+			observer,
+			inputHandler,
+			contextMenuHandler,
+			pointerDownHandler,
+			focusInHandler,
+			keyDownHandler,
+			activePill: null,
+		});
 		this.processTree(root);
 	}
 
@@ -149,6 +173,7 @@ export class PillEnhancer {
 		this.tables.clear();
 		this.tableLayoutPopover.close();
 		this.columnAppearancePopover.close();
+		this.columnPillAppearancePopover.close();
 		for (const observer of this.pendingMenuObservers) observer.disconnect();
 		this.pendingMenuObservers.clear();
 		for (const element of this.columnAppearanceElements) clearColumnAppearance(element);
@@ -176,9 +201,15 @@ export class PillEnhancer {
 		const binding = this.roots.get(root);
 		if (!binding) return;
 		binding.observer.disconnect();
+		this.columnAppearancePopover.close();
+		this.columnPillAppearancePopover.close();
 		root.removeEventListener('input', binding.inputHandler);
 		root.removeEventListener('change', binding.inputHandler);
 		root.removeEventListener('contextmenu', binding.contextMenuHandler, true);
+		root.removeEventListener('pointerdown', binding.pointerDownHandler, true);
+		root.removeEventListener('focusin', binding.focusInHandler, true);
+		root.removeEventListener('keydown', binding.keyDownHandler, true);
+		this.setActivePill(root, null);
 		this.untrackTree(root);
 		for (const host of this.tableValues.keys()) {
 			if (host === root || root.contains(host)) this.tableValues.delete(host);
@@ -259,7 +290,7 @@ export class PillEnhancer {
 	private processCell(cell: HTMLElement): void {
 		const scope = findBaseTableHost(cell);
 		if (!scope) return;
-		const propertyId = cell.dataset.property?.trim();
+		const propertyId = this.propertyIdFor(scope, cell);
 		if (!propertyId) return;
 		this.visibleCells.add(cell);
 		this.scopedStore(scope).discoverProperty(propertyId);
@@ -286,7 +317,7 @@ export class PillEnhancer {
 		}
 		const scope = findBaseTableHost(heading);
 		const value = heading.querySelector<HTMLElement>('.bases-group-value')?.textContent?.trim() ?? '';
-		const propertyId = groupPropertyId(this.app, scope, heading);
+		const propertyId = scope ? this.propertyIdFor(scope, groupPropertyId(this.app, scope, heading) ?? '') : null;
 		if (!scope || !propertyId || !value) {
 			this.untrackGroupHeading(heading);
 			return;
@@ -317,7 +348,7 @@ export class PillEnhancer {
 			'bpc-conditional-formatting-button',
 			'palette',
 			'Format',
-			'Conditional formatting',
+			'Bases visuals',
 			() => this.openRuleManager(this.propertyIdsInScope(scope), scope),
 		);
 		const layoutItem = this.ensureToolbarControl(
@@ -372,7 +403,7 @@ export class PillEnhancer {
 		setClass(table, 'bpc-table', true);
 		this.tables.add(table);
 		const scope = findBaseTableHost(table);
-		const primary = scope ? getNativeMainProperty(this.app, scope) : null;
+		const primary = scope ? this.propertyIdFor(scope, getNativeMainProperty(this.app, scope) ?? '') : null;
 		this.updateMainColumn(table, primary ?? undefined);
 		if (scope) this.refreshColumnAppearances(scope);
 	}
@@ -396,9 +427,11 @@ export class PillEnhancer {
 		)?.dataset.property?.trim() ?? table.querySelector<HTMLElement>(
 			'.bases-tbody .bases-td[data-property], .bases-tbody .bases-table-cell[data-property]',
 		)?.dataset.property?.trim();
+		const scope = findBaseTableHost(cell);
+		const cellProperty = scope ? this.propertyIdFor(scope, cell) : cell.dataset.property?.trim();
 		cell.classList.toggle(
 			'bpc-main-column',
-			Boolean(primary) && cell.dataset.property?.trim() === primary,
+			Boolean(primary) && cellProperty === primary,
 		);
 	}
 
@@ -415,7 +448,7 @@ export class PillEnhancer {
 
 	private propertyIdsInScope(scope: HTMLElement): string[] {
 		return [...new Set([...scope.querySelectorAll<HTMLElement>(CELL_SELECTOR)]
-			.map((cell) => cell.dataset.property?.trim())
+			.map((cell) => this.propertyIdFor(scope, cell))
 			.filter((value): value is string => Boolean(value)))];
 	}
 
@@ -424,7 +457,9 @@ export class PillEnhancer {
 			this.untrackPill(pill);
 			return;
 		}
-		const propertyId = pill.closest<HTMLElement>(CELL_SELECTOR)?.dataset.property?.trim();
+		const host = findBaseTableHost(pill);
+		const cell = pill.closest<HTMLElement>(CELL_SELECTOR);
+		const propertyId = host && cell ? this.propertyIdFor(host, cell) : null;
 		const value = pill.querySelector<HTMLElement>('.multi-select-pill-content')?.textContent?.trim() ?? '';
 		if (!propertyId || !value) {
 			this.untrackPill(pill);
@@ -432,7 +467,6 @@ export class PillEnhancer {
 		}
 
 		const identity = { propertyId, value };
-		const host = findBaseTableHost(pill);
 		if (!host) {
 			this.untrackPill(pill);
 			return;
@@ -492,6 +526,54 @@ export class PillEnhancer {
 		});
 	}
 
+	private handlePillPointerDown(root: HTMLElement, event: PointerEvent): void {
+		const target = asElement(event.target);
+		const pill = target?.closest<HTMLElement>('.bpc-pill') ?? null;
+		this.setActivePill(root, pill && this.tracked.has(pill) ? pill : null);
+	}
+
+	private handlePillFocusIn(root: HTMLElement, event: FocusEvent): void {
+		const target = asElement(event.target);
+		const pill = target?.closest<HTMLElement>('.bpc-pill') ?? null;
+		if (pill && this.tracked.has(pill)) {
+			this.setActivePill(root, pill);
+			return;
+		}
+		const activePill = this.roots.get(root)?.activePill;
+		const activeCell = activePill?.closest(CELL_SELECTOR);
+		if (activePill && activeCell && target && activeCell.contains(target)) return;
+		this.setActivePill(root, null);
+	}
+
+	private handlePillKeyDown(root: HTMLElement, event: KeyboardEvent): void {
+		if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+		if (event.defaultPrevented || event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+		const target = asElement(event.target);
+		const binding = this.roots.get(root);
+		const pill = binding?.activePill;
+		if (!pill?.isConnected || !this.tracked.has(pill)) {
+			this.setActivePill(root, null);
+			return;
+		}
+		if (isTextEditingTarget(target, pill)) return;
+		const removeButton = pill.querySelector<HTMLElement>('.multi-select-pill-remove-button');
+		if (!removeButton) return;
+
+		event.preventDefault();
+		event.stopPropagation();
+		event.stopImmediatePropagation();
+		this.setActivePill(root, null);
+		removeButton.click();
+	}
+
+	private setActivePill(root: HTMLElement, pill: HTMLElement | null): void {
+		const binding = this.roots.get(root);
+		if (!binding || binding.activePill === pill) return;
+		binding.activePill?.classList.remove('bpc-pill--active');
+		binding.activePill = pill;
+		pill?.classList.add('bpc-pill--active');
+	}
+
 	private handleHeaderContextMenu(target: Element | null): void {
 		const headerCell = target?.closest<HTMLElement>('.bases-thead .bases-td');
 		if (!headerCell) return;
@@ -504,7 +586,7 @@ export class PillEnhancer {
 			headerCell.ownerDocument,
 			headerCell,
 			scope,
-			header.propertyId,
+			this.propertyIdFor(scope, header.propertyId) ?? header.propertyId,
 		);
 	}
 
@@ -529,7 +611,7 @@ export class PillEnhancer {
 			const menu = [...menus].reverse().find((candidate) =>
 				candidate.isConnected && !candidate.classList.contains('bases-toolbar-menu'));
 			if (!menu) return false;
-			this.injectColumnAppearanceMenuItem(menu, headerCell, scope, propertyId);
+			this.injectColumnMenuItems(menu, scope, propertyId);
 			finish();
 			return true;
 		};
@@ -539,9 +621,91 @@ export class PillEnhancer {
 		timeout = doc.defaultView?.setTimeout(finish, 750) ?? 0;
 	}
 
+	private injectColumnMenuItems(
+		menu: HTMLElement,
+		scope: HTMLElement,
+		propertyId: string,
+	): void {
+		if (this.shouldOfferPillAppearance(scope, propertyId)) {
+			this.injectPillAppearanceMenuItem(menu, scope, propertyId);
+		}
+		this.injectColumnAppearanceMenuItem(menu, scope, propertyId);
+	}
+
+	private injectPillAppearanceMenuItem(
+		menu: HTMLElement,
+		scope: HTMLElement,
+		propertyId: string,
+	): void {
+		if (menu.querySelector('.bpc-column-pill-appearance-menu-item')) return;
+		const store = this.scopedStore(scope);
+		const displayName = getNativePropertyDisplayName(this.app, scope, propertyId)
+			?? propertyId.replace(/^(?:note|file|formula)\./, '');
+		const content = menu.querySelector<HTMLElement>(':scope > .menu-scroll') ?? menu;
+		const item = content.createDiv('menu-item tappable bpc-column-pill-appearance-menu-item');
+		item.setAttribute('role', 'menuitem');
+		item.tabIndex = -1;
+		const icon = item.createSpan('menu-item-icon');
+		setIcon(icon, 'palette');
+		item.createDiv({ cls: 'menu-item-title', text: 'Pill appearance' });
+		item.createDiv({ cls: 'menu-item-flair', text: describePillAppearance(store, propertyId, displayName) });
+		const chevron = item.createSpan('menu-item-icon');
+		setIcon(chevron, 'chevron-right');
+		let openTimer = 0;
+		const open = () => {
+			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
+			item.classList.add('selected');
+			this.columnAppearancePopover.close();
+			this.columnPillAppearancePopover.open(item, store, propertyId, displayName, () => {
+				item.querySelector<HTMLElement>('.menu-item-flair')!.textContent =
+					describePillAppearance(store, propertyId, displayName);
+				this.refreshFromStore();
+			});
+		};
+		item.addEventListener('pointerenter', () => {
+			content.querySelectorAll<HTMLElement>('.menu-item.selected').forEach((candidate) => {
+				if (candidate !== item) candidate.classList.remove('selected');
+			});
+			item.classList.add('selected');
+			openTimer = item.ownerDocument.defaultView?.setTimeout(open, 120) ?? 0;
+		});
+		item.addEventListener('pointerleave', () => {
+			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
+			openTimer = 0;
+		});
+		item.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			open();
+		});
+		item.addEventListener('keydown', (event) => {
+			if (event.key !== 'Enter' && event.key !== ' ') return;
+			event.preventDefault();
+			open();
+		});
+		const appearanceItem = content.querySelector(':scope > .bpc-column-appearance-menu-item');
+		if (appearanceItem) appearanceItem.before(item);
+		else {
+			const firstSeparator = content.querySelector(':scope > .menu-separator');
+			if (firstSeparator) firstSeparator.before(item);
+			else content.append(item);
+		}
+	}
+
+	private shouldOfferPillAppearance(scope: HTMLElement, propertyId: string): boolean {
+		if ((this.tableValues.get(scope)?.get(propertyId)?.size ?? 0) > 0) return true;
+		for (const pill of scope.querySelectorAll<HTMLElement>(PILL_SELECTOR)) {
+			const cell = pill.closest<HTMLElement>(CELL_SELECTOR);
+			if (cell && this.propertyIdFor(scope, cell) === propertyId) return true;
+		}
+		const kind = getNativePropertyKind(this.app, scope, propertyId);
+		if (kind === 'non-list') return false;
+		if (kind === 'list') return true;
+		return this.scopedStore(scope).allOptions().some((option) => option.propertyId === propertyId);
+	}
+
 	private injectColumnAppearanceMenuItem(
 		menu: HTMLElement,
-		headerCell: HTMLElement,
 		scope: HTMLElement,
 		propertyId: string,
 	): void {
@@ -566,6 +730,7 @@ export class PillEnhancer {
 		const open = () => {
 			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
 			item.classList.add('selected');
+			this.columnPillAppearancePopover.close();
 			this.columnAppearancePopover.open(item, scope, propertyId, () =>
 				this.refreshColumnAppearances(scope, propertyId));
 		};
@@ -598,7 +763,7 @@ export class PillEnhancer {
 		const host = scope ?? findBaseTableHost(pill);
 		const store = host ? this.scopedStore(host) : this.store;
 		const displayName = host ? getNativePropertyDisplayName(this.app, host, identity.propertyId) : undefined;
-		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName));
+		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName), store.getPaletteTemplateId());
 		const style = store.getPropertyStyle(identity.propertyId);
 		setClass(pill, 'bpc-pill', true);
 		pill.dataset.bpcKey = encodeOptionKey(identity);
@@ -631,7 +796,7 @@ export class PillEnhancer {
 		const host = scope ?? findBaseTableHost(heading);
 		const store = host ? this.scopedStore(host) : this.store;
 		const displayName = host ? getNativePropertyDisplayName(this.app, host, identity.propertyId) : undefined;
-		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName));
+		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName), store.getPaletteTemplateId());
 		const style = store.getPropertyStyle(identity.propertyId);
 		setClass(heading, 'bpc-group-heading', true);
 		heading.dataset.bpcKey = encodeOptionKey(identity);
@@ -669,7 +834,7 @@ export class PillEnhancer {
 
 	private refreshColumnAppearances(scope: HTMLElement, onlyPropertyId?: string): void {
 		for (const cell of scope.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
-			const propertyId = cell.dataset.property?.trim();
+			const propertyId = this.propertyIdFor(scope, cell);
 			if (!propertyId || (onlyPropertyId && propertyId !== onlyPropertyId)) continue;
 			if (cell.closest('.bases-thead')) {
 				clearColumnAppearance(cell);
@@ -686,7 +851,7 @@ export class PillEnhancer {
 		const rule = rules.find((candidate) =>
 			candidate.enabled && candidate.target === 'cell' &&
 			candidate.propertyId === propertyId && evaluateRule(candidate, value));
-		if (rule) applyRuleAppearance(cell, 'bpc-rule-cell', rule);
+		if (rule) applyRuleAppearance(cell, 'bpc-rule-cell', rule, scope ? this.scopedStore(scope).getPaletteTemplateId() : this.store.getPaletteTemplateId());
 	}
 
 	private applyRowRule(row: HTMLElement): void {
@@ -696,9 +861,10 @@ export class PillEnhancer {
 		const rules = scope ? this.scopedStore(scope).settings.rules : this.store.settings.rules;
 		for (const rule of rules) {
 			if (!rule.enabled || rule.target !== 'row') continue;
-			const cell = cells.find((candidate) => candidate.dataset.property?.trim() === rule.propertyId);
+			const cell = cells.find((candidate) =>
+				(scope ? this.propertyIdFor(scope, candidate) : candidate.dataset.property?.trim()) === rule.propertyId);
 			if (cell && evaluateRule(rule, renderedCellValue(cell))) {
-				applyRuleAppearance(row, 'bpc-rule-row', rule);
+				applyRuleAppearance(row, 'bpc-rule-row', rule, scope ? this.scopedStore(scope).getPaletteTemplateId() : this.store.getPaletteTemplateId());
 				return;
 			}
 		}
@@ -735,7 +901,10 @@ export class PillEnhancer {
 		const elements = this.visibleByKey.get(metadata.key);
 		elements?.delete(pill);
 		if (elements?.size === 0) this.visibleByKey.delete(metadata.key);
-		pill.classList.remove('bpc-pill', 'bpc-pill--colored', 'bpc-pill--neutral');
+		for (const [root, binding] of this.roots) {
+			if (binding.activePill === pill) this.setActivePill(root, null);
+		}
+		pill.classList.remove('bpc-pill', 'bpc-pill--colored', 'bpc-pill--neutral', 'bpc-pill--active');
 		clearPillStyle(pill);
 		delete pill.dataset.bpcKey;
 		clearPillVariables(pill);
@@ -745,13 +914,11 @@ export class PillEnhancer {
 	}
 
 	private refreshFromStore(): void {
-		for (const elements of this.visibleByKey.values()) for (const pill of elements) {
-			const metadata = this.tracked.get(pill);
-			if (metadata) this.applyPillAppearance(pill, metadata.identity);
+		for (const elements of [...this.visibleByKey.values()]) for (const pill of [...elements]) {
+			if (pill.isConnected) this.processPill(pill);
 		}
-		for (const elements of this.visibleGroupsByKey.values()) for (const heading of elements) {
-			const metadata = this.trackedGroups.get(heading);
-			if (metadata) this.applyGroupHeadingAppearance(heading, metadata.identity);
+		for (const elements of [...this.visibleGroupsByKey.values()]) for (const heading of [...elements]) {
+			if (heading.isConnected) this.processGroupHeading(heading);
 		}
 		for (const cell of this.visibleCells) {
 			if (cell.isConnected) this.processCell(cell);
@@ -761,6 +928,12 @@ export class PillEnhancer {
 			if (row.isConnected) this.processRow(row);
 			else this.visibleRows.delete(row);
 		}
+	}
+
+	private propertyIdFor(scope: HTMLElement, source: string | Element): string | null {
+		const native = resolveNativePropertyId(this.app, scope, source);
+		if (!native) return null;
+		return this.baseStores?.resolvePropertyId(scope, native) ?? native;
 	}
 
 	private scopedStore(scope: HTMLElement): SettingsStore {
@@ -792,8 +965,8 @@ export function renderedCellValue(cell: HTMLElement): { text: string; values: st
 	return { text, values: [text] };
 }
 
-function applyRuleAppearance(element: HTMLElement, className: string, rule: ConditionalRule): void {
-	const color = ruleColorVariables(rule.color);
+function applyRuleAppearance(element: HTMLElement, className: string, rule: ConditionalRule, paletteId?: PaletteTemplateId): void {
+	const color = ruleColorVariables(rule.color, paletteId);
 	element.classList.add(className);
 	element.dataset.bpcRuleId = rule.id;
 	element.style.setProperty('--bpc-rule-bg', color.background);
@@ -819,6 +992,12 @@ function leafContainer(leaf: WorkspaceLeaf): HTMLElement | null {
 function asElement(value: unknown): Element | null {
 	if (typeof value !== 'object' || value === null) return null;
 	return 'nodeType' in value && value.nodeType === 1 ? value as Element : null;
+}
+
+function isTextEditingTarget(target: Element | null, activePill: HTMLElement): boolean {
+	if (target?.closest('input, textarea, select')) return true;
+	const editable = target?.closest<HTMLElement>('[contenteditable]:not([contenteditable="false"])');
+	return Boolean(editable && !editable.contains(activePill));
 }
 
 function clearPillVariables(element: HTMLElement): void {
@@ -899,6 +1078,12 @@ function describeColumnAppearance(appearance: NativeColumnAppearance): string {
 	return [tone, appearance.bold ? 'Bold' : ''].filter(Boolean).join(' + ') || 'Default';
 }
 
+function describePillAppearance(store: SettingsStore, propertyId: string, displayName: string): string {
+	const strategy = strategyLabel(store.getPropertyStrategy(propertyId, displayName));
+	const style = ({ soft: 'Soft', solid: 'Solid', outline: 'Outline' })[store.getPropertyStyle(propertyId)];
+	return `${strategy} · ${style}`;
+}
+
 function findToolbarInsertionAnchor(toolbar: HTMLElement): Element | null {
 	const nativeSort = toolbar.querySelector('.bases-toolbar-sort-menu');
 	if (nativeSort) return nativeSort;
@@ -925,9 +1110,10 @@ function findBaseTableHost(element: HTMLElement): HTMLElement | null {
 }
 
 function groupPropertyId(app: App, scope: HTMLElement | null, heading: HTMLElement): string | null {
+	const native = scope ? getNativeGroupProperty(app, scope) : null;
+	if (native) return native;
 	const fromDom = heading.dataset.property?.trim()
 		?? heading.querySelector<HTMLElement>('.bases-group-property[data-property]')?.dataset.property?.trim()
 		?? heading.closest<HTMLElement>('[data-property]')?.dataset.property?.trim();
-	if (fromDom) return fromDom;
-	return scope ? getNativeGroupProperty(app, scope) : null;
+	return fromDom || null;
 }

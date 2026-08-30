@@ -21,6 +21,8 @@ interface NativeFixtureOptions {
 	groupProperty?: string;
 	columnAppearances?: Record<string, unknown>;
 	useScopedStore?: boolean;
+	dataProperties?: string[];
+	order?: string[];
 }
 
 const activeHarnesses: Harness[] = [];
@@ -243,6 +245,55 @@ describe('PillEnhancer', () => {
 		expect(removed).toHaveBeenCalledOnce();
 	});
 
+	it('removes only the active pill when Delete or Backspace is pressed', () => {
+		const removed = vi.fn();
+		const nativeCellDelete = vi.fn();
+		const harness = createHarness(
+			[
+				{ propertyId: 'note.status', value: 'Doing' },
+				{ propertyId: 'note.status', value: 'Done' },
+			],
+			(baseView) => {
+				baseView.querySelectorAll('.multi-select-pill-remove-button')[1]?.addEventListener('click', removed);
+				baseView.addEventListener('keydown', nativeCellDelete);
+			},
+		);
+		const pills = harness.root.querySelectorAll<HTMLElement>('.multi-select-pill');
+		const target = pills[1]?.querySelector<HTMLElement>('.multi-select-pill-content');
+		target?.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+		expect(pills[1]?.classList.contains('bpc-pill--active')).toBe(true);
+
+		const deletion = new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true });
+		expect(target?.dispatchEvent(deletion)).toBe(false);
+		expect(removed).toHaveBeenCalledOnce();
+		expect(nativeCellDelete).not.toHaveBeenCalled();
+		expect(pills[1]?.classList.contains('bpc-pill--active')).toBe(false);
+	});
+
+	it('leaves Delete native when no pill is active or text is being edited', () => {
+		const nativeDelete = vi.fn();
+		const removed = vi.fn();
+		const harness = createHarness(
+			[{ propertyId: 'note.status', value: 'Done' }],
+			(baseView) => {
+				baseView.querySelector('.multi-select-pill-remove-button')?.addEventListener('click', removed);
+				baseView.addEventListener('keydown', nativeDelete);
+				const input = baseView.createEl('input');
+				input.value = 'editing';
+			},
+		);
+		const view = harness.root.querySelector<HTMLElement>('.bases-view');
+		view?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true, cancelable: true }));
+		expect(nativeDelete).toHaveBeenCalledOnce();
+
+		const pill = harness.root.querySelector<HTMLElement>('.bpc-pill');
+		pill?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+		const input = view?.querySelector<HTMLInputElement>('input');
+		input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true }));
+		expect(removed).not.toHaveBeenCalled();
+		expect(nativeDelete).toHaveBeenCalledTimes(2);
+	});
+
 	it('accumulates virtualized values per table and property without cross-table leakage', async () => {
 		const opened = vi.fn<(request: ColumnMenuRequest) => void>();
 		const harness = createHarness(
@@ -275,6 +326,7 @@ describe('PillEnhancer', () => {
 		const target = harness.root.querySelector<HTMLElement>('.multi-select-pill');
 		harness.enhancer.stop();
 		expect(target?.classList.contains('bpc-pill')).toBe(false);
+		expect(target?.classList.contains('bpc-pill--active')).toBe(false);
 		expect(target?.getAttribute('title')).toBe('Original');
 		expect(target?.style.getPropertyValue('--bpc-bg')).toBe('');
 	});
@@ -342,7 +394,7 @@ describe('PillEnhancer', () => {
 		]);
 		expect(buttons[0]?.tagName).toBe('DIV');
 		expect(buttons[0]?.getAttribute('role')).toBe('button');
-		expect(buttons[0]?.getAttribute('aria-label')).toBe('Conditional formatting');
+		expect(buttons[0]?.getAttribute('aria-label')).toBe('Bases visuals');
 		expect(buttons[0]?.querySelector('.text-button-label')?.textContent).toBe('Format');
 
 		buttons[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
@@ -412,6 +464,7 @@ describe('PillEnhancer', () => {
 		await mutationCycle();
 		const menuItem = document.querySelector<HTMLElement>('.bpc-column-appearance-menu-item');
 		if (!menuItem) throw new Error('Missing column appearance menu item');
+		expect(document.querySelector('.bpc-column-pill-appearance-menu-item')).toBeNull();
 		expect(menuItem?.textContent).toContain('Column appearance');
 		expect(menuItem?.textContent).toContain('Muted + Bold');
 		menuItem?.dispatchEvent(new Event('pointerenter', { bubbles: true }));
@@ -451,6 +504,92 @@ describe('PillEnhancer', () => {
 		harness.enhancer.stop();
 		expect(cell?.classList.contains('bpc-column-appearance')).toBe(false);
 		expect(document.querySelector('.bpc-column-appearance-popover')).toBeNull();
+	});
+
+	it('adds compact pill strategy and style controls to list column menus', async () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const head = table.createDiv('bases-thead');
+			const header = head.createDiv('bases-td');
+			header.dataset.property = 'note.status';
+			header.createDiv({ cls: 'bases-table-header-name', text: 'Status' });
+			header.addEventListener('contextmenu', () => {
+				const menu = document.body.createDiv('menu');
+				const scroll = menu.createDiv('menu-scroll');
+				scroll.createDiv({ cls: 'menu-item selected', text: 'Group by this property' });
+				scroll.createDiv('menu-separator');
+			});
+			const body = table.createDiv('bases-tbody');
+			const row = body.createDiv('bases-tr');
+			appendPill(row, { propertyId: 'note.status', value: 'Done' });
+		}, undefined, undefined, {});
+		const header = harness.root.querySelector<HTMLElement>('.bases-thead .bases-td');
+
+		header?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+		await mutationCycle();
+		const item = document.querySelector<HTMLElement>('.bpc-column-pill-appearance-menu-item');
+		expect(item?.textContent).toContain('Pill appearance');
+		expect(item?.textContent).toContain('Status · Soft');
+		if (item) item.getBoundingClientRect = () => ({
+			left: 100, right: 300, top: 80, bottom: 120,
+			width: 200, height: 40, x: 100, y: 80, toJSON: () => undefined,
+		});
+		item?.click();
+		const panel = document.querySelector<HTMLElement>('.bpc-column-pill-appearance-popover');
+		expect(panel).not.toBeNull();
+		expect(panel?.style.left).toBe('306px');
+		expect(panel?.style.top).toBe('80px');
+		expect(document.querySelectorAll('.bpc-column-pill-appearance-menu-item')).toHaveLength(1);
+		item?.closest('.menu')?.remove();
+		const style = panel?.querySelector<HTMLSelectElement>('select[aria-label="Pill style for Status"]');
+		if (style) {
+			style.value = 'outline';
+			style.dispatchEvent(new Event('change', { bubbles: true }));
+		}
+		expect(harness.store.getPropertyStyle('note.status')).toBe('outline');
+		expect(panel?.style.left).toBe('306px');
+		expect(panel?.style.top).toBe('80px');
+		expect(harness.root.querySelector('.multi-select-pill')?.classList.contains('bpc-pill-style-outline')).toBe(true);
+	});
+
+	it('keeps aliased Status columns configurable under their canonical property id', async () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const head = table.createDiv('bases-thead');
+			const header = head.createDiv('bases-td');
+			header.dataset.property = 'Status';
+			header.createDiv({ cls: 'bases-table-header-name', text: 'Status' });
+			header.addEventListener('contextmenu', () => {
+				const menu = document.body.createDiv('menu');
+				const scroll = menu.createDiv('menu-scroll');
+				scroll.createDiv({ cls: 'menu-item selected', text: 'Group by this property' });
+				scroll.createDiv('menu-separator');
+			});
+			const body = table.createDiv('bases-tbody');
+			const row = body.createDiv('bases-tr');
+			appendPill(row, { propertyId: 'Status', value: 'Done' });
+		}, undefined, undefined, {
+			useScopedStore: true,
+			dataProperties: ['note.status_todo'],
+			order: ['Status'],
+		});
+		const header = harness.root.querySelector<HTMLElement>('.bases-thead .bases-td');
+
+		header?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+		await mutationCycle();
+		const item = document.querySelector<HTMLElement>('.bpc-column-pill-appearance-menu-item');
+		expect(item?.textContent).toContain('Pill appearance');
+		item?.click();
+		const style = document.querySelector<HTMLSelectElement>('select[aria-label="Pill style for Status"]');
+		if (style) {
+			style.value = 'solid';
+			style.dispatchEvent(new Event('change', { bubbles: true }));
+		}
+		expect(harness.store.getPropertyStyle('note.status_todo')).toBe('solid');
+		expect(harness.store.getExplicitPropertyStrategy('note.status_todo')).toEqual({ mode: 'smart', style: 'solid' });
+		expect(harness.store.getExplicitPropertyStrategy('note.status')).toBeUndefined();
+		expect(harness.store.getExplicitPropertyStrategy('Status')).toBeUndefined();
+		expect(harness.root.querySelector('.multi-select-pill')?.classList.contains('bpc-pill-style-solid')).toBe(true);
 	});
 
 	it('leaves context menus outside tracked Base pills untouched', () => {
@@ -506,7 +645,11 @@ function createHarness(
 						: {}),
 					get: (key: string) => values.get(key),
 					set: (key: string, value: unknown) => values.set(key, value),
+					...(nativeOptions.order ? { getOrder: () => nativeOptions.order ?? [] } : {}),
 				},
+				...(nativeOptions.dataProperties
+					? { data: { properties: nativeOptions.dataProperties, data: [] } }
+					: {}),
 				header: { cells: headerCells },
 			},
 		};

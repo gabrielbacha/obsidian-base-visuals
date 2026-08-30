@@ -12,29 +12,43 @@ type ManagerSection = 'pill-colors' | 'conditional-formatting';
 export class BasesVisualsModal extends Modal {
 	private activeView: PillColorManagerView | RuleManagerView | null = null;
 	private section: ManagerSection;
+	private basePropertyIds: ReadonlySet<string> | undefined;
+	private propertyScopeRevision = 0;
+	private propertyScopeLoading: boolean;
 
 	constructor(
 		app: App,
 		private readonly store: SettingsStore,
 		private readonly popover: ColorPopover,
 		private readonly priorityProperties: string[] = [],
-		initialSection: ManagerSection = 'conditional-formatting',
+		initialSection: ManagerSection = 'pill-colors',
 		private readonly tableScope?: HTMLElement,
+		private readonly propertyIdsPromise?: Promise<ReadonlySet<string>>,
 	) {
 		super(app);
 		this.section = initialSection;
+		this.basePropertyIds = tableScope ? new Set() : undefined;
+		this.propertyScopeLoading = Boolean(propertyIdsPromise);
 	}
 
 	onOpen(): void {
 		this.modalEl.addClass('bpc-visuals-modal');
 		this.setTitle('Bases visuals');
 		this.render();
+		const revision = ++this.propertyScopeRevision;
+		void this.propertyIdsPromise?.then((propertyIds) => {
+			if (revision !== this.propertyScopeRevision || !this.modalEl.isConnected) return;
+			this.basePropertyIds = propertyIds;
+			this.propertyScopeLoading = false;
+			this.render();
+		});
 	}
 
 	onClose(): void {
 		this.activeView?.unmount();
 		this.activeView = null;
 		this.popover.close();
+		this.propertyScopeRevision += 1;
 		this.contentEl.empty();
 	}
 
@@ -46,12 +60,23 @@ export class BasesVisualsModal extends Modal {
 		const tabs = this.contentEl.createDiv('bpc-visuals-tabs');
 		tabs.setAttribute('role', 'tablist');
 		tabs.setAttribute('aria-label', 'Visual manager');
-		this.createTab(tabs, 'pill-colors', `Pill colors · ${this.store.allOptions().length}`);
+		const visibleOptions = this.basePropertyIds
+			? this.store.allOptions().filter((option) => this.basePropertyIds?.has(option.propertyId))
+			: this.store.allOptions();
+		this.createTab(
+			tabs,
+			'pill-colors',
+			this.propertyScopeLoading ? 'Pill colors' : `Pill colors · ${visibleOptions.length}`,
+		);
 		this.createTab(tabs, 'conditional-formatting', `Conditional formatting · ${this.store.settings.rules.length}`);
 
 		const panel = this.contentEl.createDiv('bpc-visuals-panel');
 		panel.setAttribute('role', 'tabpanel');
 		if (this.section === 'pill-colors') {
+			if (this.propertyScopeLoading) {
+				panel.createDiv({ text: 'Loading properties from this base…', cls: 'bpc-empty-state' });
+				return;
+			}
 			this.activeView = new PillColorManagerView(
 				this.app,
 				this.store,
@@ -64,10 +89,12 @@ export class BasesVisualsModal extends Modal {
 					? () => findUnusedOptions(
 						this.app,
 						this.tableScope!,
-						this.store.allOptions(),
-						this.store.allKnownProperties(),
+						visibleOptions,
+						this.store.allKnownProperties().filter((propertyId) =>
+							this.basePropertyIds?.has(propertyId) ?? true),
 					)
 					: undefined,
+				this.basePropertyIds,
 			);
 		} else {
 			this.activeView = new RuleManagerView(this.app, this.store, this.priorityProperties);

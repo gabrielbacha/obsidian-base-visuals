@@ -32,8 +32,9 @@ export default class BasesPillColorsPlugin extends Plugin {
 				scope ? this.baseStores.forScope(scope) : this.store,
 				this.popover,
 				propertyIds,
-				'conditional-formatting',
+				'pill-colors',
 				scope,
+				scope ? this.baseStores.propertyIdsForScope(scope, propertyIds) : undefined,
 			).open(),
 			(request) => {
 				this.popover.close();

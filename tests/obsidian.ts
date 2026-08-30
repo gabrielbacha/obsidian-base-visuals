@@ -26,6 +26,14 @@ export function setIcon(element: HTMLElement, icon: string): void {
 	svg.setAttribute('aria-hidden', 'true');
 }
 
+export function parseYaml(source: string): unknown {
+	return JSON.parse(source) as unknown;
+}
+
+export function stringifyYaml(value: unknown): string {
+	return JSON.stringify(value, null, 2);
+}
+
 export class MenuItem {
 	readonly element = document.body.createEl('button');
 	private callback: ((event: MouseEvent | KeyboardEvent) => unknown) | null = null;

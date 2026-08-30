@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 8;
 
 export const PALETTE_NAMES = [
 	'green-sea',
@@ -20,8 +20,22 @@ export const LEGACY_PRESET_NAMES = [
 
 export const AUTO_PRESET_NAMES = PALETTE_NAMES;
 
+/** Built-in palette templates. The default is the original Bases Visuals palette. */
+export const PALETTE_TEMPLATE_IDS = [
+	'default', 'sunset-spectrum', 'desert-coast', 'editorial',
+	'ocean-depth', 'ember', 'citrus-grove', 'electric-bloom',
+] as const;
+export type PaletteTemplateId = (typeof PALETTE_TEMPLATE_IDS)[number];
+
+export const TEMPLATE_SLOT_NAMES = [
+	'slot-1', 'slot-2', 'slot-3', 'slot-4', 'slot-5',
+	'slot-6', 'slot-7', 'slot-8', 'slot-9', 'slot-10',
+] as const;
+export type TemplateSlotName = (typeof TEMPLATE_SLOT_NAMES)[number];
+
 export type PaletteName = (typeof PALETTE_NAMES)[number];
-export type PresetName = PaletteName | 'default';
+export type PalettePresetName = PaletteName | TemplateSlotName;
+export type PresetName = PalettePresetName | 'default';
 
 export const PROPERTY_STRATEGY_MODES = [
 	'smart', 'distinct', 'status', 'priority', 'single', 'neutral', 'off',
@@ -31,7 +45,7 @@ export const PILL_STYLES = ['soft', 'solid', 'outline'] as const;
 export type PillStyle = (typeof PILL_STYLES)[number];
 export interface PropertyColorStrategy {
 	mode: PropertyStrategyMode;
-	preset?: PaletteName;
+	preset?: PalettePresetName;
 	style?: PillStyle;
 }
 
@@ -98,6 +112,7 @@ export interface LayoutPreset {
 
 export interface BasesPillColorsSettings {
 	schemaVersion: number;
+	paletteTemplateId: PaletteTemplateId;
 	options: Record<string, StoredOption>;
 	managerSearch: string;
 	rules: ConditionalRule[];
@@ -110,6 +125,7 @@ export interface BasesPillColorsSettings {
 
 export const DEFAULT_SETTINGS: BasesPillColorsSettings = {
 	schemaVersion: SCHEMA_VERSION,
+	paletteTemplateId: 'default',
 	options: {},
 	managerSearch: '',
 	rules: [],

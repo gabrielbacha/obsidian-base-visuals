@@ -4,9 +4,11 @@ import {
 	applyNativeColumnWidthPreset,
 	getNativeColumnAppearance,
 	getNativeGroupProperty,
+	getNativePropertyKind,
 	getNativeUnsetColumnProperties,
 	getNativeMainProperty,
 	getNativeRowHeight,
+	resolveNativePropertyId,
 	resetNativeColumnWidths,
 	setNativeColumnAppearance,
 	setNativeRowHeight,
@@ -74,6 +76,59 @@ describe('native table view bridge', () => {
 		expect(values.get('basesVisualsColumnAppearance')).toEqual({
 			'note.invalid': { tone: 'custom', color: 'not-a-color' },
 		});
+	});
+
+	it('resolves a displayed column alias to the evaluator property id', () => {
+		const root = document.body.createDiv('workspace-leaf-content');
+		const table = root.createDiv('bases-table-container');
+		const head = table.createDiv('bases-thead');
+		const header = head.createDiv('bases-td');
+		header.dataset.property = 'Status';
+		const body = table.createDiv('bases-tbody');
+		const row = body.createDiv('bases-tr');
+		const cell = row.createDiv('bases-td');
+		cell.dataset.property = 'Status';
+		const nativeTable = {
+			type: 'table',
+			containerEl: table,
+			config: {
+				get: vi.fn(), set: vi.fn(), getOrder: () => ['Status'],
+				getDisplayName: (propertyId: string) => propertyId === 'note.status_todo' ? 'Status' : propertyId,
+			},
+			data: { properties: ['note.status_todo'], data: [] },
+			header: { cells: [{ prop: 'Status', el: header }] },
+		};
+		const leaf = { view: { containerEl: root, nativeTable } };
+		const app = appWithLeaves([leaf as unknown as WorkspaceLeaf]);
+
+		expect(resolveNativePropertyId(app, root, header)).toBe('note.status_todo');
+		expect(resolveNativePropertyId(app, root, cell)).toBe('note.status_todo');
+		expect(resolveNativePropertyId(app, root, 'Status')).toBe('note.status_todo');
+	});
+
+	it('resolves case and note-prefix variants without requiring a configured display name', () => {
+		const root = document.body.createDiv('workspace-leaf-content');
+		const table = root.createDiv('bases-table-container');
+		const head = table.createDiv('bases-thead');
+		const header = head.createDiv('bases-td');
+		header.dataset.property = 'Status';
+		const body = table.createDiv('bases-tbody');
+		const row = body.createDiv('bases-tr');
+		const cell = row.createDiv('bases-td');
+		cell.dataset.property = 'Status';
+		cell.createDiv('multi-select-pill');
+		const nativeTable = {
+			type: 'table', containerEl: table,
+			config: { get: vi.fn(), set: vi.fn(), getOrder: () => ['Status'] },
+			data: { properties: ['note.status_todo'], data: [] },
+			header: { cells: [{ prop: 'Status', el: header }] },
+		};
+		const leaf = { view: { containerEl: root, nativeTable } };
+		const app = appWithLeaves([leaf as unknown as WorkspaceLeaf]);
+
+		expect(resolveNativePropertyId(app, root, 'Status')).toBe('note.status_todo');
+		expect(resolveNativePropertyId(app, root, cell)).toBe('note.status_todo');
+		expect(getNativePropertyKind(app, root, 'note.status_todo')).toBe('list');
 	});
 
 	it('maps missing and malformed row heights to Short', () => {

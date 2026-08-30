@@ -1,6 +1,19 @@
 import { strategyColor } from './property-strategies';
 import { leadingOrderNumber } from './value-order';
-import { AUTO_PRESET_NAMES, type ColorOverride, type OptionIdentity, type PaletteName, type PresetName, type PropertyColorStrategy } from './types';
+import {
+	AUTO_PRESET_NAMES,
+	PALETTE_NAMES,
+	PALETTE_TEMPLATE_IDS,
+	TEMPLATE_SLOT_NAMES,
+	type ColorOverride,
+	type OptionIdentity,
+	type PaletteName,
+	type PalettePresetName,
+	type PaletteTemplateId,
+	type PresetName,
+	type PropertyColorStrategy,
+	type TemplateSlotName,
+} from './types';
 
 export interface ResolvedColor {
 	kind: 'auto' | 'preset' | 'custom' | 'neutral' | 'disabled';
@@ -28,7 +41,50 @@ export const PALETTE: ReadonlyArray<{ name: PaletteName; label: string; hex: str
 	{ name: 'pomegranate', label: 'Pomegranate', hex: '#C0392B' },
 	{ name: 'chestnut', label: 'Chestnut', hex: '#8B5A2B' },
 ];
+export interface PaletteTemplate {
+	id: PaletteTemplateId;
+	label: string;
+	description: string;
+	colors: ReadonlyArray<{ name: TemplateSlotName; label: string; hex: string }>;
+	semanticIndexes: Readonly<Record<PaletteName, number>>;
+}
+
+const semanticIndexes = (...indexes: number[]): Readonly<Record<PaletteName, number>> =>
+	Object.fromEntries(PALETTE_NAMES.map((name, index) => [name, indexes[index] ?? 0])) as Record<PaletteName, number>;
+
+function createTemplate(
+	id: PaletteTemplateId,
+	label: string,
+	description: string,
+	hexes: readonly string[],
+	indexes: Readonly<Record<PaletteName, number>>,
+): PaletteTemplate {
+	return {
+		id,
+		label,
+		description,
+		colors: hexes.map((hex, index) => ({
+			name: TEMPLATE_SLOT_NAMES[index] ?? 'slot-10',
+			label: id === 'default' ? PALETTE[index]?.label ?? `Color ${index + 1}` : `Color ${index + 1}`,
+			hex,
+		})),
+		semanticIndexes: indexes,
+	};
+}
+
+/** Exact source palettes plus semantic role mappings for Status, Priority, and Single color strategies. */
+export const PALETTE_TEMPLATES: ReadonlyArray<PaletteTemplate> = [
+	createTemplate('default', 'Default · Bases Visuals', 'Your Green Sea, Peter River and warm accent palette.', PALETTE.map((entry) => entry.hex), semanticIndexes(0, 1, 2, 3, 4, 5, 6, 7, 8)),
+	createTemplate('sunset-spectrum', 'Sunset spectrum', 'Warm reds and oranges balanced by fresh greens and cool blues.', ['#F94144', '#F3722C', '#F8961E', '#F9844A', '#F9C74F', '#90BE6D', '#43AA8B', '#4D908E', '#577590', '#277DA1'], semanticIndexes(6, 9, 7, 8, 3, 4, 2, 0, 1)),
+	createTemplate('desert-coast', 'Desert coast', 'Deep coastal teals flowing into sand, ochre, and terracotta.', ['#001219', '#005F73', '#0A9396', '#94D2BD', '#E9D8A6', '#EE9B00', '#CA6702', '#BB3E03', '#AE2012', '#9B2226'], semanticIndexes(2, 1, 3, 0, 9, 5, 6, 8, 7)),
+	createTemplate('editorial', 'Editorial', 'A concise editorial set of blue, green, orange, cream, and neutral ink.', ['#003C71', '#3A8F5B', '#E24E1B', '#FCBF49', '#EAE2B7', '#F5F5F5', '#898989', '#3A3A3A'], semanticIndexes(1, 0, 6, 7, 2, 3, 2, 2, 6)),
+	createTemplate('ocean-depth', 'Ocean depth', 'A monochromatic progression from deep navy to pale arctic blue.', ['#03045E', '#023E8A', '#0077B6', '#0096C7', '#00B4D8', '#48CAE4', '#90E0EF', '#ADE8F4', '#CAF0F8'], semanticIndexes(4, 2, 1, 0, 3, 6, 5, 0, 7)),
+	createTemplate('ember', 'Ember', 'Near-black plum through crimson, flame orange, and molten gold.', ['#03071E', '#370617', '#6A040F', '#9D0208', '#D00000', '#DC2F02', '#E85D04', '#F48C06', '#FAA307', '#FFBA08'], semanticIndexes(8, 0, 1, 0, 3, 9, 7, 4, 2)),
+	createTemplate('citrus-grove', 'Citrus grove', 'Evergreen and leaf tones brightening into electric citrus yellow.', ['#007F5F', '#2B9348', '#55A630', '#80B918', '#AACC00', '#BFD200', '#D4D700', '#DDDF00', '#EEEF20', '#FFFF3F'], semanticIndexes(0, 1, 2, 0, 3, 9, 7, 4, 5)),
+	createTemplate('electric-bloom', 'Electric bloom', 'Hot pink and violet shifting through indigo into luminous cyan.', ['#F72585', '#B5179E', '#7209B7', '#560BAD', '#480CA8', '#3A0CA3', '#3F37C9', '#4361EE', '#4895EF', '#4CC9F0'], semanticIndexes(9, 8, 2, 4, 0, 9, 1, 0, 3)),
+];
 const PALETTE_BY_NAME = new Map(PALETTE.map((entry) => [entry.name, entry]));
+const PALETTE_TEMPLATES_BY_ID = new Map(PALETTE_TEMPLATES.map((template) => [template.id, template]));
 const LEGACY_PRESET_MAP: Record<string, PresetName> = {
 	default: 'default', gray: 'midnight-blue', brown: 'chestnut', red: 'pomegranate', orange: 'carrot',
 	yellow: 'sun-flower', green: 'green-sea', blue: 'peter-river', purple: 'wisteria', pink: 'raspberry',
@@ -46,10 +102,29 @@ export function normalizeHex(input: string): string | null {
 export function normalizePresetName(value: unknown): PresetName | null {
 	if (typeof value !== 'string') return null;
 	if (value === 'default') return 'default';
+	if (TEMPLATE_SLOT_NAMES.includes(value as TemplateSlotName)) return value as TemplateSlotName;
 	if (PALETTE_BY_NAME.has(value as PaletteName)) return value as PaletteName;
 	return LEGACY_PRESET_MAP[value] ?? null;
 }
 export function isPresetName(value: unknown): value is PresetName { return normalizePresetName(value) !== null; }
+
+export function normalizePaletteTemplateId(value: unknown): PaletteTemplateId {
+	const legacy: Record<string, PaletteTemplateId> = {
+		ocean: 'ocean-depth', nordic: 'default', material: 'editorial', slate: 'editorial',
+	};
+	return typeof value === 'string' && PALETTE_TEMPLATE_IDS.includes(value as PaletteTemplateId)
+		? value as PaletteTemplateId
+		: typeof value === 'string' ? legacy[value] ?? 'default' : 'default';
+}
+
+export function paletteTemplate(id: PaletteTemplateId = 'default'): PaletteTemplate {
+	return PALETTE_TEMPLATES_BY_ID.get(normalizePaletteTemplateId(id)) ?? PALETTE_TEMPLATES[0]!;
+}
+
+export function palettePresetName(paletteId: PaletteTemplateId, index: number): PalettePresetName {
+	if (paletteId === 'default') return PALETTE_NAMES[index] ?? 'peter-river';
+	return TEMPLATE_SLOT_NAMES[index] ?? 'slot-10';
+}
 
 export function automaticPreset(identity: OptionIdentity): PaletteName {
 	const order = leadingOrderNumber(identity.value);
@@ -65,7 +140,20 @@ export function automaticPreset(identity: OptionIdentity): PaletteName {
 	return AUTO_PRESET_NAMES[(hash >>> 0) % AUTO_PRESET_NAMES.length] ?? 'peter-river';
 }
 
-export function resolveColor(identity: OptionIdentity, override?: ColorOverride, strategy: PropertyColorStrategy = { mode: 'distinct' }): ResolvedColor {
+function automaticTemplateColor(identity: OptionIdentity, paletteId: PaletteTemplateId): PaletteTemplate['colors'][number] {
+	const colors = paletteTemplate(paletteId).colors;
+	const order = leadingOrderNumber(identity.value);
+	if (order !== null) return colors[(order - 1) % colors.length] ?? colors[0]!;
+	const key = `${identity.propertyId}\u0000${identity.value}`;
+	let hash = 2166136261;
+	for (let index = 0; index < key.length; index += 1) {
+		hash ^= key.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
+	}
+	return colors[(hash >>> 0) % colors.length] ?? colors[0]!;
+}
+
+export function resolveColor(identity: OptionIdentity, override?: ColorOverride, strategy: PropertyColorStrategy = { mode: 'distinct' }, paletteId: PaletteTemplateId = 'default'): ResolvedColor {
 	if (override?.kind === 'disabled') return disabledColor();
 	if (override?.kind === 'custom') {
 		const normalized = normalizeHex(override.hex);
@@ -73,21 +161,24 @@ export function resolveColor(identity: OptionIdentity, override?: ColorOverride,
 	}
 	if (override?.kind === 'preset') {
 		if (override.name === 'default') return neutralColor('Default');
-		return presetColor(override.name, 'preset');
+		return presetColor(override.name, 'preset', paletteId);
 	}
-	const choice = strategyColor(identity, strategy, automaticPreset);
+	if (strategy.mode === 'distinct' || strategy.mode === 'smart') {
+		const entry = automaticTemplateColor(identity, paletteId);
+		return { ...filledColor(entry.hex, entry.label, 'auto'), label: `Auto · ${entry.label}` };
+	}
+	const choice = strategyColor(identity, strategy, (value) => automaticPreset(value));
 	if (choice === 'disabled') return disabledColor();
 	if (choice === 'neutral') return neutralColor('Neutral');
-	const color = presetColor(choice, 'auto');
-	const prefix = strategy.mode === 'distinct' ? 'Auto'
-		: strategy.mode === 'status' ? 'Status'
+	const color = presetColor(choice, 'auto', paletteId);
+	const prefix = strategy.mode === 'status' ? 'Status'
 			: strategy.mode === 'priority' ? 'Priority'
 				: strategy.mode === 'single' ? 'Single'
 					: '';
 	return { ...color, label: prefix ? `${prefix} · ${color.label}` : color.label };
 }
-export function resolvePreset(name: PresetName): ResolvedColor {
-	return name === 'default' ? neutralColor('Default') : presetColor(name, 'preset');
+export function resolvePreset(name: PresetName, paletteId: PaletteTemplateId = 'default'): ResolvedColor {
+	return name === 'default' ? neutralColor('Default') : presetColor(name, 'preset', paletteId);
 }
 export function resolveRuleColor(hex: string): ResolvedColor {
 	const normalized = normalizeHex(hex) ?? '#787774';
@@ -96,9 +187,16 @@ export function resolveRuleColor(hex: string): ResolvedColor {
 export function tintedHex(accentHex: string, surfaceHex: string, strength = 0.12): string {
 	return rgbToHex(mixRgb(hexToRgb(surfaceHex), hexToRgb(accentHex), strength));
 }
-function presetColor(name: PaletteName, kind: 'auto' | 'preset'): ResolvedColor {
-	const entry = PALETTE_BY_NAME.get(name) ?? PALETTE[1]!;
-	return filledColor(entry.hex, entry.label, kind);
+function presetColor(name: Exclude<PresetName, 'default'>, kind: 'auto' | 'preset', paletteId: PaletteTemplateId): ResolvedColor {
+	const template = paletteTemplate(paletteId);
+	const slotIndex = TEMPLATE_SLOT_NAMES.indexOf(name as TemplateSlotName);
+	if (slotIndex >= 0) {
+		const entry = template.colors[Math.min(slotIndex, template.colors.length - 1)] ?? template.colors[0]!;
+		return filledColor(entry.hex, entry.label, kind);
+	}
+	const index = template.semanticIndexes[name as PaletteName];
+	const entry = template.colors[index] ?? PALETTE_BY_NAME.get(name as PaletteName) ?? PALETTE[1]!;
+	return filledColor(entry.hex, PALETTE_BY_NAME.get(name as PaletteName)?.label ?? entry.label, kind);
 }
 function filledColor(hex: string, label: string, kind: 'auto' | 'preset' | 'custom'): ResolvedColor {
 	const lightBackground = tintedHex(hex, '#FFFFFF');

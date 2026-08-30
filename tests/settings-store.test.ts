@@ -20,7 +20,7 @@ describe('SettingsStore', () => {
 			},
 		});
 
-		expect(settings.schemaVersion).toBe(6);
+	expect(settings.schemaVersion).toBe(8);
 		expect(Object.values(settings.options)).toEqual([
 			{
 				propertyId: 'note.status',
@@ -63,7 +63,7 @@ describe('SettingsStore', () => {
 			],
 		});
 
-		expect(settings.schemaVersion).toBe(6);
+	expect(settings.schemaVersion).toBe(8);
 		expect(settings.rules).toHaveLength(1);
 		expect(settings.rules[0]?.color).toEqual({ kind: 'custom', hex: '#AABBCC' });
 		expect(settings.knownProperties['note.status']).toEqual({ propertyId: 'note.status' });
@@ -80,6 +80,17 @@ describe('SettingsStore', () => {
 		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'priority' });
 		store.setPropertyStrategy('note.status', undefined);
 		expect(store.getExplicitPropertyStrategy('note.status')).toBeUndefined();
+		store.dispose();
+	});
+
+	it('normalizes and persists a selected palette template', () => {
+		const save = vi.fn(async () => undefined);
+		const store = new SettingsStore(SettingsStore.normalize({ paletteTemplateId: 'ocean-depth' }), save);
+		expect(store.getPaletteTemplateId()).toBe('ocean-depth');
+		store.setPaletteTemplateId('ember');
+		expect(store.getPaletteTemplateId()).toBe('ember');
+		store.setPaletteTemplateId('not-a-template' as never);
+		expect(store.getPaletteTemplateId()).toBe('default');
 		store.dispose();
 	});
 

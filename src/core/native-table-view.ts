@@ -32,7 +32,7 @@ export const DEFAULT_COLUMN_APPEARANCE: NativeColumnAppearance = {
 	bold: false,
 };
 
-const COLUMN_APPEARANCE_CONFIG_KEY = 'basesVisualsColumnAppearance';
+export const COLUMN_APPEARANCE_CONFIG_KEY = 'basesVisualsColumnAppearance';
 
 export interface NativeViewConfig {
 	groupBy?: { property?: unknown };
@@ -64,6 +64,8 @@ export interface NativeColumnHeader {
 	propertyId: string;
 	element: HTMLElement;
 }
+
+export type NativePropertyKind = 'list' | 'non-list' | 'unknown';
 
 interface NativeColumnInfo {
 	headerWidth: number;
@@ -184,7 +186,7 @@ export function getNativeColumnHeaders(app: App, scope: HTMLElement): NativeColu
 	const view = findNativeTableView(app, scope);
 	const nativeHeaders = view?.header?.cells?.flatMap((cell) =>
 		typeof cell.prop === 'string' && isHTMLElement(cell.el)
-			? [{ propertyId: cell.prop, element: cell.el }]
+			? [{ propertyId: resolvePropertyId(view, cell.prop, cell.el) ?? cell.prop, element: cell.el }]
 			: []) ?? [];
 	if (nativeHeaders.length > 0) return nativeHeaders;
 
@@ -198,12 +200,80 @@ export function getNativeColumnHeaders(app: App, scope: HTMLElement): NativeColu
 	});
 }
 
+/**
+ * Resolve the exact property identifier used by the Base evaluator. Visible
+ * names and DOM data attributes may contain per-view aliases, so they are
+ * inputs to the lookup rather than identities in their own right.
+ */
+export function resolveNativePropertyId(
+	app: App,
+	scope: HTMLElement,
+	propertyOrElement: string | Element,
+): string | null {
+	const view = findNativeTableView(app, scope);
+	if (!view) {
+		const raw = typeof propertyOrElement === 'string'
+			? propertyOrElement
+			: propertyOrElement.closest<HTMLElement>('[data-property]')?.dataset.property;
+		return raw?.trim() || null;
+	}
+	if (typeof propertyOrElement === 'string') {
+		return resolvePropertyId(view, propertyOrElement) ?? (propertyOrElement.trim() || null);
+	}
+	const cell = propertyOrElement.closest<HTMLElement>(
+		'.bases-td[data-property], .bases-table-cell[data-property], [data-property].bases-table-header',
+	);
+	const raw = cell?.dataset.property?.trim() ?? '';
+	return resolvePropertyId(view, raw, cell ?? propertyOrElement) ?? (raw || null);
+}
+
+export function getNativePropertyIds(app: App, scope: HTMLElement): string[] {
+	const view = findNativeTableView(app, scope);
+	if (!view) return [];
+	const ids = new Set<string>();
+	for (const property of nativeProperties(view)) ids.add(property.trim());
+	for (const property of nativeOrder(view)) {
+		const resolved = resolvePropertyId(view, property);
+		if (resolved) ids.add(resolved);
+	}
+	for (const cell of view.header?.cells ?? []) {
+		const resolved = resolvePropertyId(view, cell.prop, cell.el);
+		if (resolved) ids.add(resolved);
+	}
+	return [...ids].filter(Boolean);
+}
+
+export function getNativePropertyKind(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+): NativePropertyKind {
+	const canonical = resolveNativePropertyId(app, scope, propertyId) ?? propertyId;
+	for (const cell of scope.querySelectorAll<HTMLElement>('.bases-td[data-property], .bases-table-cell[data-property]')) {
+		if (resolveNativePropertyId(app, scope, cell) !== canonical) continue;
+		if (cell.querySelector('.multi-select-pill')) return 'list';
+	}
+	const result = findNativeTableView(app, scope)?.data;
+	if (!result || !Array.isArray(result.data)) return 'unknown';
+	let sawScalar = false;
+	for (const entry of result.data) {
+		if (!isNativeResultEntry(entry)) continue;
+		const value = entry.getValue(canonical);
+		if (isListLikeValue(value)) return 'list';
+		if (isTextLikeValue(value) || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+			sawScalar = true;
+		}
+	}
+	return sawScalar ? 'non-list' : 'unknown';
+}
+
 export function getNativeMainProperty(app: App, scope: HTMLElement): string | null {
-	const first = findNativeTableView(app, scope)?.config.getOrder?.()[0];
-	if (typeof first === 'string') return first.trim() || null;
+	const view = findNativeTableView(app, scope);
+	const first = view?.config.getOrder?.()[0];
+	if (typeof first === 'string') return resolvePropertyId(view, first) ?? (first.trim() || null);
 	if (!isObject(first)) return null;
 	const id = first.id;
-	return typeof id === 'string' ? id.trim() || null : null;
+	return typeof id === 'string' ? resolvePropertyId(view, id) ?? (id.trim() || null) : null;
 }
 
 export function getNativeGroupProperty(app: App, scope: HTMLElement): string | null {
@@ -211,13 +281,16 @@ export function getNativeGroupProperty(app: App, scope: HTMLElement): string | n
 	const groupBy = config?.groupBy ?? config?.get('groupBy');
 	if (!isObject(groupBy)) return null;
 	const property = groupBy.property;
-	return typeof property === 'string' ? property.trim() || null : null;
+	return typeof property === 'string'
+		? resolvePropertyId(findNativeTableView(app, scope), property) ?? (property.trim() || null)
+		: null;
 }
 
 export function getNativePropertyDisplayName(app: App, scope: HTMLElement, propertyId: string): string | undefined {
-	const value = findNativeTableView(app, scope)?.config.getDisplayName?.(propertyId);
+	const canonical = resolveNativePropertyId(app, scope, propertyId) ?? propertyId;
+	const value = findNativeTableView(app, scope)?.config.getDisplayName?.(canonical);
 	if (typeof value === 'string' && value.trim()) return value.trim();
-	const header = getNativeColumnHeaders(app, scope).find((candidate) => candidate.propertyId === propertyId)?.element;
+	const header = getNativeColumnHeaders(app, scope).find((candidate) => candidate.propertyId === canonical)?.element;
 	const text = header?.textContent?.trim();
 	return text || undefined;
 }
@@ -425,6 +498,84 @@ function finiteOr(value: unknown, fallback: number): number {
 function nativeProperties(view: NativeTableView | null): string[] {
 	return view?.data?.properties?.filter((property): property is string =>
 		typeof property === 'string') ?? [];
+}
+
+function nativeOrder(view: NativeTableView | null): string[] {
+	return view?.config.getOrder?.().flatMap((entry) => {
+		if (typeof entry === 'string') return [entry.trim()];
+		if (!isObject(entry)) return [];
+		const id = typeof entry.id === 'string' ? entry.id : typeof entry.property === 'string' ? entry.property : '';
+		return id.trim() ? [id.trim()] : [];
+	}) ?? [];
+}
+
+function resolvePropertyId(
+	view: NativeTableView | null,
+	rawValue: string,
+	element?: Element,
+): string | null {
+	const raw = rawValue.trim();
+	if (!view || !raw) return raw || null;
+	const actual = nativeProperties(view).map((property) => property.trim()).filter(Boolean);
+	if (actual.includes(raw)) return raw;
+	const nativeAlias = uniqueNormalizedPropertyMatch(actual, raw);
+	if (nativeAlias) return nativeAlias;
+
+	const displayMatches = actual.filter((propertyId) => {
+		const displayName = view.config.getDisplayName?.(propertyId);
+		return typeof displayName === 'string' &&
+			normalizePropertyToken(displayName) === normalizePropertyToken(raw);
+	});
+	if (displayMatches.length === 1) return displayMatches[0] ?? null;
+	const familyAlias = uniquePrefixedPropertyMatch(actual, raw);
+	if (familyAlias) return familyAlias;
+
+	const cell = element?.closest<HTMLElement>('.bases-td, .bases-table-cell, .bases-table-header');
+	const headerCells = view.header?.cells ?? [];
+	let index = cell ? headerCells.findIndex((header) =>
+		header.el === cell || header.el.contains(cell) || cell.contains(header.el)) : -1;
+	if (index < 0 && cell && !cell.closest('.bases-thead')) {
+		const row = cell.closest('.bases-tr');
+		if (row) index = [...row.querySelectorAll(':scope > .bases-td, :scope > .bases-table-cell')].indexOf(cell);
+	}
+	if (index >= 0) {
+		const ordered = nativeOrder(view);
+		const orderedValue = ordered[index];
+		if (orderedValue && actual.includes(orderedValue)) return orderedValue;
+		const actualValue = actual[index];
+		if (actualValue) return actualValue;
+	}
+
+	const orderMatch = nativeOrder(view).find((property) => property === raw);
+	if (orderMatch && actual.includes(orderMatch)) return orderMatch;
+	const normalizedOrderMatch = uniqueNormalizedPropertyMatch(nativeOrder(view), raw);
+	if (normalizedOrderMatch) {
+		return uniqueNormalizedPropertyMatch(actual, normalizedOrderMatch) ?? normalizedOrderMatch;
+	}
+	return raw;
+}
+
+function uniqueNormalizedPropertyMatch(properties: readonly string[], value: string): string | null {
+	const token = normalizePropertyToken(value);
+	if (!token) return null;
+	const matches = [...new Set(properties.filter((property) => normalizePropertyToken(property) === token))];
+	return matches.length === 1 ? matches[0] ?? null : null;
+}
+
+function uniquePrefixedPropertyMatch(properties: readonly string[], value: string): string | null {
+	const token = normalizePropertyWords(value);
+	if (!token || token.includes(' ')) return null;
+	const matches = [...new Set(properties.filter((property) =>
+		normalizePropertyWords(property).startsWith(`${token} `)))];
+	return matches.length === 1 ? matches[0] ?? null : null;
+}
+
+function normalizePropertyToken(value: string): string {
+	return value.trim().replace(/^(?:note|file|formula)\./i, '').toLocaleLowerCase();
+}
+
+function normalizePropertyWords(value: string): string {
+	return normalizePropertyToken(value).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 function valueTexts(value: unknown): string[] {

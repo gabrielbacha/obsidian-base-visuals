@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-base-visuals",
-	"version": "0.8.0",
+	"version": "0.9.0",
 	"description": "Notion-style pill colors and conditional formatting for Obsidian Bases.",
 	"main": "main.js",
 	"type": "module",

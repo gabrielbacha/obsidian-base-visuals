@@ -4,6 +4,7 @@ import {
 	RULE_OPERATORS,
 	RuleColor,
 	RuleOperator,
+	PaletteTemplateId,
 } from './types';
 
 export interface RenderedCellValue {
@@ -65,14 +66,14 @@ export function matchingRule(
 	);
 }
 
-export function ruleColorVariables(color: RuleColor): {
+export function ruleColorVariables(color: RuleColor, paletteId: PaletteTemplateId = 'default'): {
 	background: string;
 	hover: string;
 	foregroundLight: string;
 	foregroundDark: string;
 } {
 	const resolved = color.kind === 'preset'
-		? resolvePreset(color.name)
+		? resolvePreset(color.name, paletteId)
 		: resolveRuleColor(color.hex);
 	return { background: resolved.background, hover: resolved.hoverBackground, foregroundLight: resolved.foregroundLight, foregroundDark: resolved.foregroundDark };
 }

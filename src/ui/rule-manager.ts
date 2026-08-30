@@ -1,10 +1,9 @@
 import { App, Modal, setIcon } from 'obsidian';
-import { normalizeHex, resolvePreset, resolveRuleColor } from '../core/colors';
+import { normalizeHex, palettePresetName, paletteTemplate, resolvePreset, resolveRuleColor } from '../core/colors';
 import { OPERATOR_LABELS, operatorNeedsOperand } from '../core/rules';
 import { SettingsStore } from '../core/settings-store';
 import {
 	ConditionalRule,
-	PRESET_NAMES,
 	RULE_OPERATORS,
 	RuleColor,
 } from '../core/types';
@@ -181,13 +180,13 @@ export class RuleManagerView {
 
 		const colorField = this.field(fields, 'Color');
 		const color = colorField.createEl('button', { cls: 'bpc-rule-color', attr: { type: 'button', 'aria-label': 'Choose formatting color' } });
-		const resolved = rule.color.kind === 'preset' ? resolvePreset(rule.color.name) : resolveRuleColor(rule.color.hex);
+		const resolved = rule.color.kind === 'preset' ? resolvePreset(rule.color.name, this.store.getPaletteTemplateId()) : resolveRuleColor(rule.color.hex);
 		color.style.setProperty('--bpc-rule-color', resolved.dot);
 		color.createSpan({ cls: 'bpc-rule-color__dot' });
 		color.createSpan({ text: resolved.label });
 		color.addEventListener('click', () => {
 			this.popover?.close();
-			this.popover = new RuleColorPopover((next) => this.store.updateRule(rule.id, { color: next }));
+			this.popover = new RuleColorPopover(this.store.getPaletteTemplateId(), (next) => this.store.updateRule(rule.id, { color: next }));
 			this.popover.open(color, rule.color);
 		});
 	}
@@ -214,7 +213,7 @@ class RuleColorPopover {
 	private panel: HTMLElement | null = null;
 	private cleanup: (() => void) | null = null;
 
-	constructor(private readonly onChange: (color: RuleColor) => void) {}
+	constructor(private readonly paletteId: import('../core/types').PaletteTemplateId, private readonly onChange: (color: RuleColor) => void) {}
 
 	open(anchor: HTMLElement, current: RuleColor): void {
 		this.close();
@@ -223,8 +222,9 @@ class RuleColorPopover {
 		panel.setAttribute('role', 'dialog');
 		panel.setAttribute('aria-label', 'Formatting color');
 		const grid = panel.createDiv('bpc-swatch-grid');
-		for (const name of PRESET_NAMES) {
-			const resolved = resolvePreset(name);
+		for (const [index] of paletteTemplate(this.paletteId).colors.entries()) {
+			const name = palettePresetName(this.paletteId, index);
+			const resolved = resolvePreset(name, this.paletteId);
 			const swatch = grid.createEl('button', { cls: 'clickable-icon bpc-swatch', attr: { type: 'button', 'aria-label': resolved.label, title: resolved.label } });
 			swatch.style.setProperty('--bpc-swatch', resolved.dot);
 			swatch.setAttribute('aria-pressed', String(current.kind === 'preset' && current.name === name));

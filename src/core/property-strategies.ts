@@ -1,6 +1,6 @@
-import type { OptionIdentity, PaletteName, PropertyColorStrategy } from './types';
+import type { OptionIdentity, PaletteName, PalettePresetName, PropertyColorStrategy } from './types';
 
-export type StrategyColor = PaletteName | 'neutral' | 'disabled';
+export type StrategyColor = PalettePresetName | 'neutral' | 'disabled';
 
 const STATUS_PROPERTIES = new Set(['status', 'state', 'workflow']);
 const PRIORITY_PROPERTIES = new Set(['priority', 'severity', 'urgency']);
@@ -13,10 +13,10 @@ const STATUS_RED = new Set(['blocked', 'failed', 'rejected', 'cancelled', 'cance
 
 export function inferPropertyStrategy(propertyId: string, displayName?: string): PropertyColorStrategy {
 	const candidates = propertyCandidates(propertyId, displayName);
-	if (candidates.some((value) => STATUS_PROPERTIES.has(value))) return { mode: 'status' };
-	if (candidates.some((value) => PRIORITY_PROPERTIES.has(value))) return { mode: 'priority' };
-	if (candidates.some((value) => SINGLE_PROPERTIES.has(value))) return { mode: 'single', preset: 'peter-river' };
-	if (candidates.some((value) => NEUTRAL_PROPERTIES.has(value))) return { mode: 'neutral' };
+	if (matchesPropertyFamily(candidates, STATUS_PROPERTIES)) return { mode: 'status' };
+	if (matchesPropertyFamily(candidates, PRIORITY_PROPERTIES)) return { mode: 'priority' };
+	if (matchesPropertyFamily(candidates, SINGLE_PROPERTIES)) return { mode: 'single', preset: 'peter-river' };
+	if (matchesPropertyFamily(candidates, NEUTRAL_PROPERTIES)) return { mode: 'neutral' };
 	return { mode: 'distinct' };
 }
 
@@ -58,6 +58,11 @@ function propertyCandidates(propertyId: string, displayName?: string): string[] 
 		[normalizeWords(value), ...value.split(/[.:/]/).map(normalizeWords)]
 			.flatMap((candidate) => [candidate, candidate.replaceAll(' ', '')]))
 		.filter(Boolean))];
+}
+
+function matchesPropertyFamily(candidates: readonly string[], names: ReadonlySet<string>): boolean {
+	return candidates.some((candidate) => [...names].some((name) =>
+		candidate === name || candidate.startsWith(`${name} `)));
 }
 
 function normalizeWords(value: string): string {

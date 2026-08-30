@@ -1,7 +1,7 @@
-import { resolvePreset } from '../core/colors';
+import { palettePresetName, paletteTemplate, resolvePreset } from '../core/colors';
 import { strategyLabel } from '../core/property-strategies';
 import { SettingsStore } from '../core/settings-store';
-import { PALETTE_NAMES, type PropertyStrategyMode } from '../core/types';
+import { type PropertyStrategyMode } from '../core/types';
 import type { PillStyle } from '../core/types';
 
 const STRATEGIES: Array<{ value: PropertyStrategyMode; label: string }> = [
@@ -77,15 +77,19 @@ export function renderPropertyStrategyControls(
 	const palette = wrapper.createDiv('bpc-property-strategy__palette');
 	palette.setAttribute('role', 'group');
 	palette.setAttribute('aria-label', `Single color for ${displayName}`);
-	for (const name of PALETTE_NAMES) {
-		const color = resolvePreset(name);
+	const selectedColor = effective.preset ? resolvePreset(effective.preset, store.getPaletteTemplateId()).dot : '';
+	const paletteId = store.getPaletteTemplateId();
+	for (const [index, entry] of paletteTemplate(paletteId).colors.entries()) {
+		const presetName = palettePresetName(paletteId, index);
+		const color = resolvePreset(presetName, paletteId);
 		const button = palette.createEl('button', {
 			cls: 'bpc-property-strategy__swatch',
-			attr: { type: 'button', 'aria-label': color.label, 'aria-pressed': String(effective.preset === name) },
+			attr: { type: 'button', 'aria-label': color.label, 'aria-pressed': String(selectedColor === color.dot) },
 		});
+		button.title = `${color.label} · ${entry.hex}`;
 		button.style.setProperty('--bpc-swatch', color.dot);
 		button.addEventListener('click', () => {
-			store.setPropertyStrategy(propertyId, { mode: 'single', preset: name });
+			store.setPropertyStrategy(propertyId, { mode: 'single', preset: presetName });
 			onChange?.();
 		});
 	}
