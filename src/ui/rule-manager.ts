@@ -38,6 +38,7 @@ export class RuleManagerView {
 	private container: HTMLElement | null = null;
 	private unsubscribe: (() => void) | null = null;
 	private popover: RuleColorPopover | null = null;
+	private draggedRuleId: string | null = null;
 
 	constructor(
 		private readonly app: App,
@@ -57,6 +58,7 @@ export class RuleManagerView {
 		this.unsubscribe = null;
 		this.popover?.close();
 		this.popover = null;
+		this.clearRuleDragState();
 		this.container = null;
 	}
 
@@ -86,6 +88,9 @@ export class RuleManagerView {
 		});
 
 		const list = this.container.createDiv('bpc-rule-list');
+		const reorderStatus = this.container.createDiv('bpc-rule-reorder-status');
+		reorderStatus.setAttribute('aria-live', 'polite');
+		reorderStatus.setAttribute('aria-atomic', 'true');
 		const renderList = () => {
 			list.empty();
 			const query = search.value.trim().toLocaleLowerCase();
@@ -101,7 +106,7 @@ export class RuleManagerView {
 				list.createDiv({ cls: 'bpc-empty-state', text: 'No matching rules.' });
 				return;
 			}
-			for (const rule of rules) this.renderRule(list, rule);
+			for (const rule of rules) this.renderRule(list, rule, query.length === 0);
 		};
 		search.addEventListener('input', () => {
 			this.store.setRuleManagerSearch(search.value);
@@ -110,7 +115,7 @@ export class RuleManagerView {
 		renderList();
 	}
 
-	private renderRule(container: HTMLElement, rule: ConditionalRule): void {
+	private renderRule(container: HTMLElement, rule: ConditionalRule, dragEnabled: boolean): void {
 		const actualIndex = this.store.settings.rules.findIndex((candidate) => candidate.id === rule.id);
 		const card = container.createEl('section', { cls: 'bpc-rule-card' });
 		card.dataset.ruleId = rule.id;
@@ -118,10 +123,29 @@ export class RuleManagerView {
 		card.addEventListener('keydown', (event) => {
 			if (!event.altKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
 			event.preventDefault();
-			this.store.moveRule(rule.id, event.key === 'ArrowUp' ? -1 : 1);
+			this.moveRuleAndAnnounce(rule, event.key === 'ArrowUp' ? -1 : 1);
 		});
+		this.bindRuleDropTarget(card, rule, dragEnabled);
 
 		const header = card.createDiv('bpc-rule-card__header');
+		const handle = header.createSpan('bpc-rule-card__drag-handle');
+		setIcon(handle, 'grip-vertical');
+		handle.draggable = dragEnabled;
+		handle.setAttribute('aria-hidden', 'true');
+		handle.title = dragEnabled ? `Drag ${rule.name} to reorder` : 'Clear rule search to drag and reorder';
+		handle.addEventListener('dragstart', (event) => {
+			if (!dragEnabled) {
+				event.preventDefault();
+				return;
+			}
+			this.draggedRuleId = rule.id;
+			card.classList.add('is-dragging');
+			if (event.dataTransfer) {
+				event.dataTransfer.effectAllowed = 'move';
+				event.dataTransfer.setData('text/plain', rule.id);
+			}
+		});
+		handle.addEventListener('dragend', () => this.clearRuleDragState());
 		const enabled = header.createEl('input', { type: 'checkbox', attr: { 'aria-label': `Enable ${rule.name}`, name: `bpc-rule-enabled-${rule.id}` } });
 		enabled.checked = rule.enabled;
 		enabled.addEventListener('change', () => this.store.updateRule(rule.id, { enabled: enabled.checked }));
@@ -133,8 +157,8 @@ export class RuleManagerView {
 		name.value = rule.name;
 		name.addEventListener('change', () => this.store.updateRule(rule.id, { name: name.value.trim() || 'Formatting rule' }));
 		const actions = header.createDiv('bpc-rule-card__actions');
-		this.iconButton(actions, 'arrow-up', 'Move rule up', actualIndex === 0, () => this.store.moveRule(rule.id, -1));
-		this.iconButton(actions, 'arrow-down', 'Move rule down', actualIndex === this.store.settings.rules.length - 1, () => this.store.moveRule(rule.id, 1));
+		this.iconButton(actions, 'arrow-up', 'Move rule up', actualIndex === 0, () => this.moveRuleAndAnnounce(rule, -1));
+		this.iconButton(actions, 'arrow-down', 'Move rule down', actualIndex === this.store.settings.rules.length - 1, () => this.moveRuleAndAnnounce(rule, 1));
 		this.iconButton(actions, 'copy', 'Duplicate rule', false, () => this.store.duplicateRule(rule.id));
 		this.iconButton(actions, 'trash-2', 'Delete rule', false, () => {
 			new ConfirmDeleteRuleModal(this.app, rule.name, () => this.store.deleteRule(rule.id)).open();
@@ -189,6 +213,64 @@ export class RuleManagerView {
 			this.popover = new RuleColorPopover(this.store.getPaletteTemplateId(), (next) => this.store.updateRule(rule.id, { color: next }));
 			this.popover.open(color, rule.color);
 		});
+	}
+
+	private bindRuleDropTarget(card: HTMLElement, targetRule: ConditionalRule, enabled: boolean): void {
+		card.addEventListener('dragover', (event) => {
+			if (!enabled || !this.draggedRuleId || this.draggedRuleId === targetRule.id) return;
+			event.preventDefault();
+			if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+			const before = event.clientY < card.getBoundingClientRect().top + card.getBoundingClientRect().height / 2;
+			this.clearDropIndicators();
+			card.classList.add(before ? 'is-drop-before' : 'is-drop-after');
+		});
+		card.addEventListener('dragleave', (event) => {
+			if (event.relatedTarget instanceof Node && card.contains(event.relatedTarget)) return;
+			card.classList.remove('is-drop-before', 'is-drop-after');
+		});
+		card.addEventListener('drop', (event) => {
+			if (!enabled || !this.draggedRuleId || this.draggedRuleId === targetRule.id) return;
+			event.preventDefault();
+			const draggedId = this.draggedRuleId;
+			const from = this.store.settings.rules.findIndex((candidate) => candidate.id === draggedId);
+			const target = this.store.settings.rules.findIndex((candidate) => candidate.id === targetRule.id);
+			if (from < 0 || target < 0) return this.clearRuleDragState();
+			const before = card.classList.contains('is-drop-before');
+			let insertion = target + (before ? 0 : 1);
+			if (from < insertion) insertion -= 1;
+			this.store.moveRuleTo(draggedId, insertion);
+			this.announceRuleMove(draggedId);
+			this.clearRuleDragState();
+		});
+	}
+
+	private moveRuleAndAnnounce(rule: ConditionalRule, direction: -1 | 1): void {
+		const index = this.store.settings.rules.findIndex((candidate) => candidate.id === rule.id);
+		const target = index + direction;
+		if (index < 0 || target < 0 || target >= this.store.settings.rules.length) return;
+		this.store.moveRuleTo(rule.id, target);
+		this.announceRuleMove(rule.id);
+	}
+
+	private announceRuleMove(ruleId: string): void {
+		queueMicrotask(() => {
+			const rule = this.store.settings.rules.find((candidate) => candidate.id === ruleId);
+			const index = this.store.settings.rules.findIndex((candidate) => candidate.id === ruleId);
+			const status = this.container?.querySelector<HTMLElement>('.bpc-rule-reorder-status');
+			if (rule && index >= 0 && status) status.textContent = `${rule.name} moved to position ${index + 1} of ${this.store.settings.rules.length}.`;
+		});
+	}
+
+	private clearDropIndicators(): void {
+		this.container?.querySelectorAll('.bpc-rule-card.is-drop-before, .bpc-rule-card.is-drop-after')
+			.forEach((card) => card.classList.remove('is-drop-before', 'is-drop-after'));
+	}
+
+	private clearRuleDragState(): void {
+		this.draggedRuleId = null;
+		this.clearDropIndicators();
+		this.container?.querySelectorAll('.bpc-rule-card.is-dragging')
+			.forEach((card) => card.classList.remove('is-dragging'));
 	}
 
 	private properties(current?: string): string[] {

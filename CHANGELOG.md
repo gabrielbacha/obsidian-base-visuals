@@ -2,6 +2,20 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.10.0 — 2026-08-30
+
+- Add complete arrow, Home, and End keyboard behavior with roving focus to custom row-height, width-scope, and column-tone radio groups.
+- Centralize native pill removal for the hover ×, Delete/Backspace, and the right-click manager.
+- Prevent active-pill deletion from falling through to Obsidian's cell-level delete behavior when native removal is unavailable.
+- Detect unavailable or non-responsive native pill controls and show a throttled compatibility notice instead of failing silently.
+- Batch and deduplicate Base DOM mutations with one discovery traversal per changed subtree, including virtualized table updates.
+- Clean detached leaves from tracked collections instead of rescanning their complete DOM during teardown.
+- Add desktop drag-and-drop ordering for conditional-formatting rules with clear insertion indicators and exact positioning.
+- Preserve Move up/down buttons and Alt+Arrow ordering, and announce successful moves to assistive technology.
+- Disable ambiguous drag ordering while rule search is filtering the visible list.
+- Expand Smart property recognition for suffixed status and priority fields and support more common semantic value aliases.
+- Normalize ordered and parenthetical values such as `2.In Progress`, `3.Waiting (for a dependency)`, and `1.P0` before semantic color matching.
+
 ## 0.8.0 — 2026-08-29
 
 - Add Soft, Solid, and Outline pill styles per property, independently of its color strategy.

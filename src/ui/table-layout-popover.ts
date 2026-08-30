@@ -16,6 +16,7 @@ import { SettingsStore } from '../core/settings-store';
 import type { LayoutPreset } from '../core/types';
 import { ApplyAllColumnsConfirmationModal } from './apply-all-columns-confirmation';
 import { ResetColumnWidthsConfirmationModal } from './reset-column-widths-confirmation';
+import { bindRadioGroup, selectRadio } from './radio-group';
 
 export class TableLayoutPopover {
 	private panel: HTMLElement | null = null;
@@ -68,6 +69,7 @@ export class TableLayoutPopover {
 			});
 			return button;
 		});
+		bindRadioGroup(rowGroup, rowButtons);
 
 		const widthSection = panel.createDiv('bpc-layout-section bpc-layout-section--width');
 		const widthHeading = widthSection.createDiv('bpc-layout-section__heading');
@@ -112,6 +114,7 @@ export class TableLayoutPopover {
 			});
 			return button;
 		});
+		bindRadioGroup(scopeGroup, scopeButtons);
 		const scopeNote = widthSection.createDiv({
 			cls: 'bpc-width-scope-note',
 			text: 'The indicators beside column titles show which columns will change.',
@@ -367,10 +370,6 @@ function renderColumnWidthIndicators(
 
 function clearColumnWidthIndicators(scope: HTMLElement): void {
 	scope.querySelectorAll('.bpc-column-width-indicator').forEach((indicator) => indicator.remove());
-}
-
-function selectRadio(buttons: HTMLButtonElement[], selected: HTMLButtonElement | undefined): void {
-	for (const button of buttons) button.setAttribute('aria-checked', String(button === selected));
 }
 
 function selectPressed(buttons: HTMLButtonElement[], selected: HTMLButtonElement | null): void {

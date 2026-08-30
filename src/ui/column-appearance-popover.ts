@@ -1,5 +1,6 @@
 import { setIcon, type App } from 'obsidian';
 import { normalizeHex } from '../core/colors';
+import { bindRadioGroup } from './radio-group';
 import {
 	DEFAULT_COLUMN_APPEARANCE,
 	getNativeColumnAppearance,
@@ -110,6 +111,7 @@ export class ColumnAppearancePopover {
 			});
 			return button;
 		});
+		bindRadioGroup(toneGroup, toneButtons);
 
 		const customRow = toneSection.createDiv('bpc-column-custom-color');
 		customRow.hidden = appearance.tone !== 'custom';

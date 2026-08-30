@@ -49,6 +49,16 @@ describe('TableLayoutPopover', () => {
 
 		popover.open(anchor, root);
 		expect(document.querySelector('.bpc-layout-popover')?.textContent).not.toContain('Auto-fit');
+		const rowRadios = [...document.querySelectorAll<HTMLButtonElement>('.bpc-row-height-options [role="radio"]')];
+		expect(rowRadios.map((button) => button.tabIndex)).toEqual([0, -1, -1, -1]);
+		rowRadios[0]?.focus();
+		rowRadios[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+		expect(document.activeElement).toBe(rowRadios[3]);
+		expect(rowRadios[3]?.getAttribute('aria-checked')).toBe('true');
+		rowRadios[3]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+		expect(document.activeElement).toBe(rowRadios[0]);
+		rowRadios[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+		expect(document.activeElement).toBe(rowRadios[3]);
 		const scopeNote = document.querySelector<HTMLElement>('.bpc-width-scope-note');
 		expect(scopeNote?.textContent).toContain('show which columns will change');
 		expect(scopeNote?.hidden).toBe(false);
@@ -84,7 +94,12 @@ describe('TableLayoutPopover', () => {
 
 		const all = [...document.querySelectorAll<HTMLButtonElement>('.bpc-width-scope button')]
 			.find((button) => button.textContent === 'All columns');
-		all?.click();
+		const unset = [...document.querySelectorAll<HTMLButtonElement>('.bpc-width-scope button')]
+			.find((button) => button.textContent === 'Unset only');
+		unset?.focus();
+		unset?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+		expect(document.activeElement).toBe(all);
+		expect(all?.getAttribute('aria-checked')).toBe('true');
 		expect(document.querySelector<HTMLElement>('.bpc-width-scope-note')?.hidden).toBe(true);
 		wide?.click();
 		expect(columnInfo['file.name'].customWidth).toBe(210);

@@ -19,6 +19,7 @@ import { ColumnAppearancePopover } from '../ui/column-appearance-popover';
 import { ColumnPillAppearancePopover } from '../ui/column-pill-appearance-popover';
 import { compareNaturalValues } from './value-order';
 import { strategyLabel } from './property-strategies';
+import { NativePillRemovalService, type PillRemovalCapability } from './native-pill-removal';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
@@ -30,6 +31,15 @@ const TABLE_SELECTOR = '.bases-table-container';
 const TOOLBAR_CONTROL_SELECTOR = [
 	'.bpc-conditional-formatting-button',
 	'.bpc-table-layout-button',
+].join(',');
+const TREE_SELECTOR = [
+	PILL_SELECTOR,
+	CELL_SELECTOR,
+	ROW_SELECTOR,
+	GROUP_HEADING_SELECTOR,
+	TABLE_SELECTOR,
+	TOOLBAR_SELECTOR,
+	TOOLBAR_CONTROL_SELECTOR,
 ].join(',');
 
 interface TrackedPill {
@@ -47,6 +57,7 @@ interface TrackedGroupHeading {
 interface RootBinding {
 	observer: MutationObserver;
 	inputHandler: (event: Event) => void;
+	clickHandler: (event: MouseEvent) => void;
 	contextMenuHandler: (event: MouseEvent) => void;
 	pointerDownHandler: (event: PointerEvent) => void;
 	focusInHandler: (event: FocusEvent) => void;
@@ -62,7 +73,7 @@ export interface ColumnMenuRequest {
 	propertyName?: string;
 	value: string;
 	values: string[];
-	removeFromRow: () => void;
+	removal: PillRemovalCapability;
 	store?: SettingsStore;
 }
 export type OpenColumnManager = (request: ColumnMenuRequest) => void;
@@ -78,12 +89,14 @@ export class PillEnhancer {
 	private readonly tableValues = new Map<HTMLElement, Map<string, Set<string>>>();
 	private readonly tables = new Set<HTMLElement>();
 	private readonly columnAppearanceElements = new Set<HTMLElement>();
+	private readonly toolbarControls = new Set<HTMLElement>();
 	private readonly pendingMenuObservers = new Set<MutationObserver>();
 	private readonly scopedStoreUnsubscribers = new Map<SettingsStore, () => void>();
 	private readonly mainPropertyByTable = new WeakMap<HTMLElement, string>();
 	private readonly tableLayoutPopover: TableLayoutPopover;
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
 	private readonly columnPillAppearancePopover: ColumnPillAppearancePopover;
+	private readonly pillRemoval = new NativePillRemovalService();
 	private unsubscribeStore: (() => void) | null = null;
 	private started = false;
 
@@ -113,15 +126,35 @@ export class PillEnhancer {
 		if (this.roots.has(root)) return;
 		const Observer = root.ownerDocument.defaultView?.MutationObserver ?? MutationObserver;
 		const observer = new Observer((mutations) => {
+			const removedRoots: Element[] = [];
+			const addedRoots: Element[] = [];
+			const refreshTargets = new Set<Element>();
+			const classTargets = new Set<HTMLElement>();
 			for (const mutation of mutations) {
-				for (const node of Array.from(mutation.removedNodes)) this.untrackTree(node);
-				for (const node of Array.from(mutation.addedNodes)) this.processTree(node);
-				const target = asElement(mutation.target);
+				for (const node of Array.from(mutation.removedNodes)) {
+					const element = asElement(node);
+					if (element) removedRoots.push(element);
+				}
+				for (const node of Array.from(mutation.addedNodes)) {
+					const element = asElement(node);
+					if (element) addedRoots.push(element);
+				}
+				const target = mutationElement(mutation.target);
 				if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-					if (target) this.recoverPluginClasses(target as HTMLElement);
+					if (target) classTargets.add(target as HTMLElement);
 					continue;
 				}
-				if (target) this.refreshAround(target);
+				if (target) refreshTargets.add(target);
+			}
+			for (const element of deduplicateRoots(removedRoots)) this.untrackTree(element);
+			for (const element of deduplicateRoots(addedRoots)) this.processTree(element);
+			for (const target of classTargets) {
+				if (target.isConnected && (target === root || root.contains(target))) {
+					this.recoverPluginClasses(target);
+				}
+			}
+			for (const target of deduplicateRoots([...refreshTargets])) {
+				if (target.isConnected && (target === root || root.contains(target))) this.refreshAround(target);
 			}
 		});
 		observer.observe(root, {
@@ -137,11 +170,13 @@ export class PillEnhancer {
 			if (target) this.refreshAround(target);
 		};
 		const contextMenuHandler = (event: MouseEvent) => this.handleContextMenu(event);
+		const clickHandler = (event: MouseEvent) => this.handleNativeRemoveClick(event);
 		const pointerDownHandler = (event: PointerEvent) => this.handlePillPointerDown(root, event);
 		const focusInHandler = (event: FocusEvent) => this.handlePillFocusIn(root, event);
 		const keyDownHandler = (event: KeyboardEvent) => this.handlePillKeyDown(root, event);
 		root.addEventListener('input', inputHandler);
 		root.addEventListener('change', inputHandler);
+		root.addEventListener('click', clickHandler, true);
 		root.addEventListener('contextmenu', contextMenuHandler, true);
 		root.addEventListener('pointerdown', pointerDownHandler, true);
 		root.addEventListener('focusin', focusInHandler, true);
@@ -149,6 +184,7 @@ export class PillEnhancer {
 		this.roots.set(root, {
 			observer,
 			inputHandler,
+			clickHandler,
 			contextMenuHandler,
 			pointerDownHandler,
 			focusInHandler,
@@ -174,10 +210,12 @@ export class PillEnhancer {
 		this.tableLayoutPopover.close();
 		this.columnAppearancePopover.close();
 		this.columnPillAppearancePopover.close();
+		this.pillRemoval.dispose();
 		for (const observer of this.pendingMenuObservers) observer.disconnect();
 		this.pendingMenuObservers.clear();
 		for (const element of this.columnAppearanceElements) clearColumnAppearance(element);
 		this.columnAppearanceElements.clear();
+		this.toolbarControls.clear();
 	}
 
 	private refreshRoots(): void {
@@ -205,54 +243,70 @@ export class PillEnhancer {
 		this.columnPillAppearancePopover.close();
 		root.removeEventListener('input', binding.inputHandler);
 		root.removeEventListener('change', binding.inputHandler);
+		root.removeEventListener('click', binding.clickHandler, true);
 		root.removeEventListener('contextmenu', binding.contextMenuHandler, true);
 		root.removeEventListener('pointerdown', binding.pointerDownHandler, true);
 		root.removeEventListener('focusin', binding.focusInHandler, true);
 		root.removeEventListener('keydown', binding.keyDownHandler, true);
 		this.setActivePill(root, null);
-		this.untrackTree(root);
+		this.cleanupTrackedRoot(root);
 		for (const host of this.tableValues.keys()) {
 			if (host === root || root.contains(host)) this.tableValues.delete(host);
 		}
-		root.querySelectorAll<HTMLElement>(TOOLBAR_CONTROL_SELECTOR).forEach((button) => button.remove());
-		root.querySelectorAll<HTMLElement>('.bpc-table').forEach((table) => this.untrackTable(table));
-		root.querySelectorAll<HTMLElement>('.bpc-column-appearance').forEach((element) => {
-			clearColumnAppearance(element);
-			this.columnAppearanceElements.delete(element);
-		});
 		this.roots.delete(root);
 	}
 
 	private processTree(node: Node): void {
 		const element = asElement(node);
 		if (!element) return;
-		this.processMatches(element, PILL_SELECTOR, (item) => this.processPill(item));
-		this.processMatches(element, CELL_SELECTOR, (item) => this.processCell(item));
-		this.processMatches(element, ROW_SELECTOR, (item) => this.processRow(item));
-		this.processMatches(element, GROUP_HEADING_SELECTOR, (item) => this.processGroupHeading(item));
-		this.processMatches(element, TABLE_SELECTOR, (item) => this.processTable(item));
-		this.processMatches(element, TOOLBAR_SELECTOR, (item) => this.processToolbar(item));
+		const buckets = collectTreeBuckets(element);
+		for (const item of buckets.pills) this.processPill(item);
+		for (const item of buckets.cells) this.processCell(item);
+		for (const item of buckets.rows) this.processRow(item);
+		for (const item of buckets.groups) this.processGroupHeading(item);
+		for (const item of buckets.tables) this.processTable(item);
+		for (const item of buckets.toolbars) this.processToolbar(item);
 		const ancestorPill = element.closest<HTMLElement>(PILL_SELECTOR);
 		if (ancestorPill) this.processPill(ancestorPill);
 		const ancestorGroup = element.closest<HTMLElement>(GROUP_HEADING_SELECTOR);
 		if (ancestorGroup) this.processGroupHeading(ancestorGroup);
 	}
 
-	private processMatches(element: Element, selector: string, action: (item: HTMLElement) => void): void {
-		if (element.matches(selector)) action(element as HTMLElement);
-		element.querySelectorAll<HTMLElement>(selector).forEach(action);
-	}
-
 	private untrackTree(node: Node): void {
 		const element = asElement(node);
 		if (!element) return;
-		this.processMatches(element, PILL_SELECTOR, (item) => this.untrackPill(item));
-		this.processMatches(element, CELL_SELECTOR, (item) => this.untrackCell(item));
-		this.processMatches(element, ROW_SELECTOR, (item) => this.untrackRow(item));
-		this.processMatches(element, GROUP_HEADING_SELECTOR, (item) => this.untrackGroupHeading(item));
-		this.processMatches(element, TABLE_SELECTOR, (item) => this.untrackTable(item));
+		const buckets = collectTreeBuckets(element);
+		for (const item of buckets.pills) this.untrackPill(item);
+		for (const item of buckets.cells) this.untrackCell(item);
+		for (const item of buckets.rows) this.untrackRow(item);
+		for (const item of buckets.groups) this.untrackGroupHeading(item);
+		for (const item of buckets.tables) this.untrackTable(item);
+		for (const item of buckets.controls) this.toolbarControls.delete(item);
 		for (const host of this.tableValues.keys()) {
 			if (host === element || element.contains(host)) this.tableValues.delete(host);
+		}
+	}
+
+	private cleanupTrackedRoot(root: HTMLElement): void {
+		this.setActivePill(root, null);
+		for (const elements of [...this.visibleByKey.values()]) {
+			for (const pill of [...elements]) if (belongsToRoot(root, pill)) this.untrackPill(pill);
+		}
+		for (const elements of [...this.visibleGroupsByKey.values()]) {
+			for (const heading of [...elements]) if (belongsToRoot(root, heading)) this.untrackGroupHeading(heading);
+		}
+		for (const cell of [...this.visibleCells]) if (belongsToRoot(root, cell)) this.untrackCell(cell);
+		for (const row of [...this.visibleRows]) if (belongsToRoot(root, row)) this.untrackRow(row);
+		for (const table of [...this.tables]) if (belongsToRoot(root, table)) this.untrackTable(table);
+		for (const element of [...this.columnAppearanceElements]) {
+			if (!belongsToRoot(root, element)) continue;
+			clearColumnAppearance(element);
+			this.columnAppearanceElements.delete(element);
+		}
+		for (const control of [...this.toolbarControls]) {
+			if (!belongsToRoot(root, control)) continue;
+			control.remove();
+			this.toolbarControls.delete(control);
 		}
 	}
 
@@ -301,7 +355,6 @@ export class PillEnhancer {
 		} else this.applyColumnAppearance(cell, scope, propertyId);
 		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
 		if (table) this.applyMainColumn(table, cell);
-		scope.querySelectorAll<HTMLElement>(TOOLBAR_SELECTOR).forEach((toolbar) => this.processToolbar(toolbar));
 	}
 
 	private processRow(row: HTMLElement): void {
@@ -375,7 +428,10 @@ export class PillEnhancer {
 		onActivate: (button: HTMLElement) => void,
 	): HTMLElement {
 		const existing = toolbar.querySelector<HTMLElement>(`.${className}`);
-		if (existing) return existing;
+		if (existing) {
+			this.toolbarControls.add(existing);
+			return existing;
+		}
 		const item = toolbar.createDiv(`bases-toolbar-item bpc-toolbar-control ${className}`);
 		const button = item.createDiv('text-icon-button');
 		button.setAttribute('role', 'button');
@@ -395,6 +451,7 @@ export class PillEnhancer {
 			event.preventDefault();
 			button.click();
 		});
+		this.toolbarControls.add(item);
 		return item;
 	}
 
@@ -437,12 +494,6 @@ export class PillEnhancer {
 
 	private untrackTable(table: HTMLElement): void {
 		table.classList.remove('bpc-table');
-		table.querySelectorAll<HTMLElement>('.bpc-main-column').forEach((cell) =>
-			cell.classList.remove('bpc-main-column'));
-		table.querySelectorAll<HTMLElement>('.bpc-column-appearance').forEach((element) => {
-			clearColumnAppearance(element);
-			this.columnAppearanceElements.delete(element);
-		});
 		this.tables.delete(table);
 	}
 
@@ -512,7 +563,6 @@ export class PillEnhancer {
 		event.preventDefault();
 		event.stopPropagation();
 		event.stopImmediatePropagation();
-		const removeButton = pill.querySelector<HTMLElement>('.multi-select-pill-remove-button');
 		this.openColumnManager({
 			document: pill.ownerDocument,
 			point: { x: event.clientX, y: event.clientY },
@@ -521,9 +571,16 @@ export class PillEnhancer {
 			value: metadata.identity.value,
 			values: [...(this.tableValues.get(host)?.get(metadata.identity.propertyId) ?? [])]
 				.sort(compareNaturalValues),
-			removeFromRow: () => removeButton?.click(),
+			removal: this.pillRemoval.capability(pill),
 			store: this.scopedStore(host),
 		});
+	}
+
+	private handleNativeRemoveClick(event: MouseEvent): void {
+		const target = asElement(event.target);
+		const control = target?.closest<HTMLElement>('.multi-select-pill-remove-button');
+		const pill = control?.closest<HTMLElement>(PILL_SELECTOR);
+		if (pill && this.tracked.has(pill)) this.pillRemoval.observeNativeRemoval(pill);
 	}
 
 	private handlePillPointerDown(root: HTMLElement, event: PointerEvent): void {
@@ -556,14 +613,11 @@ export class PillEnhancer {
 			return;
 		}
 		if (isTextEditingTarget(target, pill)) return;
-		const removeButton = pill.querySelector<HTMLElement>('.multi-select-pill-remove-button');
-		if (!removeButton) return;
-
 		event.preventDefault();
 		event.stopPropagation();
 		event.stopImmediatePropagation();
 		this.setActivePill(root, null);
-		removeButton.click();
+		this.pillRemoval.remove(pill);
 	}
 
 	private setActivePill(root: HTMLElement, pill: HTMLElement | null): void {
@@ -872,6 +926,7 @@ export class PillEnhancer {
 
 	private untrackCell(cell: HTMLElement): void {
 		this.visibleCells.delete(cell);
+		cell.classList.remove('bpc-main-column');
 		clearRuleAppearance(cell, 'bpc-rule-cell');
 		clearColumnAppearance(cell);
 		this.columnAppearanceElements.delete(cell);
@@ -992,6 +1047,48 @@ function leafContainer(leaf: WorkspaceLeaf): HTMLElement | null {
 function asElement(value: unknown): Element | null {
 	if (typeof value !== 'object' || value === null) return null;
 	return 'nodeType' in value && value.nodeType === 1 ? value as Element : null;
+}
+
+interface TreeBuckets {
+	pills: HTMLElement[];
+	cells: HTMLElement[];
+	rows: HTMLElement[];
+	groups: HTMLElement[];
+	tables: HTMLElement[];
+	toolbars: HTMLElement[];
+	controls: HTMLElement[];
+}
+
+function collectTreeBuckets(root: Element): TreeBuckets {
+	const buckets: TreeBuckets = {
+		pills: [], cells: [], rows: [], groups: [], tables: [], toolbars: [], controls: [],
+	};
+	const elements = [root, ...root.querySelectorAll<HTMLElement>(TREE_SELECTOR)];
+	for (const candidate of elements) {
+		const element = candidate as HTMLElement;
+		if (element.matches(PILL_SELECTOR)) buckets.pills.push(element);
+		if (element.matches(CELL_SELECTOR)) buckets.cells.push(element);
+		if (element.matches(ROW_SELECTOR)) buckets.rows.push(element);
+		if (element.matches(GROUP_HEADING_SELECTOR)) buckets.groups.push(element);
+		if (element.matches(TABLE_SELECTOR)) buckets.tables.push(element);
+		if (element.matches(TOOLBAR_SELECTOR)) buckets.toolbars.push(element);
+		if (element.matches(TOOLBAR_CONTROL_SELECTOR)) buckets.controls.push(element);
+	}
+	return buckets;
+}
+
+function mutationElement(node: Node): Element | null {
+	return asElement(node) ?? node.parentElement;
+}
+
+function deduplicateRoots(elements: readonly Element[]): Element[] {
+	const unique = [...new Set(elements)];
+	return unique.filter((candidate) => !unique.some((other) =>
+		other !== candidate && other.contains(candidate)));
+}
+
+function belongsToRoot(root: HTMLElement, element: HTMLElement): boolean {
+	return root === element || root.contains(element);
 }
 
 function isTextEditingTarget(target: Element | null, activePill: HTMLElement): boolean {

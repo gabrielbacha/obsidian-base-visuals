@@ -13,6 +13,7 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 - Native and embedded Base table support
 - Light and dark theme-aware colors
 - Ordered conditional-formatting rules for text, lists, checkboxes, inputs, and numbers
+- Drag, button, and keyboard ordering for conditional-formatting rules
 - Soft cell or entire-row highlighting with preset and custom colors
 - A native-looking palette button in Base table toolbars
 - A compact Layout popover for native row heights and reusable column widths
@@ -21,6 +22,8 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 - Subtle table-header tinting and emphasis for the first visible column
 - Grouped row headings that automatically mirror the grouped value's pill color
 - View-specific column appearance with muted, faint, custom-color, and bold treatments
+- Keyboard-accessible layout, width-scope, and column-tone controls
+- Guarded native pill removal that never lets Delete or Backspace clear the whole cell
 
 ## Usage
 
@@ -36,8 +39,11 @@ Open a Base table containing a list property. Values receive stable automatic co
 - Right-click a column header and choose **Column appearance** to de-emphasize, recolor, or bold that field in the current view or every view in the Base.
 - For list columns, right-click the header and choose **Pill appearance** to change its color strategy and Soft, Solid, or Outline style without opening the full manager.
 - Choose **Format** in the Base toolbar to manage conditional formatting and every discovered property value for that Base.
+- Reorder conditional-formatting rules by dragging their grip, with Move up/down buttons and **Alt+Arrow** retained for keyboard and mobile use.
 
 Pill colors are scoped to the current Base and shared by its views. Friendly column names are display-only: settings remain attached to the underlying note property even when a Base renames the column. Conditional-formatting rules can target only the current view or every view in the Base, remain case-insensitive, and are evaluated top-to-bottom. Color and conditional-formatting changes never modify note properties. Layout and column-appearance actions use Obsidian's native Base view configuration. Column appearance can also be shared across every view in the Base. The explicit **Remove from row** action delegates that one list edit to Obsidian.
+
+Smart strategies recognize common property families such as `status`, `state`, `workflow`, `phase`, `priority`, `severity`, and suffixed forms such as `status_todo` or `sprint_priority`. Ordered labels and explanatory suffixes are normalized, so values such as `2. In Progress`, `3.Waiting (for a dependency)`, and `1.P0` retain their semantic colors.
 
 ## Installation
 

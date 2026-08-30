@@ -2,14 +2,49 @@ import type { OptionIdentity, PaletteName, PalettePresetName, PropertyColorStrat
 
 export type StrategyColor = PalettePresetName | 'neutral' | 'disabled';
 
-const STATUS_PROPERTIES = new Set(['status', 'state', 'workflow']);
-const PRIORITY_PROPERTIES = new Set(['priority', 'severity', 'urgency']);
-const SINGLE_PROPERTIES = new Set(['tags', 'tag', 'audience']);
-const NEUTRAL_PROPERTIES = new Set(['category', 'addin', 'add in', 'plugin']);
-const STATUS_GREEN = new Set(['done', 'complete', 'closed', 'resolved', 'approved']);
-const STATUS_BLUE = new Set(['in progress', 'active', 'started', 'doing']);
-const STATUS_YELLOW = new Set(['review', 'in review', 'pending', 'waiting', 'queued']);
-const STATUS_RED = new Set(['blocked', 'failed', 'rejected', 'cancelled', 'canceled']);
+const STATUS_PROPERTIES = new Set(['status', 'state', 'workflow', 'phase', 'stage']);
+const PRIORITY_PROPERTIES = new Set(['priority', 'severity', 'urgency', 'prio']);
+const SINGLE_PROPERTIES = new Set(['tags', 'tag', 'audience', 'label', 'labels']);
+const NEUTRAL_PROPERTIES = new Set(['category', 'subcategory', 'addin', 'add in', 'plugin', 'section']);
+
+const STATUS_GREEN = new Set([
+	'done', 'complete', 'completed', 'closed', 'resolved', 'approved',
+	'finished', 'released', 'shipped', 'passed', 'success', 'verified',
+]);
+const STATUS_BLUE = new Set([
+	'in progress', 'active', 'started', 'doing', 'running', 'ongoing',
+	'wip', 'working', 'in dev', 'in development', 'executing',
+]);
+const STATUS_PURPLE = new Set([
+	'continuous', 'recurring', 'routine', 'maintenance', 'perpetual', 'evergreen',
+]);
+const STATUS_YELLOW = new Set([
+	'review', 'in review', 'to review', 'under review', 'pending',
+	'waiting', 'waiting for a dependency', 'waiting for dependency',
+	'queued', 'scheduled', 'scheduled future date', 'upcoming',
+	'ready for review', 'pr review',
+]);
+const STATUS_ORANGE = new Set([
+	'on hold', 'paused', 'deferred', 'suspended', 'parked', 'standby', 'delayed',
+]);
+const STATUS_RED = new Set([
+	'blocked', 'failed', 'rejected', 'cancelled', 'canceled', 'stuck',
+	'error', 'broken', 'halted', 'aborted',
+]);
+
+const PRIORITY_HIGH = new Set([
+	'high', 'urgent', 'critical', 'high priority', 'urgent priority', 'critical priority',
+	'pnow', 'pnow priority', 'p0', 'p 0', 'p0 priority', 'blocker', 'showstopper',
+	'highest', 'immediate', 'asap', 'emergency',
+]);
+const PRIORITY_MEDIUM = new Set([
+	'medium', 'normal', 'medium priority', 'normal priority',
+	'med', 'med priority', 'soon', 'soon priority',
+	'p1', 'p 1', 'p1 priority', 'moderate', 'important',
+]);
+const PRIORITY_LOW_MID = new Set([
+	'p2', 'p 2', 'p2 priority', 'minor',
+]);
 
 export function inferPropertyStrategy(propertyId: string, displayName?: string): PropertyColorStrategy {
 	const candidates = propertyCandidates(propertyId, displayName);
@@ -38,12 +73,15 @@ export function strategyColor(identity: OptionIdentity, strategy: PropertyColorS
 		case 'status':
 			if (STATUS_GREEN.has(value)) return 'green-sea';
 			if (STATUS_BLUE.has(value)) return 'peter-river';
+			if (STATUS_PURPLE.has(value)) return 'wisteria';
 			if (STATUS_YELLOW.has(value)) return 'sun-flower';
+			if (STATUS_ORANGE.has(value)) return 'carrot';
 			if (STATUS_RED.has(value)) return 'pomegranate';
 			return 'neutral';
 		case 'priority':
-			if (value === 'medium' || value === 'normal' || value === 'medium priority' || value === 'normal priority') return 'carrot';
-			if (value === 'high' || value === 'urgent' || value === 'critical' || value === 'high priority' || value === 'urgent priority' || value === 'critical priority') return 'pomegranate';
+			if (PRIORITY_HIGH.has(value)) return 'pomegranate';
+			if (PRIORITY_MEDIUM.has(value)) return 'carrot';
+			if (PRIORITY_LOW_MID.has(value)) return 'sun-flower';
 			return 'neutral';
 		default: return automatic(identity);
 	}
@@ -61,8 +99,12 @@ function propertyCandidates(propertyId: string, displayName?: string): string[] 
 }
 
 function matchesPropertyFamily(candidates: readonly string[], names: ReadonlySet<string>): boolean {
-	return candidates.some((candidate) => [...names].some((name) =>
-		candidate === name || candidate.startsWith(`${name} `)));
+	return candidates.some((candidate) => {
+		const words = candidate.split(' ').filter(Boolean);
+		return words.some((word) => names.has(word)) || [...names].some((name) =>
+			candidate === name || candidate.startsWith(`${name} `) || candidate.endsWith(` ${name}`) || candidate.includes(` ${name} `)
+		);
+	});
 }
 
 function normalizeWords(value: string): string {
@@ -70,6 +112,7 @@ function normalizeWords(value: string): string {
 }
 
 function normalizeSemanticValue(value: string): string {
-	const withoutOrder = value.trim().replace(/^\d+\s*(?:(?:[.):\]-]|—|–)\s*|\s+)/u, '');
-	return normalizeWords(withoutOrder);
+	const withoutOrder = value.trim().replace(/^\d+\s*(?:(?:[.):\]-]|—|–)\s*|\s*)/u, '');
+	const withoutParentheses = withoutOrder.replace(/\s*\([^)]*\)/g, '').trim();
+	return normalizeWords(withoutParentheses || withoutOrder);
 }

@@ -75,7 +75,11 @@ export class ColumnPillPopover {
 			menu.createDiv('bpc-context-menu__separator');
 			const remove = createMenuItem(menu, 'Remove from row', undefined, 'remove');
 			remove.addClass('is-destructive');
-			remove.addEventListener('click', renderRemoveConfirmation);
+			remove.disabled = !request.removal.available;
+			if (remove.disabled) {
+				remove.title = 'Unavailable because the installed Obsidian version does not expose a compatible pill removal control.';
+				remove.setAttribute('aria-description', remove.title);
+			} else remove.addEventListener('click', renderRemoveConfirmation);
 			finishView(panel, request.point, color);
 		};
 
@@ -91,7 +95,7 @@ export class ColumnPillPopover {
 			cancel.addEventListener('click', renderQuick);
 			const confirm = actions.createEl('button', { text: 'Remove', cls: 'mod-warning', attr: { type: 'button' } });
 			confirm.addEventListener('click', () => {
-				request.removeFromRow();
+				request.removal.remove();
 				this.close();
 			});
 			finishView(panel, request.point, cancel);

@@ -113,7 +113,7 @@ describe('ColumnPillPopover', () => {
 		findMenuItem('Remove from row')?.click();
 		expect(document.querySelector('.bpc-context-header strong')?.textContent).toBe('Remove value?');
 		document.querySelector<HTMLButtonElement>('.bpc-remove-confirm .mod-warning')?.click();
-		expect(request.removeFromRow).toHaveBeenCalledOnce();
+		expect(request.removal.remove).toHaveBeenCalledOnce();
 		expect(document.querySelector('.bpc-column-popover')).toBeNull();
 	});
 
@@ -130,6 +130,19 @@ describe('ColumnPillPopover', () => {
 			new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }),
 		);
 		expect(menuLabels()).toContain('Change color');
+	});
+
+	it('disables removal when the native editor capability is unavailable', () => {
+		const { popover } = createPopover();
+		const request = createRequest();
+		request.removal.available = false;
+		popover.open(request);
+		const remove = findMenuItem('Remove from row');
+		expect(remove?.disabled).toBe(true);
+		expect(remove?.title).toContain('installed Obsidian version');
+		expect(remove?.getAttribute('aria-description')).toContain('installed Obsidian version');
+		remove?.click();
+		expect(request.removal.remove).not.toHaveBeenCalled();
 	});
 });
 
@@ -158,6 +171,6 @@ function createRequest() {
 		propertyId: 'note.status',
 		value: 'Doing',
 		values: ['Doing', 'Done', 'Later'],
-		removeFromRow: vi.fn(),
+		removal: { available: true, remove: vi.fn(() => 'dispatched' as const) },
 	};
 }

@@ -28,6 +28,13 @@ describe('ColumnAppearancePopover', () => {
 		popover.open(anchor, root, 'note.status', changed);
 		expect(document.querySelector('.bpc-column-appearance-popover')?.textContent)
 			.toContain('Column appearance');
+		const radios = [...document.querySelectorAll<HTMLButtonElement>('.bpc-column-tone-options [role="radio"]')];
+		expect(radios.map((button) => button.tabIndex)).toEqual([0, -1, -1, -1]);
+		radios[0]?.focus();
+		radios[0]?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+		expect(document.activeElement).toBe(radios[3]);
+		expect(radios[3]?.getAttribute('aria-checked')).toBe('true');
+		expect(document.querySelector<HTMLElement>('.bpc-column-custom-color')?.hidden).toBe(false);
 		const faint = findButton('Faint');
 		faint?.click();
 		expect(storedAppearance(values)).toEqual({ tone: 'faint', bold: false });
@@ -46,7 +53,7 @@ describe('ColumnAppearancePopover', () => {
 		expect(storedAppearance(values)).toEqual({
 			tone: 'custom', bold: true, color: '#AABBCC',
 		});
-		expect(changed).toHaveBeenCalledTimes(4);
+		expect(changed).toHaveBeenCalledTimes(5);
 
 		findButton('Reset appearance')?.click();
 		expect(values.get('basesVisualsColumnAppearance')).toBeNull();

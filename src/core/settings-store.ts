@@ -340,8 +340,14 @@ export class SettingsStore {
 
 	moveRule(id: string, direction: -1 | 1): void {
 		const index = this.settings.rules.findIndex((rule) => rule.id === id);
-		const target = index + direction;
-		if (index < 0 || target < 0 || target >= this.settings.rules.length) return;
+		if (index < 0) return;
+		this.moveRuleTo(id, index + direction);
+	}
+
+	moveRuleTo(id: string, targetIndex: number): void {
+		const index = this.settings.rules.findIndex((rule) => rule.id === id);
+		const target = Math.max(0, Math.min(this.settings.rules.length - 1, Math.trunc(targetIndex)));
+		if (index < 0 || target === index) return;
 		const [rule] = this.settings.rules.splice(index, 1);
 		if (!rule) return;
 		this.settings.rules.splice(target, 0, rule);

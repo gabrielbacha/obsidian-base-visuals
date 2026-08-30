@@ -234,14 +234,17 @@ describe('PillEnhancer', () => {
 		let request: ColumnMenuRequest | undefined;
 		const harness = createHarness(
 			[{ propertyId: 'note.status', value: 'Done' }],
-			(baseView) => baseView.querySelector('.multi-select-pill-remove-button')?.addEventListener('click', removed),
+			(baseView) => baseView.querySelector('.multi-select-pill-remove-button')?.addEventListener('click', (event) => {
+				removed();
+				(event.currentTarget as Element).closest('.multi-select-pill')?.remove();
+			}),
 			undefined,
 			(next) => { request = next; },
 		);
 		harness.root.querySelector<HTMLElement>('.multi-select-pill')?.dispatchEvent(
 			new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
 		);
-		request?.removeFromRow();
+		request?.removal.remove();
 		expect(removed).toHaveBeenCalledOnce();
 	});
 
@@ -254,7 +257,10 @@ describe('PillEnhancer', () => {
 				{ propertyId: 'note.status', value: 'Done' },
 			],
 			(baseView) => {
-				baseView.querySelectorAll('.multi-select-pill-remove-button')[1]?.addEventListener('click', removed);
+				baseView.querySelectorAll('.multi-select-pill-remove-button')[1]?.addEventListener('click', (event) => {
+					removed();
+					(event.currentTarget as Element).closest('.multi-select-pill')?.remove();
+				});
 				baseView.addEventListener('keydown', nativeCellDelete);
 			},
 		);
@@ -268,6 +274,24 @@ describe('PillEnhancer', () => {
 		expect(removed).toHaveBeenCalledOnce();
 		expect(nativeCellDelete).not.toHaveBeenCalled();
 		expect(pills[1]?.classList.contains('bpc-pill--active')).toBe(false);
+	});
+
+	it('blocks cell deletion when an active pill has no compatible native remove control', () => {
+		const nativeCellDelete = vi.fn();
+		const harness = createHarness(
+			[{ propertyId: 'note.status', value: 'Done' }],
+			(baseView) => baseView.addEventListener('keydown', nativeCellDelete),
+		);
+		const pill = harness.root.querySelector<HTMLElement>('.multi-select-pill');
+		pill?.querySelector('.multi-select-pill-remove-button')?.remove();
+		pill?.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true }));
+		const deletion = new KeyboardEvent('keydown', {
+			key: 'Backspace', bubbles: true, cancelable: true,
+		});
+		expect(pill?.dispatchEvent(deletion)).toBe(false);
+		expect(nativeCellDelete).not.toHaveBeenCalled();
+		expect(pill?.isConnected).toBe(true);
+		expect(pill?.classList.contains('bpc-pill--active')).toBe(false);
 	});
 
 	it('leaves Delete native when no pill is active or text is being edited', () => {
@@ -317,6 +341,33 @@ describe('PillEnhancer', () => {
 			new MouseEvent('contextmenu', { bubbles: true, cancelable: true }),
 		);
 		expect(opened.mock.calls[1]?.[0].values).toEqual(['Elsewhere']);
+	});
+
+	it('processes each added subtree with one combined discovery traversal', async () => {
+		const harness = createHarness([]);
+		const wrapper = document.body.createDiv();
+		wrapper.remove();
+		appendPill(wrapper, { propertyId: 'note.status', value: 'Nested' });
+		const traversal = vi.spyOn(wrapper, 'querySelectorAll');
+		harness.root.querySelector('.bases-view')?.appendChild(wrapper);
+		await mutationCycle();
+		expect(traversal).toHaveBeenCalledOnce();
+		expect(wrapper.querySelector('.multi-select-pill')?.classList.contains('bpc-pill')).toBe(true);
+	});
+
+	it('cleans tracked elements from detached roots without touching unrelated DOM', async () => {
+		const harness = createHarness([]);
+		const wrapper = document.body.createDiv();
+		wrapper.remove();
+		appendPill(wrapper, { propertyId: 'note.status', value: 'Detached' });
+		harness.root.querySelector('.bases-view')?.appendChild(wrapper);
+		await mutationCycle();
+		const pill = wrapper.querySelector<HTMLElement>('.multi-select-pill');
+		const unrelated = document.body.createDiv('bpc-pill unrelated');
+		wrapper.remove();
+		await mutationCycle();
+		expect(pill?.classList.contains('bpc-pill')).toBe(false);
+		expect(unrelated.classList.contains('bpc-pill')).toBe(true);
 	});
 
 	it('restores attributes and classes when stopped', () => {

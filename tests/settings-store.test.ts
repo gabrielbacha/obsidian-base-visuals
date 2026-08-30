@@ -155,8 +155,13 @@ describe('SettingsStore', () => {
 		store.moveRule(second.id, -1);
 		expect(store.settings.rules.map((rule) => rule.id)).toEqual([second.id, first.id]);
 		store.duplicateRule(first.id);
+		const copy = store.settings.rules[2];
 		expect(store.settings.rules).toHaveLength(3);
 		expect(store.settings.rules[2]?.name).toContain('copy');
+		if (copy) store.moveRuleTo(copy.id, 0);
+		expect(store.settings.rules.map((rule) => rule.id)).toEqual([copy?.id, second.id, first.id]);
+		if (copy) store.moveRuleTo(copy.id, 99);
+		expect(store.settings.rules.map((rule) => rule.id)).toEqual([second.id, first.id, copy?.id]);
 		store.deleteRule(second.id);
 		expect(store.settings.rules).toHaveLength(2);
 		store.dispose();

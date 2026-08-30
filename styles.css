@@ -1672,10 +1672,23 @@
 }
 
 .bpc-rule-card {
+	position: relative;
 	overflow: hidden;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: var(--radius-m);
 	background: var(--background-primary-alt);
+}
+
+.bpc-rule-card.is-dragging {
+	opacity: 0.45;
+}
+
+.bpc-rule-card.is-drop-before {
+	box-shadow: 0 -3px 0 var(--interactive-accent);
+}
+
+.bpc-rule-card.is-drop-after {
+	box-shadow: 0 3px 0 var(--interactive-accent);
 }
 
 .bpc-rule-card.is-disabled {
@@ -1684,11 +1697,34 @@
 
 .bpc-rule-card__header {
 	display: grid;
-	grid-template-columns: auto minmax(0, 1fr) auto;
+	grid-template-columns: 18px auto minmax(0, 1fr) auto;
 	align-items: center;
 	gap: 9px;
 	padding: 9px 11px;
 	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.bpc-rule-card__drag-handle {
+	display: inline-flex;
+	width: 18px;
+	height: 28px;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-faint);
+	cursor: grab;
+}
+
+.bpc-rule-card__drag-handle:hover {
+	color: var(--text-muted);
+}
+
+.bpc-rule-card__drag-handle:active {
+	cursor: grabbing;
+}
+
+.bpc-rule-card__drag-handle[draggable='false'] {
+	opacity: 0.35;
+	cursor: default;
 }
 
 .bpc-rule-card__name {
@@ -1729,6 +1765,19 @@
 .bpc-rule-card__fields-scroll:focus-visible {
 	box-shadow: inset 0 0 0 2px var(--background-modifier-border-focus);
 	outline: none;
+}
+
+.bpc-rule-reorder-status {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	clip-path: inset(50%);
+	border: 0;
+	white-space: nowrap;
 }
 
 .bpc-rule-field {
