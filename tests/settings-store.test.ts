@@ -91,6 +91,26 @@ describe('SettingsStore', () => {
 		store.dispose();
 	});
 
+	it('creates visually empty rules and removes background-only settings together', () => {
+		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+		const rule = store.addRule('note.status');
+		expect(rule.color).toBeUndefined();
+		expect(rule.fontColor).toBeUndefined();
+		expect(rule.bold).toBeUndefined();
+		expect(rule.strikethrough).toBeUndefined();
+
+		store.updateRule(rule.id, {
+			color: { kind: 'preset', name: 'peter-river' },
+			backgroundOpacity: 48,
+			overridePillColors: true,
+		});
+		store.updateRule(rule.id, { color: undefined });
+		expect(store.settings.rules[0]?.color).toBeUndefined();
+		expect(store.settings.rules[0]?.backgroundOpacity).toBeUndefined();
+		expect(store.settings.rules[0]?.overridePillColors).toBeUndefined();
+		store.dispose();
+	});
+
 	it('preserves non-default pill styles attached to Smart during normalization', () => {
 		const settings = SettingsStore.normalize({
 			propertyStrategies: {

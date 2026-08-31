@@ -33,6 +33,8 @@ describe('RuleManagerView', () => {
 			.toEqual(['When: Match a value', 'Then: Apply this format']);
 		expect(container.querySelectorAll('.bpc-rule-field')).toHaveLength(8);
 		expect(container.querySelectorAll('.bpc-rule-color')).toHaveLength(2);
+		expect(container.querySelector<HTMLButtonElement>('.bpc-rule-color:not(.bpc-rule-font-color)')?.textContent).toContain('None');
+		expect(store.settings.rules[0]?.color).toBeUndefined();
 		expect(container.querySelector<HTMLInputElement>('.bpc-rule-manager__toolbar input')?.placeholder).toBe('Search rules…');
 	});
 
@@ -78,12 +80,15 @@ describe('RuleManagerView', () => {
 		expect(propertyOptions.map((option) => option.value)).toEqual(['note.tags', 'file.name']);
 		expect(propertyOptions.map((option) => option.value)).not.toContain('note.other-vault-field');
 		const operand = container.querySelector<HTMLInputElement>('input[aria-label="Comparison value"]');
-		expect(operand?.getAttribute('list')).toBeTruthy();
-		expect([...container.querySelectorAll<HTMLOptionElement>('datalist option')].map((option) => option.value))
-			.toEqual(['developers', 'vault owners']);
+		operand?.focus();
+		operand?.dispatchEvent(new Event('input', { bubbles: true }));
+		return Promise.resolve().then(() => {
+			expect([...document.querySelectorAll<HTMLElement>('.suggestion-container .suggestion-item')]
+				.map((option) => option.textContent)).toEqual(['developers', 'vault owners']);
+		});
 	});
 
-	it('offers Neutral plus bold and strikethrough treatments', () => {
+	it('offers Muted plus bold, strikethrough, and pill override treatments', () => {
 		store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		store.discoverProperty('note.status');
 		store.addRule('note.status');
@@ -93,12 +98,17 @@ describe('RuleManagerView', () => {
 
 		container.querySelector<HTMLButtonElement>('.bpc-rule-color:not(.bpc-rule-font-color)')?.click();
 		document.querySelector<HTMLButtonElement>('.bpc-swatch--neutral')?.click();
+		view.unmount();
+		view = new RuleManagerView({} as App, store, [], false);
+		view.mount(container);
 		container.querySelector<HTMLButtonElement>('[aria-label="Bold"]')?.click();
 		container.querySelector<HTMLButtonElement>('[aria-label="Strikethrough"]')?.click();
+		container.querySelector<HTMLButtonElement>('[aria-label="Override pill colors"]')?.click();
 		expect(store.settings.rules[0]).toMatchObject({
 			color: { kind: 'preset', name: 'default' },
 			bold: true,
 			strikethrough: true,
+			overridePillColors: true,
 		});
 	});
 
@@ -112,6 +122,7 @@ describe('RuleManagerView', () => {
 
 		container.querySelector<HTMLButtonElement>('.bpc-rule-color:not(.bpc-rule-font-color)')?.click();
 		const panel = document.querySelector<HTMLElement>('.bpc-rule-color-popover');
+		panel?.querySelector<HTMLButtonElement>('.bpc-swatch[aria-label="Peter River"]')?.click();
 		const range = panel?.querySelector<HTMLInputElement>('input[type="range"]');
 		const number = panel?.querySelector<HTMLInputElement>('.bpc-rule-opacity__number');
 		expect(range?.value).toBe('12');
@@ -127,6 +138,36 @@ describe('RuleManagerView', () => {
 		panel?.querySelector<HTMLButtonElement>('.bpc-rule-opacity__reset')?.click();
 		expect(store.settings.rules[0]?.backgroundOpacity).toBeUndefined();
 		expect(range?.value).toBe('3');
+	});
+
+	it('removes a background completely and keeps custom hex text editable', () => {
+		store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+		store.discoverProperty('note.status');
+		const rule = store.addRule('note.status');
+		store.updateRule(rule.id, { color: { kind: 'preset', name: 'peter-river' }, backgroundOpacity: 40 });
+		view = new RuleManagerView({} as App, store, [], false);
+		const container = document.body.createDiv();
+		view.mount(container);
+
+		container.querySelector<HTMLButtonElement>('.bpc-rule-color:not(.bpc-rule-font-color)')?.click();
+		let panel = document.querySelector<HTMLElement>('.bpc-rule-color-popover');
+		const text = panel?.querySelector<HTMLInputElement>('.bpc-custom-color__text');
+		text?.focus();
+		if (text) text.value = '#123ABC';
+		text?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+		expect(store.settings.rules[0]?.color).toEqual({ kind: 'custom', hex: '#123ABC' });
+
+		panel?.querySelector<HTMLButtonElement>('[aria-label="Remove background color"]')?.click();
+		expect(store.settings.rules[0]?.color).toBeUndefined();
+		expect(store.settings.rules[0]?.backgroundOpacity).toBeUndefined();
+		expect(store.settings.rules[0]?.overridePillColors).toBeUndefined();
+
+		view.unmount();
+		view = new RuleManagerView({} as App, store, [], false);
+		view.mount(container);
+		expect(container.querySelector<HTMLButtonElement>('.bpc-rule-color:not(.bpc-rule-font-color)')?.textContent).toContain('None');
+		panel = document.querySelector<HTMLElement>('.bpc-rule-color-popover');
+		expect(panel).toBeNull();
 	});
 
 	it('drags rules to exact positions and disables dragging while filtering', async () => {

@@ -1,4 +1,4 @@
-import { App, Modal, setIcon } from 'obsidian';
+import { AbstractInputSuggest, App, Modal, setIcon } from 'obsidian';
 import { normalizeHex, palettePresetName, paletteTemplate, resolvePreset, resolveRuleColor } from '../core/colors';
 import { effectiveRuleBackgroundOpacity, OPERATOR_LABELS, operatorNeedsOperand } from '../core/rules';
 import { SettingsStore } from '../core/settings-store';
@@ -39,6 +39,7 @@ export class RuleManagerView {
 	private container: HTMLElement | null = null;
 	private unsubscribe: (() => void) | null = null;
 	private popover: RuleColorPopover | null = null;
+	private readonly valueSuggests = new Set<RuleValueSuggest>();
 	private draggedRuleId: string | null = null;
 
 	constructor(
@@ -61,12 +62,14 @@ export class RuleManagerView {
 		this.unsubscribe = null;
 		this.popover?.close();
 		this.popover = null;
+		this.closeValueSuggests();
 		this.clearRuleDragState();
 		this.container = null;
 	}
 
 	private render(): void {
 		if (!this.container) return;
+		this.closeValueSuggests();
 		this.container.empty();
 		this.container.addClass('bpc-rule-manager');
 		this.container.createEl('p', {
@@ -205,14 +208,10 @@ export class RuleManagerView {
 		operand.disabled = !operatorNeedsOperand(rule.operator);
 		const suggestions = this.valueSuggestions(rule.propertyId);
 		if (suggestions.length) {
-			const listId = `bpc-rule-values-${rule.id}`;
-			operand.setAttribute('list', listId);
-			const datalist = valueField.createEl('datalist');
-			datalist.id = listId;
-			for (const value of suggestions) {
-				const option = datalist.createEl('option');
-				option.value = value;
-			}
+			const suggest = new RuleValueSuggest(this.app, operand, suggestions, (value) => {
+				this.store.updateRule(rule.id, { operand: value });
+			});
+			this.valueSuggests.add(suggest);
 		}
 		operand.placeholder = operand.disabled
 			? 'Not required'
@@ -242,22 +241,33 @@ export class RuleManagerView {
 
 		const colorField = this.field(formattingFields, 'Background');
 		const color = colorField.createEl('button', { cls: 'bpc-rule-color', attr: { type: 'button', 'aria-label': 'Choose background color' } });
-		const resolved = rule.color.kind === 'preset' ? resolvePreset(rule.color.name, this.store.getPaletteTemplateId()) : resolveRuleColor(rule.color.hex);
-		color.style.setProperty('--bpc-rule-color', resolved.dot);
-		color.createSpan({ cls: 'bpc-rule-color__dot' });
-		const colorName = rule.color.kind === 'preset' && rule.color.name === 'default' ? 'Neutral' : resolved.label;
-		color.createSpan({ text: `${colorName} · ${effectiveRuleBackgroundOpacity(rule.color, rule.backgroundOpacity)}%` });
+		if (rule.color) {
+			const resolved = rule.color.kind === 'preset' ? resolvePreset(rule.color.name, this.store.getPaletteTemplateId()) : resolveRuleColor(rule.color.hex);
+			color.style.setProperty('--bpc-rule-color', resolved.dot);
+			color.createSpan({ cls: 'bpc-rule-color__dot' });
+			const colorName = rule.color.kind === 'preset' && rule.color.name === 'default' ? 'Muted' : resolved.label;
+			color.createSpan({ text: `${colorName} · ${effectiveRuleBackgroundOpacity(rule.color, rule.backgroundOpacity)}%` });
+		} else {
+			color.addClass('is-automatic');
+			const icon = color.createSpan('bpc-rule-color__auto');
+			setIcon(icon, 'minus-circle');
+			color.createSpan({ text: 'None' });
+		}
 		color.addEventListener('click', () => {
 			this.popover?.close();
 			this.popover = new RuleColorPopover(
 				this.store.getPaletteTemplateId(),
 				'Background color',
 				false,
-				(next) => { if (next) this.store.updateRule(rule.id, { color: next }); },
+				(next) => this.store.updateRule(rule.id, {
+					color: next,
+					...(next ? {} : { backgroundOpacity: undefined, overridePillColors: false }),
+				}),
 				{
 					stored: rule.backgroundOpacity,
 					onChange: (next) => this.store.updateRule(rule.id, { backgroundOpacity: next }),
 				},
+				true,
 			);
 			this.popover.open(color, rule.color);
 		});
@@ -280,12 +290,16 @@ export class RuleManagerView {
 		});
 
 		const styleField = formattingFields.createDiv('bpc-rule-field bpc-rule-text-styles');
-		styleField.createSpan({ text: 'Text style', cls: 'bpc-rule-field__label' });
+		styleField.createSpan({ text: 'Treatments', cls: 'bpc-rule-field__label' });
 		const styles = styleField.createDiv('bpc-rule-text-style-buttons');
 		this.styleToggle(styles, 'bold', 'Bold', rule.bold === true, () =>
 			this.store.updateRule(rule.id, { bold: !rule.bold }));
 		this.styleToggle(styles, 'strikethrough', 'Strikethrough', rule.strikethrough === true, () =>
 			this.store.updateRule(rule.id, { strikethrough: !rule.strikethrough }));
+		const override = this.styleToggle(styles, 'paint-bucket', 'Override pill colors', rule.overridePillColors === true, () =>
+			this.store.updateRule(rule.id, { overridePillColors: !rule.overridePillColors }));
+		override.disabled = !rule.color;
+		override.title = rule.color ? 'Apply the rule background to pills' : 'Choose a background first';
 	}
 
 	private bindRuleDropTarget(card: HTMLElement, targetRule: ConditionalRule, enabled: boolean): void {
@@ -378,6 +392,11 @@ export class RuleManagerView {
 			.sort((first, second) => first.localeCompare(second, undefined, { numeric: true }));
 	}
 
+	private closeValueSuggests(): void {
+		for (const suggest of this.valueSuggests) suggest.close();
+		this.valueSuggests.clear();
+	}
+
 	private field(container: HTMLElement, label: string): HTMLElement {
 		const field = container.createEl('label', { cls: 'bpc-rule-field' });
 		field.createSpan({ text: label, cls: 'bpc-rule-field__label' });
@@ -407,7 +426,7 @@ export class RuleManagerView {
 			: resolveRuleColor(color.hex);
 		button.style.setProperty('--bpc-rule-color', resolved.dot);
 		button.createSpan({ cls: 'bpc-rule-color__dot' });
-		button.createSpan({ text: color.kind === 'preset' && color.name === 'default' ? 'Neutral' : resolved.label });
+		button.createSpan({ text: color.kind === 'preset' && color.name === 'default' ? 'Muted' : resolved.label });
 	}
 
 	private styleToggle(
@@ -416,7 +435,7 @@ export class RuleManagerView {
 		label: string,
 		pressed: boolean,
 		action: () => void,
-	): void {
+	): HTMLButtonElement {
 		const button = container.createEl('button', {
 			cls: 'clickable-icon bpc-rule-style-toggle',
 			attr: { type: 'button', 'aria-label': label, 'aria-pressed': String(pressed), title: label },
@@ -424,6 +443,7 @@ export class RuleManagerView {
 		setIcon(button, icon);
 		button.createSpan({ text: label });
 		button.addEventListener('click', action);
+		return button;
 	}
 
 	private iconButton(container: HTMLElement, icon: string, label: string, disabled: boolean, action: () => void): void {
@@ -431,6 +451,32 @@ export class RuleManagerView {
 		button.disabled = disabled;
 		setIcon(button, icon);
 		button.addEventListener('click', action);
+	}
+}
+
+class RuleValueSuggest extends AbstractInputSuggest<string> {
+	constructor(
+		app: App,
+		input: HTMLInputElement,
+		private readonly values: readonly string[],
+		onSelect: (value: string) => void,
+	) {
+		super(app, input);
+		this.limit = 50;
+		this.onSelect((value) => {
+			this.setValue(value);
+			onSelect(value);
+		});
+	}
+
+	protected getSuggestions(query: string): string[] {
+		const normalized = query.trim().toLocaleLowerCase();
+		if (!normalized) return [...this.values];
+		return this.values.filter((value) => value.toLocaleLowerCase().includes(normalized));
+	}
+
+	renderSuggestion(value: string, element: HTMLElement): void {
+		element.textContent = value;
 	}
 }
 
@@ -449,6 +495,7 @@ class RuleColorPopover {
 		private readonly allowAutomatic: boolean,
 		private readonly onChange: (color: RuleColor | undefined) => void,
 		private readonly opacity?: RuleOpacityControl,
+		private readonly allowNone = false,
 	) {}
 
 	open(anchor: HTMLElement, current?: RuleColor): void {
@@ -470,6 +517,27 @@ class RuleColorPopover {
 			refreshOpacity();
 			if (closeAfter) this.close();
 		};
+		if (this.allowNone) {
+			const none = panel.createEl('button', {
+				cls: 'clickable-icon bpc-rule-color-auto',
+				attr: {
+					type: 'button',
+					'aria-pressed': String(current === undefined),
+					'aria-label': 'Remove background color',
+				},
+			});
+			const icon = none.createSpan();
+			setIcon(icon, 'minus-circle');
+			const copy = none.createSpan();
+			copy.createEl('strong', { text: 'No background' });
+			copy.createSpan({ text: 'Leave the native cell background unchanged' });
+			none.addEventListener('click', () => {
+				selectedColor = undefined;
+				this.opacity?.onChange(undefined);
+				this.onChange(undefined);
+				this.close();
+			});
+		}
 		if (this.allowAutomatic) {
 			const automatic = panel.createEl('button', {
 				cls: 'clickable-icon bpc-rule-color-auto',
@@ -492,7 +560,7 @@ class RuleColorPopover {
 		const grid = panel.createDiv('bpc-swatch-grid');
 		const neutral = grid.createEl('button', {
 			cls: 'clickable-icon bpc-swatch bpc-swatch--neutral',
-			attr: { type: 'button', 'aria-label': 'Neutral', title: 'Neutral' },
+			attr: { type: 'button', 'aria-label': 'Muted', title: 'Muted' },
 		});
 		neutral.dataset.bpcRuleColor = 'preset:default';
 		swatches.push(neutral);
@@ -520,6 +588,7 @@ class RuleColorPopover {
 		});
 		text.value = initial;
 		text.spellcheck = false;
+		text.placeholder = 'Hex color';
 		const error = custom.createDiv('bpc-custom-color__error');
 		error.setAttribute('aria-live', 'polite');
 		const apply = (value: string) => {
@@ -537,7 +606,13 @@ class RuleColorPopover {
 		};
 		picker.addEventListener('input', () => apply(picker.value));
 		text.addEventListener('change', () => apply(text.value));
-		if (this.opacity && selectedColor) {
+		text.addEventListener('keydown', (event) => {
+			event.stopPropagation();
+			if (event.key === 'Enter') apply(text.value);
+		});
+		text.addEventListener('pointerdown', (event) => event.stopPropagation());
+		text.addEventListener('click', (event) => event.stopPropagation());
+		if (this.opacity) {
 			let storedOpacity = this.opacity.stored;
 			const opacitySection = panel.createDiv('bpc-rule-opacity');
 			const opacityHeader = opacitySection.createDiv('bpc-rule-opacity__header');
@@ -560,6 +635,7 @@ class RuleColorPopover {
 			opacityControls.createSpan({ text: '%', cls: 'bpc-rule-opacity__suffix' });
 			const description = opacitySection.createDiv('bpc-rule-opacity__description');
 			const setOpacity = (value: number): void => {
+				if (!selectedColor) return;
 				storedOpacity = Math.max(0, Math.min(100, Math.round(value)));
 				range.value = String(storedOpacity);
 				number.value = String(storedOpacity);
@@ -567,7 +643,17 @@ class RuleColorPopover {
 				refreshOpacity();
 			};
 			refreshOpacity = () => {
-				if (!selectedColor) return;
+				const enabled = Boolean(selectedColor);
+				opacitySection.classList.toggle('is-disabled', !enabled);
+				range.disabled = !enabled;
+				number.disabled = !enabled;
+				if (!selectedColor) {
+					range.value = '0';
+					number.value = '0';
+					description.textContent = 'Choose a background to adjust its tint.';
+					reset.disabled = true;
+					return;
+				}
 				const effective = effectiveRuleBackgroundOpacity(selectedColor, storedOpacity);
 				range.value = String(effective);
 				number.value = String(effective);

@@ -2,6 +2,14 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.13.0 — 2026-08-31
+
+- Make new conditional-formatting rules visually empty until a treatment is selected.
+- Add a true No background action and rename the conditional neutral treatment to Muted.
+- Replace browser datalist value completion with Obsidian's native suggestion menu.
+- Restore direct keyboard editing, selection, copying, and pasting in custom hex inputs.
+- Add an optional Override pill colors treatment for conditional backgrounds.
+
 ## 0.12.0 — 2026-08-31
 
 - Redesign conditional-formatting cards into a responsive When/Then layout without horizontal scrolling.

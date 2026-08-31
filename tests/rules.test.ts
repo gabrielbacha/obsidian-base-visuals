@@ -48,12 +48,22 @@ describe('conditional formatting rules', () => {
 		expect(explicit.foregroundDark).toBe('#FFFFFF');
 	});
 
-	it('keeps the permanent Neutral treatment muted', () => {
+	it('keeps the permanent Muted treatment subtle', () => {
 		const neutral = ruleColorVariables({ kind: 'preset', name: 'default' });
 		expect(neutral.background).toBe('color-mix(in srgb, var(--text-muted) 3%, transparent)');
 		expect(neutral.hover).toBe('color-mix(in srgb, var(--text-muted) 9%, transparent)');
 		expect(neutral.foregroundLight).toBe('var(--text-muted)');
 		expect(neutral.foregroundDark).toBe('var(--text-muted)');
+	});
+
+	it('leaves a rule without treatments visually inactive', () => {
+		const empty = ruleColorVariables();
+		expect(empty.background).toBe('transparent');
+		expect(empty.hover).toBe('transparent');
+		expect(empty.foregroundLight).toBe('inherit');
+		expect(empty.foregroundDark).toBe('inherit');
+		const emptyRule = { ...rule('empty', 'cell'), color: undefined };
+		expect(matchingRule([emptyRule], 'note.status', { text: 'done', values: ['done'] }, 'cell')).toBeUndefined();
 	});
 
 	it('honors exact background opacity and caps the stronger hover tint', () => {

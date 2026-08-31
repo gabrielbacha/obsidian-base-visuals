@@ -67,14 +67,21 @@ export function matchingRule(
 ): ConditionalRule | undefined {
 	return rules.find((rule) =>
 		rule.enabled &&
+		ruleHasFormatting(rule) &&
 		rule.target === target &&
 		rule.propertyId === propertyId &&
 		evaluateRule(rule, cell),
 	);
 }
 
+export function ruleHasFormatting(
+	rule: Pick<ConditionalRule, 'color' | 'fontColor' | 'bold' | 'strikethrough'>,
+): boolean {
+	return Boolean(rule.color || rule.fontColor || rule.bold || rule.strikethrough);
+}
+
 export function ruleColorVariables(
-	color: RuleColor,
+	color?: RuleColor,
 	fontColor?: RuleColor,
 	paletteId: PaletteTemplateId = 'default',
 	backgroundOpacity?: number,
@@ -84,26 +91,26 @@ export function ruleColorVariables(
 	foregroundLight: string;
 	foregroundDark: string;
 } {
-	const resolved = color.kind === 'preset'
+	const resolved = color?.kind === 'preset'
 		? resolvePreset(color.name, paletteId)
-		: resolveRuleColor(color.hex);
+		: color ? resolveRuleColor(color.hex) : null;
 	const text = fontColor
 		? fontColor.kind === 'preset'
 			? resolvePreset(fontColor.name, paletteId)
 			: resolveRuleColor(fontColor.hex)
 		: resolved;
 	const opacity = effectiveRuleBackgroundOpacity(color, backgroundOpacity);
-	const hoverOpacity = Math.min(100, opacity + 6);
-	const accent = color.kind === 'preset' && color.name === 'default'
+	const hoverOpacity = color ? Math.min(100, opacity + 6) : 0;
+	const accent = color?.kind === 'preset' && color.name === 'default'
 		? 'var(--text-muted)'
-		: resolved.dot;
+		: resolved?.dot ?? 'transparent';
 	const background = opacity === 0
 		? 'transparent'
 		: `color-mix(in srgb, ${accent} ${opacity}%, transparent)`;
 	const hover = hoverOpacity === 0
 		? 'transparent'
 		: `color-mix(in srgb, ${accent} ${hoverOpacity}%, transparent)`;
-	if (!fontColor && color.kind === 'preset' && color.name === 'default') {
+	if (!fontColor && color?.kind === 'preset' && color.name === 'default') {
 		return {
 			background,
 			hover,
@@ -119,7 +126,7 @@ export function ruleColorVariables(
 			foregroundDark: 'var(--text-muted)',
 		};
 	}
-	const automaticForeground = !fontColor && /^#[0-9A-F]{6}$/i.test(resolved.dot)
+	const automaticForeground = !fontColor && resolved && /^#[0-9A-F]{6}$/i.test(resolved.dot)
 		? {
 			light: adjustForContrast(resolved.dot, tintedHex(resolved.dot, '#FFFFFF', hoverOpacity / 100)),
 			dark: adjustForContrast(resolved.dot, tintedHex(resolved.dot, '#1E1E1E', hoverOpacity / 100)),
@@ -128,12 +135,13 @@ export function ruleColorVariables(
 	return {
 		background,
 		hover,
-		foregroundLight: fontColor ? text.dot : automaticForeground?.light ?? text.foregroundLight,
-		foregroundDark: fontColor ? text.dot : automaticForeground?.dark ?? text.foregroundDark,
+		foregroundLight: fontColor ? text?.dot ?? 'inherit' : automaticForeground?.light ?? text?.foregroundLight ?? 'inherit',
+		foregroundDark: fontColor ? text?.dot ?? 'inherit' : automaticForeground?.dark ?? text?.foregroundDark ?? 'inherit',
 	};
 }
 
-export function effectiveRuleBackgroundOpacity(color: RuleColor, stored?: number): number {
+export function effectiveRuleBackgroundOpacity(color?: RuleColor, stored?: number): number {
+	if (!color) return 0;
 	if (typeof stored === 'number' && Number.isFinite(stored)) {
 		return Math.max(0, Math.min(100, Math.round(stored)));
 	}

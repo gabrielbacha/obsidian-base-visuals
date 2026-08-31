@@ -389,7 +389,7 @@ describe('PillEnhancer', () => {
 		const rowRule = harness.store.addRule('note.status');
 		harness.store.updateRule(rowRule.id, {
 			operand: 'done', target: 'row', color: { kind: 'preset', name: 'green-sea' },
-			backgroundOpacity: 35,
+			backgroundOpacity: 35, overridePillColors: true,
 		});
 		const cellRule = harness.store.addRule('note.status');
 		harness.store.updateRule(cellRule.id, {
@@ -398,6 +398,7 @@ describe('PillEnhancer', () => {
 		});
 
 		expect(row?.dataset.bpcRuleId).toBe(rowRule.id);
+		expect(row?.classList.contains('bpc-rule-override-pills')).toBe(true);
 		expect(row?.style.getPropertyValue('--bpc-rule-bg')).toContain('35%');
 		expect(cell?.dataset.bpcRuleId).toBe(cellRule.id);
 		expect(cell?.classList.contains('bpc-rule-bold')).toBe(true);
@@ -424,9 +425,13 @@ describe('PillEnhancer', () => {
 			input.value = '12';
 		});
 		const checkboxRule = harness.store.addRule('note.done');
-		harness.store.updateRule(checkboxRule.id, { operand: 'true' });
+		harness.store.updateRule(checkboxRule.id, {
+			operand: 'true', color: { kind: 'preset', name: 'green-sea' },
+		});
 		const numberRule = harness.store.addRule('note.score');
-		harness.store.updateRule(numberRule.id, { operator: 'greater-than', operand: '10' });
+		harness.store.updateRule(numberRule.id, {
+			operator: 'greater-than', operand: '10', color: { kind: 'preset', name: 'peter-river' },
+		});
 		const cells = harness.root.querySelectorAll<HTMLElement>('.bases-td');
 		expect(cells[0]?.classList.contains('bpc-rule-cell')).toBe(true);
 		expect(cells[1]?.classList.contains('bpc-rule-cell')).toBe(true);

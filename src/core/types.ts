@@ -92,7 +92,8 @@ export interface ConditionalRule {
 	operand?: string;
 	target: RuleTarget;
 	scope?: RuleScope;
-	color: RuleColor;
+	/** Optional background accent. Omission leaves the native background untouched. */
+	color?: RuleColor;
 	/** Background tint strength. Omission derives the color's default. */
 	backgroundOpacity?: number;
 	/** Optional explicit text accent. Omission keeps accessible automatic contrast. */
@@ -100,6 +101,8 @@ export interface ConditionalRule {
 	/** Optional text emphasis applied after the color treatment. */
 	bold?: boolean;
 	strikethrough?: boolean;
+	/** Force the conditional background onto pills inside the matched target. */
+	overridePillColors?: boolean;
 }
 
 export interface KnownProperty {

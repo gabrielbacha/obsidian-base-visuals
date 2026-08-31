@@ -303,7 +303,6 @@ export class SettingsStore {
 			operand: '',
 			target: 'cell',
 			scope: 'view',
-			color: { kind: 'preset', name: 'sun-flower' },
 		};
 		this.settings.rules.push(rule);
 		this.discoverProperty(rule.propertyId);
@@ -315,6 +314,7 @@ export class SettingsStore {
 		const rule = this.settings.rules.find((candidate) => candidate.id === id);
 		if (!rule) return;
 		Object.assign(rule, patch);
+		if ('color' in patch && patch.color === undefined) delete rule.color;
 		if ('fontColor' in patch && patch.fontColor === undefined) delete rule.fontColor;
 		if ('backgroundOpacity' in patch) {
 			const opacity = normalizeRuleOpacity(patch.backgroundOpacity);
@@ -323,6 +323,11 @@ export class SettingsStore {
 		}
 		if ('bold' in patch && !patch.bold) delete rule.bold;
 		if ('strikethrough' in patch && !patch.strikethrough) delete rule.strikethrough;
+		if ('overridePillColors' in patch && !patch.overridePillColors) delete rule.overridePillColors;
+		if (!rule.color) {
+			delete rule.backgroundOpacity;
+			delete rule.overridePillColors;
+		}
 		if (patch.propertyId) this.discoverProperty(patch.propertyId);
 		this.changed();
 	}
@@ -513,7 +518,7 @@ function normalizeRule(value: unknown, index: number): ConditionalRule | null {
 	if (!isRuleOperator(value.operator)) return null;
 	if (value.target !== 'cell' && value.target !== 'row') return null;
 	const color = normalizeRuleColor(value.color);
-	if (!color) return null;
+	if (value.color !== undefined && !color) return null;
 	const fontColor = normalizeRuleColor(value.fontColor);
 	const backgroundOpacity = normalizeRuleOpacity(value.backgroundOpacity);
 	return {
@@ -525,11 +530,12 @@ function normalizeRule(value: unknown, index: number): ConditionalRule | null {
 		...(typeof value.operand === 'string' ? { operand: value.operand } : {}),
 		target: value.target,
 		scope: value.scope === 'view' ? 'view' : 'base',
-		color,
-		...(backgroundOpacity !== undefined ? { backgroundOpacity } : {}),
+		...(color ? { color } : {}),
+		...(color && backgroundOpacity !== undefined ? { backgroundOpacity } : {}),
 		...(fontColor ? { fontColor } : {}),
 		...(value.bold === true ? { bold: true } : {}),
 		...(value.strikethrough === true ? { strikethrough: true } : {}),
+		...(color && value.overridePillColors === true ? { overridePillColors: true } : {}),
 	};
 }
 

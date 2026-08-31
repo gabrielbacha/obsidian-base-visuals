@@ -1,38 +1,47 @@
 /* Bases Visuals — restrained, Notion-inspired enhancements for Base tables. */
 
-.bases-view .bpc-rule-row .bases-td,
-.bases-embed .bpc-rule-row .bases-td,
-.bases-view .bases-td.bpc-rule-row,
-.bases-embed .bases-td.bpc-rule-row {
+.bases-view .bpc-rule-row.bpc-rule-has-background .bases-td,
+.bases-embed .bpc-rule-row.bpc-rule-has-background .bases-td,
+.bases-view .bases-td.bpc-rule-row.bpc-rule-has-background,
+.bases-embed .bases-td.bpc-rule-row.bpc-rule-has-background {
 	background-color: var(--bpc-rule-bg);
+}
+
+.bases-view .bpc-rule-row.bpc-rule-has-foreground .bases-td,
+.bases-embed .bpc-rule-row.bpc-rule-has-foreground .bases-td,
+.bases-view .bases-td.bpc-rule-row.bpc-rule-has-foreground,
+.bases-embed .bases-td.bpc-rule-row.bpc-rule-has-foreground {
 	color: var(--bpc-rule-fg-light);
 }
 
-.theme-dark :is(.bases-view, .bases-embed) .bpc-rule-row .bases-td,
-.theme-dark :is(.bases-view, .bases-embed) .bases-td.bpc-rule-row {
+.theme-dark :is(.bases-view, .bases-embed) .bpc-rule-row.bpc-rule-has-foreground .bases-td,
+.theme-dark :is(.bases-view, .bases-embed) .bases-td.bpc-rule-row.bpc-rule-has-foreground {
 	color: var(--bpc-rule-fg-dark);
 }
 
-.bases-view .bpc-rule-row:hover .bases-td,
-.bases-embed .bpc-rule-row:hover .bases-td {
+.bases-view .bpc-rule-row.bpc-rule-has-background:hover .bases-td,
+.bases-embed .bpc-rule-row.bpc-rule-has-background:hover .bases-td {
 	background-color: var(--bpc-rule-bg-hover);
 }
 
-.bases-view .bases-td.bpc-rule-cell,
-.bases-view .bases-table-cell.bpc-rule-cell,
-.bases-embed .bases-td.bpc-rule-cell,
-.bases-embed .bases-table-cell.bpc-rule-cell {
+.bases-view .bases-td.bpc-rule-cell.bpc-rule-has-background,
+.bases-view .bases-table-cell.bpc-rule-cell.bpc-rule-has-background,
+.bases-embed .bases-td.bpc-rule-cell.bpc-rule-has-background,
+.bases-embed .bases-table-cell.bpc-rule-cell.bpc-rule-has-background {
 	background-color: var(--bpc-rule-bg);
+}
+
+:is(.bases-view, .bases-embed) :is(.bases-td, .bases-table-cell).bpc-rule-cell.bpc-rule-has-foreground {
 	color: var(--bpc-rule-fg-light);
 }
 
-.theme-dark :is(.bases-view, .bases-embed) :is(.bases-td, .bases-table-cell).bpc-rule-cell {
+.theme-dark :is(.bases-view, .bases-embed) :is(.bases-td, .bases-table-cell).bpc-rule-cell.bpc-rule-has-foreground {
 	color: var(--bpc-rule-fg-dark);
 }
 
 :is(.bases-view, .bases-embed) :is(
-	.bpc-rule-row :is(.bases-td, .bases-table-cell),
-	:is(.bases-td, .bases-table-cell).bpc-rule-cell
+	.bpc-rule-row.bpc-rule-has-foreground :is(.bases-td, .bases-table-cell),
+	:is(.bases-td, .bases-table-cell).bpc-rule-cell.bpc-rule-has-foreground
 ) :is(
 	.bases-rendered-value,
 	.metadata-property-value,
@@ -49,8 +58,8 @@
 }
 
 .theme-dark :is(.bases-view, .bases-embed) :is(
-	.bpc-rule-row :is(.bases-td, .bases-table-cell),
-	:is(.bases-td, .bases-table-cell).bpc-rule-cell
+	.bpc-rule-row.bpc-rule-has-foreground :is(.bases-td, .bases-table-cell),
+	:is(.bases-td, .bases-table-cell).bpc-rule-cell.bpc-rule-has-foreground
 ) :is(
 	.bases-rendered-value,
 	.metadata-property-value,
@@ -101,11 +110,26 @@
 	text-decoration-line: underline line-through !important;
 }
 
-.bases-view .bases-td.bpc-rule-cell:hover,
-.bases-view .bases-table-cell.bpc-rule-cell:hover,
-.bases-embed .bases-td.bpc-rule-cell:hover,
-.bases-embed .bases-table-cell.bpc-rule-cell:hover {
+.bases-view .bases-td.bpc-rule-cell.bpc-rule-has-background:hover,
+.bases-view .bases-table-cell.bpc-rule-cell.bpc-rule-has-background:hover,
+.bases-embed .bases-td.bpc-rule-cell.bpc-rule-has-background:hover,
+.bases-embed .bases-table-cell.bpc-rule-cell.bpc-rule-has-background:hover {
 	background-color: var(--bpc-rule-bg-hover);
+}
+
+:is(.bases-view, .bases-embed) :is(
+	.bpc-rule-row.bpc-rule-override-pills :is(.bases-td, .bases-table-cell),
+	:is(.bases-td, .bases-table-cell).bpc-rule-cell.bpc-rule-override-pills
+) .bpc-pill {
+	border-color: transparent !important;
+	background-color: var(--bpc-rule-bg) !important;
+}
+
+:is(.bases-view, .bases-embed) :is(
+	.bpc-rule-row.bpc-rule-override-pills :is(.bases-td, .bases-table-cell),
+	:is(.bases-td, .bases-table-cell).bpc-rule-cell.bpc-rule-override-pills
+) .bpc-pill:hover {
+	background-color: var(--bpc-rule-bg-hover) !important;
 }
 
 .bpc-toolbar-control {
@@ -1454,10 +1478,14 @@
 }
 
 .bpc-custom-color__text {
+	position: relative;
+	z-index: 1;
 	width: 100%;
 	box-sizing: border-box;
 	font-family: var(--font-monospace);
 	font-variant-numeric: tabular-nums;
+	pointer-events: auto;
+	user-select: text;
 }
 
 .bpc-custom-color__text[aria-invalid='true'] {
@@ -1994,7 +2022,7 @@
 
 .bpc-rule-text-style-buttons {
 	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
+	grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 6px;
 }
 
@@ -2024,6 +2052,11 @@
 	border-color: color-mix(in srgb, var(--interactive-accent) 55%, var(--background-modifier-border));
 	background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
 	color: var(--text-normal);
+}
+
+.bpc-rule-style-toggle:disabled {
+	opacity: 0.45;
+	cursor: not-allowed;
 }
 
 .bpc-swatch--neutral {
@@ -2099,6 +2132,10 @@
 	border-top: 1px solid var(--background-modifier-border);
 }
 
+.bpc-rule-opacity.is-disabled {
+	opacity: 0.58;
+}
+
 .bpc-rule-opacity__header {
 	display: flex;
 	align-items: center;
@@ -2167,6 +2204,10 @@
 
 	.bpc-rule-card__condition-fields,
 	.bpc-rule-card__format-fields {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.bpc-rule-text-style-buttons {
 		grid-template-columns: minmax(0, 1fr);
 	}
 }

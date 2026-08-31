@@ -20,6 +20,67 @@ export class Notice {
 	constructor(public readonly message: string) {}
 }
 
+export abstract class AbstractInputSuggest<T> {
+	limit = 100;
+	private container: HTMLElement | null = null;
+	private renderRevision = 0;
+	private readonly callbacks: Array<(value: T, event: MouseEvent | KeyboardEvent) => unknown> = [];
+
+	constructor(_app: unknown, private readonly input: HTMLInputElement | HTMLDivElement) {
+		input.addEventListener('input', () => void this.render());
+		input.addEventListener('focus', () => void this.render());
+	}
+
+	protected abstract getSuggestions(query: string): T[] | Promise<T[]>;
+	abstract renderSuggestion(value: T, element: HTMLElement): void;
+
+	setValue(value: string): void {
+		if (this.input instanceof HTMLInputElement) this.input.value = value;
+		else this.input.textContent = value;
+	}
+
+	getValue(): string {
+		return this.input instanceof HTMLInputElement ? this.input.value : this.input.textContent ?? '';
+	}
+
+	onSelect(callback: (value: T, event: MouseEvent | KeyboardEvent) => unknown): this {
+		this.callbacks.push(callback);
+		return this;
+	}
+
+	selectSuggestion(value: T, event: MouseEvent | KeyboardEvent): void {
+		for (const callback of this.callbacks) callback(value, event);
+		this.close();
+	}
+
+	open(): void {
+		void this.render();
+	}
+
+	close(): void {
+		this.renderRevision += 1;
+		this.container?.remove();
+		this.container = null;
+	}
+
+	private async render(): Promise<void> {
+		const revision = this.renderRevision + 1;
+		this.renderRevision = revision;
+		this.container?.remove();
+		this.container = null;
+		const suggestions = (await this.getSuggestions(this.getValue())).slice(0, this.limit || undefined);
+		if (revision !== this.renderRevision) return;
+		if (!suggestions.length) return;
+		const container = document.body.createDiv('suggestion-container');
+		for (const suggestion of suggestions) {
+			const item = container.createDiv('suggestion-item');
+			this.renderSuggestion(suggestion, item);
+			item.addEventListener('click', (event) => this.selectSuggestion(suggestion, event));
+		}
+		this.container = container;
+	}
+}
+
 export function setIcon(element: HTMLElement, icon: string): void {
 	const svg = element.createSvg('svg');
 	svg.setAttribute('data-icon', icon);

@@ -10,7 +10,7 @@ import {
 	resolveNativePropertyId,
 	type NativeColumnAppearance,
 } from './native-table-view';
-import { evaluateRule, ruleColorVariables } from './rules';
+import { evaluateRule, ruleColorVariables, ruleHasFormatting } from './rules';
 import { SettingsStore } from './settings-store';
 import { BaseVisualStoreRepository } from './base-visual-store';
 import { ConditionalRule, OptionIdentity, type PaletteTemplateId } from './types';
@@ -904,6 +904,7 @@ export class PillEnhancer {
 		const rules = scope ? this.scopedStore(scope).settings.rules : this.store.settings.rules;
 		const rule = rules.find((candidate) =>
 			candidate.enabled && candidate.target === 'cell' &&
+			ruleHasFormatting(candidate) &&
 			candidate.propertyId === propertyId && evaluateRule(candidate, value));
 		if (rule) applyRuleAppearance(cell, 'bpc-rule-cell', rule, scope ? this.scopedStore(scope).getPaletteTemplateId() : this.store.getPaletteTemplateId());
 	}
@@ -914,7 +915,7 @@ export class PillEnhancer {
 		const scope = findBaseTableHost(row);
 		const rules = scope ? this.scopedStore(scope).settings.rules : this.store.settings.rules;
 		for (const rule of rules) {
-			if (!rule.enabled || rule.target !== 'row') continue;
+			if (!rule.enabled || rule.target !== 'row' || !ruleHasFormatting(rule)) continue;
 			const cell = cells.find((candidate) =>
 				(scope ? this.propertyIdFor(scope, candidate) : candidate.dataset.property?.trim()) === rule.propertyId);
 			if (cell && evaluateRule(rule, renderedCellValue(cell))) {
@@ -1023,8 +1024,11 @@ export function renderedCellValue(cell: HTMLElement): { text: string; values: st
 function applyRuleAppearance(element: HTMLElement, className: string, rule: ConditionalRule, paletteId?: PaletteTemplateId): void {
 	const color = ruleColorVariables(rule.color, rule.fontColor, paletteId, rule.backgroundOpacity);
 	element.classList.add(className);
+	element.classList.toggle('bpc-rule-has-background', Boolean(rule.color));
+	element.classList.toggle('bpc-rule-has-foreground', Boolean(rule.color || rule.fontColor));
 	element.classList.toggle('bpc-rule-bold', rule.bold === true);
 	element.classList.toggle('bpc-rule-strikethrough', rule.strikethrough === true);
+	element.classList.toggle('bpc-rule-override-pills', Boolean(rule.color && rule.overridePillColors));
 	element.dataset.bpcRuleId = rule.id;
 	element.style.setProperty('--bpc-rule-bg', color.background);
 	element.style.setProperty('--bpc-rule-bg-hover', color.hover);
@@ -1033,7 +1037,14 @@ function applyRuleAppearance(element: HTMLElement, className: string, rule: Cond
 }
 
 function clearRuleAppearance(element: HTMLElement, className: string): void {
-	element.classList.remove(className, 'bpc-rule-bold', 'bpc-rule-strikethrough');
+	element.classList.remove(
+		className,
+		'bpc-rule-has-background',
+		'bpc-rule-has-foreground',
+		'bpc-rule-bold',
+		'bpc-rule-strikethrough',
+		'bpc-rule-override-pills',
+	);
 	delete element.dataset.bpcRuleId;
 	element.style.removeProperty('--bpc-rule-bg');
 	element.style.removeProperty('--bpc-rule-bg-hover');
