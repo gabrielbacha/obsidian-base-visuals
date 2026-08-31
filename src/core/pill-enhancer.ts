@@ -3,6 +3,7 @@ import { encodeOptionKey, resolveColor } from './colors';
 import {
 	getNativeColumnAppearance,
 	getNativeColumnHeaders,
+	getEffectiveNativeColumnWrapMode,
 	getNativeGroupProperty,
 	getNativeMainProperty,
 	getNativePropertyKind,
@@ -20,6 +21,7 @@ import { ColumnPillAppearancePopover } from '../ui/column-pill-appearance-popove
 import { compareNaturalValues } from './value-order';
 import { strategyLabel } from './property-strategies';
 import { NativePillRemovalService, type PillRemovalCapability } from './native-pill-removal';
+import { ColumnWrappingPopover, describeColumnWrapping } from '../ui/column-wrapping-popover';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
@@ -96,6 +98,7 @@ export class PillEnhancer {
 	private readonly tableLayoutPopover: TableLayoutPopover;
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
 	private readonly columnPillAppearancePopover: ColumnPillAppearancePopover;
+	private readonly columnWrappingPopover: ColumnWrappingPopover;
 	private readonly pillRemoval = new NativePillRemovalService();
 	private unsubscribeStore: (() => void) | null = null;
 	private started = false;
@@ -108,9 +111,11 @@ export class PillEnhancer {
 		private readonly storeForScope: (scope: HTMLElement) => SettingsStore = () => store,
 		private readonly baseStores?: BaseVisualStoreRepository,
 	) {
-		this.tableLayoutPopover = new TableLayoutPopover(app, store);
+		this.tableLayoutPopover = new TableLayoutPopover(app, store, (scope) =>
+			this.refreshWrapping(scope));
 		this.columnAppearancePopover = new ColumnAppearancePopover(app, baseStores);
 		this.columnPillAppearancePopover = new ColumnPillAppearancePopover();
+		this.columnWrappingPopover = new ColumnWrappingPopover(app);
 	}
 
 	start(registerEvent: (eventRef: EventRef) => void): void {
@@ -210,6 +215,7 @@ export class PillEnhancer {
 		this.tableLayoutPopover.close();
 		this.columnAppearancePopover.close();
 		this.columnPillAppearancePopover.close();
+		this.columnWrappingPopover.close();
 		this.pillRemoval.dispose();
 		for (const observer of this.pendingMenuObservers) observer.disconnect();
 		this.pendingMenuObservers.clear();
@@ -241,6 +247,7 @@ export class PillEnhancer {
 		binding.observer.disconnect();
 		this.columnAppearancePopover.close();
 		this.columnPillAppearancePopover.close();
+		this.columnWrappingPopover.close();
 		root.removeEventListener('input', binding.inputHandler);
 		root.removeEventListener('change', binding.inputHandler);
 		root.removeEventListener('click', binding.clickHandler, true);
@@ -350,9 +357,13 @@ export class PillEnhancer {
 		this.scopedStore(scope).discoverProperty(propertyId);
 		this.applyCellRule(cell, propertyId);
 		if (cell.closest('.bases-thead')) {
+			clearCellWrapping(cell);
 			clearColumnAppearance(cell);
 			this.columnAppearanceElements.delete(cell);
-		} else this.applyColumnAppearance(cell, scope, propertyId);
+		} else {
+			this.applyColumnAppearance(cell, scope, propertyId);
+			this.applyCellWrapping(cell, scope, propertyId);
+		}
 		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
 		if (table) this.applyMainColumn(table, cell);
 	}
@@ -683,7 +694,68 @@ export class PillEnhancer {
 		if (this.shouldOfferPillAppearance(scope, propertyId)) {
 			this.injectPillAppearanceMenuItem(menu, scope, propertyId);
 		}
+		this.injectWrappingMenuItem(menu, scope, propertyId);
 		this.injectColumnAppearanceMenuItem(menu, scope, propertyId);
+	}
+
+	private injectWrappingMenuItem(
+		menu: HTMLElement,
+		scope: HTMLElement,
+		propertyId: string,
+	): void {
+		if (menu.querySelector('.bpc-column-wrapping-menu-item')) return;
+		const displayName = getNativePropertyDisplayName(this.app, scope, propertyId)
+			?? propertyId.replace(/^(?:note|file|formula)\./, '');
+		const content = menu.querySelector<HTMLElement>(':scope > .menu-scroll') ?? menu;
+		const item = content.createDiv('menu-item tappable bpc-column-wrapping-menu-item');
+		item.setAttribute('role', 'menuitem');
+		item.tabIndex = -1;
+		const icon = item.createSpan('menu-item-icon');
+		setIcon(icon, 'wrap-text');
+		item.createDiv({ cls: 'menu-item-title', text: 'Text wrapping' });
+		item.createDiv({ cls: 'menu-item-flair', text: describeColumnWrapping(this.app, scope, propertyId) });
+		const chevron = item.createSpan('menu-item-icon');
+		setIcon(chevron, 'chevron-right');
+		let openTimer = 0;
+		const open = () => {
+			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
+			item.classList.add('selected');
+			this.columnAppearancePopover.close();
+			this.columnPillAppearancePopover.close();
+			this.columnWrappingPopover.open(item, scope, propertyId, displayName, () => {
+				item.querySelector<HTMLElement>('.menu-item-flair')!.textContent =
+					describeColumnWrapping(this.app, scope, propertyId);
+				this.refreshWrapping(scope, propertyId);
+			});
+		};
+		item.addEventListener('pointerenter', () => {
+			content.querySelectorAll<HTMLElement>('.menu-item.selected').forEach((candidate) => {
+				if (candidate !== item) candidate.classList.remove('selected');
+			});
+			item.classList.add('selected');
+			openTimer = item.ownerDocument.defaultView?.setTimeout(open, 120) ?? 0;
+		});
+		item.addEventListener('pointerleave', () => {
+			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
+			openTimer = 0;
+		});
+		item.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			open();
+		});
+		item.addEventListener('keydown', (event) => {
+			if (event.key !== 'Enter' && event.key !== ' ') return;
+			event.preventDefault();
+			open();
+		});
+		const appearanceItem = content.querySelector(':scope > .bpc-column-appearance-menu-item');
+		if (appearanceItem) appearanceItem.before(item);
+		else {
+			const firstSeparator = content.querySelector(':scope > .menu-separator');
+			if (firstSeparator) firstSeparator.before(item);
+			else content.append(item);
+		}
 	}
 
 	private injectPillAppearanceMenuItem(
@@ -710,6 +782,7 @@ export class PillEnhancer {
 			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
 			item.classList.add('selected');
 			this.columnAppearancePopover.close();
+			this.columnWrappingPopover.close();
 			this.columnPillAppearancePopover.open(item, store, propertyId, displayName, () => {
 				item.querySelector<HTMLElement>('.menu-item-flair')!.textContent =
 					describePillAppearance(store, propertyId, displayName);
@@ -785,6 +858,7 @@ export class PillEnhancer {
 			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
 			item.classList.add('selected');
 			this.columnPillAppearancePopover.close();
+			this.columnWrappingPopover.close();
 			this.columnAppearancePopover.open(item, scope, propertyId, () =>
 				this.refreshColumnAppearances(scope, propertyId));
 		};
@@ -886,6 +960,21 @@ export class PillEnhancer {
 		this.columnAppearanceElements.add(element);
 	}
 
+	private applyCellWrapping(cell: HTMLElement, scope: HTMLElement, propertyId: string): void {
+		const mode = getEffectiveNativeColumnWrapMode(this.app, scope, propertyId);
+		clearCellWrapping(cell);
+		cell.classList.add(`bpc-cell-${mode}`);
+	}
+
+	private refreshWrapping(scope: HTMLElement, onlyPropertyId?: string): void {
+		for (const cell of scope.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
+			if (cell.closest('.bases-thead')) continue;
+			const propertyId = this.propertyIdFor(scope, cell);
+			if (!propertyId || (onlyPropertyId && propertyId !== onlyPropertyId)) continue;
+			this.applyCellWrapping(cell, scope, propertyId);
+		}
+	}
+
 	private refreshColumnAppearances(scope: HTMLElement, onlyPropertyId?: string): void {
 		for (const cell of scope.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
 			const propertyId = this.propertyIdFor(scope, cell);
@@ -929,6 +1018,7 @@ export class PillEnhancer {
 		cell.classList.remove('bpc-main-column');
 		clearRuleAppearance(cell, 'bpc-rule-cell');
 		clearColumnAppearance(cell);
+		clearCellWrapping(cell);
 		this.columnAppearanceElements.delete(cell);
 	}
 
@@ -1164,6 +1254,10 @@ function clearColumnAppearance(element: HTMLElement): void {
 		'bpc-column-emphasized',
 	);
 	element.style.removeProperty('--bpc-column-color');
+}
+
+function clearCellWrapping(element: HTMLElement): void {
+	element.classList.remove('bpc-cell-truncate', 'bpc-cell-wrap', 'bpc-cell-stack');
 }
 
 function describeColumnAppearance(appearance: NativeColumnAppearance): string {

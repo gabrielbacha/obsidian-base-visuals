@@ -100,6 +100,10 @@
 	border-top: 1px solid var(--background-modifier-border);
 }
 
+.bpc-layout-section--content {
+	border-top: 1px solid var(--background-modifier-border);
+}
+
 .bpc-layout-section__heading {
 	display: flex;
 	align-items: baseline;
@@ -170,6 +174,55 @@
 	font-size: var(--font-ui-smaller);
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+.bpc-row-content-options {
+	display: grid;
+	gap: 3px;
+}
+
+.bpc-row-content-options button {
+	display: flex;
+	width: 100%;
+	min-height: 38px;
+	align-items: center;
+	padding: 6px 9px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-s);
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-normal);
+	text-align: start;
+}
+
+.bpc-row-content-options button:hover {
+	background: var(--background-modifier-hover);
+}
+
+.bpc-row-content-options button[aria-checked="true"] {
+	border-color: color-mix(in srgb, var(--interactive-accent) 45%, transparent);
+	background: color-mix(in srgb, var(--interactive-accent) 9%, transparent);
+}
+
+.bpc-row-content-option__copy {
+	display: grid;
+	min-width: 0;
+	gap: 1px;
+}
+
+.bpc-row-content-option__copy strong {
+	font-size: var(--font-ui-small);
+}
+
+.bpc-row-content-option__copy span,
+.bpc-row-content-note {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+
+.bpc-row-content-note {
+	margin: 7px 4px 0;
+	line-height: 1.35;
 }
 
 .bpc-width-scope {
@@ -472,6 +525,132 @@
 .bpc-table .bases-tbody .bpc-main-column :is(a.internal-link, a.external-link):is(:hover, :focus-visible) {
 	color: var(--text-accent);
 	text-decoration-color: currentColor;
+}
+
+/* Obsidian's virtual table retains its fixed row geometry. These modes only
+   change how content uses the selected native row height. */
+:is(.bases-view, .bases-embed) :is(.bases-td, .bases-table-cell):is(.bpc-cell-wrap, .bpc-cell-stack) {
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+:is(.bases-view, .bases-embed) :is(.bases-td, .bases-table-cell):is(.bpc-cell-wrap, .bpc-cell-stack) :is(
+	.bases-rendered-value,
+	.metadata-property-value,
+	.metadata-link-inner,
+	.metadata-input-longtext,
+	a.internal-link,
+	a.external-link
+) {
+	white-space: normal !important;
+	overflow-wrap: anywhere;
+	word-break: break-word;
+	text-overflow: clip;
+}
+
+:is(.bases-view, .bases-embed) :is(.bases-td, .bases-table-cell).bpc-cell-stack :is(
+	.multi-select-container,
+	.multi-select-pill-container,
+	.metadata-input-longtext
+):has(.multi-select-pill),
+:is(.bases-view, .bases-embed) :is(.bases-td, .bases-table-cell).bpc-cell-stack:has(> .multi-select-pill) {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	align-content: flex-start;
+	flex-wrap: nowrap;
+	gap: 2px;
+}
+
+.bpc-column-wrapping-popover {
+	position: fixed;
+	z-index: var(--layer-menu, 100);
+	box-sizing: border-box;
+	overflow: hidden;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	box-shadow: var(--shadow-s);
+	color: var(--text-normal);
+}
+
+.bpc-column-wrapping__header {
+	display: flex;
+	min-height: 52px;
+	align-items: center;
+	justify-content: space-between;
+	padding: 10px 12px 10px 16px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.bpc-column-wrapping__header > div,
+.bpc-column-wrapping-option__copy {
+	display: grid;
+	min-width: 0;
+	gap: 1px;
+}
+
+.bpc-column-wrapping__header span,
+.bpc-column-wrapping-option__copy span {
+	overflow: hidden;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bpc-column-wrapping__section {
+	padding: 8px;
+}
+
+.bpc-column-wrapping-options {
+	display: grid;
+	gap: 2px;
+}
+
+.bpc-column-wrapping-options button {
+	display: grid;
+	width: 100%;
+	min-height: 44px;
+	grid-template-columns: 30px minmax(0, 1fr) 18px;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-s);
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-normal);
+	text-align: start;
+}
+
+.bpc-column-wrapping-options button:hover,
+.bpc-column-wrapping-options button:focus-visible {
+	background: var(--background-modifier-hover);
+	outline: none;
+}
+
+.bpc-column-wrapping-options button[aria-checked="true"] {
+	background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+	box-shadow: inset 2px 0 0 var(--interactive-accent);
+}
+
+.bpc-column-wrapping-option__icon,
+.bpc-column-wrapping-option__check {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	color: var(--text-muted);
+	--icon-size: 17px;
+}
+
+.bpc-column-wrapping-option__check {
+	visibility: hidden;
+	color: var(--interactive-accent);
+}
+
+.bpc-column-wrapping-options button[aria-checked="true"] .bpc-column-wrapping-option__check {
+	visibility: visible;
 }
 
 .bases-table .bases-group-heading.bpc-group-heading--colored {

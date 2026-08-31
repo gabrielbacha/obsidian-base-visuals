@@ -6,9 +6,12 @@ import {
 	getNativeColumnHeaders,
 	getNativeColumnWidths,
 	getNativeRowHeight,
+	getNativeTextWrapping,
 	getNativeUnsetColumnProperties,
 	resetNativeColumnWidths,
+	ROW_CONTENT_MODES,
 	ROW_HEIGHTS,
+	setNativeRowContentMode,
 	setNativeRowHeight,
 	type ColumnWidthScope,
 } from '../core/native-table-view';
@@ -23,7 +26,11 @@ export class TableLayoutPopover {
 	private cleanup: (() => void) | null = null;
 	private anchor: HTMLElement | null = null;
 
-	constructor(private readonly app: App, private readonly store: SettingsStore) {}
+	constructor(
+		private readonly app: App,
+		private readonly store: SettingsStore,
+		private readonly onWrappingChange: (scope: HTMLElement) => void = () => undefined,
+	) {}
 
 	toggle(anchor: HTMLElement, scope: HTMLElement): void {
 		if (this.panel && this.anchor === anchor) {
@@ -70,6 +77,34 @@ export class TableLayoutPopover {
 			return button;
 		});
 		bindRadioGroup(rowGroup, rowButtons);
+
+		const contentSection = panel.createDiv('bpc-layout-section bpc-layout-section--content');
+		contentSection.createDiv({ cls: 'bpc-layout-section__label', text: 'Row content' });
+		const contentGroup = contentSection.createDiv('bpc-row-content-options');
+		contentGroup.setAttribute('role', 'radiogroup');
+		contentGroup.setAttribute('aria-label', 'Row content');
+		let currentContentMode = getNativeTextWrapping(this.app, scope).mode;
+		const contentButtons = ROW_CONTENT_MODES.map((option) => {
+			const button = contentGroup.createEl('button', {
+				attr: { type: 'button', role: 'radio' },
+			});
+			button.setAttribute('aria-checked', String(option.value === currentContentMode));
+			const copy = button.createSpan('bpc-row-content-option__copy');
+			copy.createEl('strong', { text: option.label });
+			copy.createSpan({ text: option.description });
+			button.addEventListener('click', () => {
+				currentContentMode = option.value;
+				setNativeRowContentMode(this.app, scope, option.value);
+				selectRadio(contentButtons, button);
+				this.onWrappingChange(scope);
+			});
+			return button;
+		});
+		bindRadioGroup(contentGroup, contentButtons);
+		contentSection.createDiv({
+			cls: 'bpc-row-content-note',
+			text: 'Content stays within Obsidian’s selected row height, keeping scrolling smooth.',
+		});
 
 		const widthSection = panel.createDiv('bpc-layout-section bpc-layout-section--width');
 		const widthHeading = widthSection.createDiv('bpc-layout-section__heading');

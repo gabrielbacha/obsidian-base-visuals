@@ -17,6 +17,7 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 - Soft cell or entire-row highlighting with preset and custom colors
 - A native-looking palette button in Base table toolbars
 - A compact Layout popover for native row heights and reusable column widths
+- View-level text wrapping and stacked list values without destabilizing virtualized rows
 - Named layout presets that restore row height, width, and application scope together
 - Temporary header indicators showing which columns match the selected width
 - Subtle table-header tinting and emphasis for the first visible column
@@ -34,9 +35,11 @@ Open a Base table containing a list property. Values receive stable automatic co
 - **Right-click** a pill for a compact action menu. Open its palette only when changing color, manage every encountered value in that table column, or remove the clicked value from its row.
 - Click **Format** in a Base table toolbar to open the Base-scoped manager directly on Pill colors; Conditional formatting remains available in its second tab.
 - Click **Layout** to adjust row height, test column-width presets, reset widths, or save the current combination as a reusable layout.
+- Under **Layout → Row content**, choose Truncate, Wrap, or Stack lists. Wrapping stays inside the selected native row height so virtualized scrolling remains reliable.
 - Use **Unset only** to preserve unrelated manual widths. Header indicators show which columns will change. **All columns** always asks for confirmation.
 - Group a table by a colored list property to carry each value's pill color into its group heading.
 - Right-click a column header and choose **Column appearance** to de-emphasize, recolor, or bold that field in the current view or every view in the Base.
+- Right-click any column header and choose **Text wrapping** to inherit the table setting or override that column with Truncate, Wrap, or Stack lists.
 - For list columns, right-click the header and choose **Pill appearance** to change its color strategy and Soft, Solid, or Outline style without opening the full manager.
 - Choose **Format** in the Base toolbar to manage conditional formatting and every discovered property value for that Base.
 - Reorder conditional-formatting rules by dragging their grip, with Move up/down buttons and **Alt+Arrow** retained for keyboard and mobile use.

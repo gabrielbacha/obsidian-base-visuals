@@ -3,14 +3,18 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	applyNativeColumnWidthPreset,
 	getNativeColumnAppearance,
+	getEffectiveNativeColumnWrapMode,
 	getNativeGroupProperty,
 	getNativePropertyKind,
 	getNativeUnsetColumnProperties,
 	getNativeMainProperty,
 	getNativeRowHeight,
+	getNativeTextWrapping,
 	resolveNativePropertyId,
 	resetNativeColumnWidths,
 	setNativeColumnAppearance,
+	setNativeColumnWrapMode,
+	setNativeRowContentMode,
 	setNativeRowHeight,
 } from '../src/core/native-table-view';
 
@@ -140,6 +144,32 @@ describe('native table view bridge', () => {
 		};
 		const leaf = { view: { containerEl: root, nativeTable } };
 		expect(getNativeRowHeight(appWithLeaves([leaf as unknown as WorkspaceLeaf]), root)).toBe('');
+	});
+
+	it('stores table wrapping and canonical per-column overrides in the current view', () => {
+		const root = document.body.createDiv();
+		const values = new Map<string, unknown>();
+		const set = vi.fn((key: string, value: unknown) => values.set(key, value));
+		const nativeTable = {
+			type: 'table', containerEl: root,
+			config: { get: (key: string) => values.get(key), set },
+		};
+		const leaf = { view: { containerEl: root, nativeTable } };
+		const app = appWithLeaves([leaf as unknown as WorkspaceLeaf]);
+
+		expect(getNativeTextWrapping(app, root)).toEqual({ mode: 'truncate', columns: {} });
+		expect(setNativeRowContentMode(app, root, 'wrap')).toBe(true);
+		expect(setNativeColumnWrapMode(app, root, 'note.status_todo', 'stack')).toBe(true);
+		expect(getNativeTextWrapping(app, root)).toEqual({
+			mode: 'wrap', columns: { 'note.status_todo': 'stack' },
+		});
+		expect(getEffectiveNativeColumnWrapMode(app, root, 'note.status_todo')).toBe('stack');
+		expect(getEffectiveNativeColumnWrapMode(app, root, 'note.priority_todo')).toBe('wrap');
+
+		expect(setNativeColumnWrapMode(app, root, 'note.status_todo', 'inherit')).toBe(true);
+		expect(getNativeTextWrapping(app, root)).toEqual({ mode: 'wrap', columns: {} });
+		expect(setNativeRowContentMode(app, root, 'truncate')).toBe(true);
+		expect(values.get('basesVisualsTextWrapping')).toBeNull();
 	});
 
 	it('applies width presets to all columns or only columns without a set width', () => {

@@ -45,7 +45,8 @@ describe('TableLayoutPopover', () => {
 			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
 		} as unknown as App;
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
-		const popover = new TableLayoutPopover(app, store);
+		const wrappingChanged = vi.fn();
+		const popover = new TableLayoutPopover(app, store, wrappingChanged);
 
 		popover.open(anchor, root);
 		expect(document.querySelector('.bpc-layout-popover')?.textContent).not.toContain('Auto-fit');
@@ -66,6 +67,16 @@ describe('TableLayoutPopover', () => {
 			.find((button) => button.getAttribute('aria-label') === 'Tall');
 		tall?.click();
 		expect(values.get('rowHeight')).toBe('tall');
+		const contentRadios = [...document.querySelectorAll<HTMLButtonElement>(
+			'.bpc-row-content-options [role="radio"]',
+		)];
+		expect(contentRadios.map((button) => button.tabIndex)).toEqual([0, -1, -1]);
+		const wrap = contentRadios.find((button) => button.textContent?.includes('Wrap'));
+		wrap?.click();
+		expect(values.get('basesVisualsTextWrapping')).toEqual({ mode: 'wrap', columns: {} });
+		expect(wrappingChanged).toHaveBeenCalledWith(root);
+		expect(document.querySelector('.bpc-row-content-note')?.textContent)
+			.toContain('selected row height');
 
 		const standard = [...document.querySelectorAll<HTMLButtonElement>('.bpc-width-preset')]
 			.find((button) => button.textContent?.includes('Standard'));

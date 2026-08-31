@@ -21,6 +21,20 @@ export type ColumnWidthScope = 'unset' | 'all';
 
 export type ColumnTextTone = 'default' | 'muted' | 'faint' | 'custom';
 
+export const ROW_CONTENT_MODES = [
+	{ value: 'truncate', label: 'Truncate', description: 'Keep every value on one line' },
+	{ value: 'wrap', label: 'Wrap', description: 'Wrap text within the selected row height' },
+	{ value: 'stack', label: 'Stack lists', description: 'Wrap text and place list values on separate lines' },
+] as const;
+
+export type RowContentMode = (typeof ROW_CONTENT_MODES)[number]['value'];
+export type ColumnWrapMode = 'inherit' | RowContentMode;
+
+export interface NativeTextWrapping {
+	mode: RowContentMode;
+	columns: Record<string, Exclude<ColumnWrapMode, 'inherit'>>;
+}
+
 export interface NativeColumnAppearance {
 	tone: ColumnTextTone;
 	bold: boolean;
@@ -33,6 +47,7 @@ export const DEFAULT_COLUMN_APPEARANCE: NativeColumnAppearance = {
 };
 
 export const COLUMN_APPEARANCE_CONFIG_KEY = 'basesVisualsColumnAppearance';
+export const TEXT_WRAPPING_CONFIG_KEY = 'basesVisualsTextWrapping';
 
 export interface NativeViewConfig {
 	groupBy?: { property?: unknown };
@@ -101,6 +116,55 @@ export function setNativeRowHeight(
 	const view = findNativeTableView(app, scope);
 	if (!view) return false;
 	view.config.set('rowHeight', value || null);
+	return true;
+}
+
+export function getNativeTextWrapping(app: App, scope: HTMLElement): NativeTextWrapping {
+	return normalizeTextWrapping(findNativeTableView(app, scope)?.config.get(TEXT_WRAPPING_CONFIG_KEY));
+}
+
+export function getNativeColumnWrapMode(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+): ColumnWrapMode {
+	return getNativeTextWrapping(app, scope).columns[propertyId] ?? 'inherit';
+}
+
+export function getEffectiveNativeColumnWrapMode(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+): RowContentMode {
+	const wrapping = getNativeTextWrapping(app, scope);
+	return wrapping.columns[propertyId] ?? wrapping.mode;
+}
+
+export function setNativeRowContentMode(
+	app: App,
+	scope: HTMLElement,
+	mode: RowContentMode,
+): boolean {
+	const view = findNativeTableView(app, scope);
+	if (!view || !isRowContentMode(mode)) return false;
+	const current = getNativeTextWrapping(app, scope);
+	writeTextWrapping(view, { ...current, mode });
+	return true;
+}
+
+export function setNativeColumnWrapMode(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+	mode: ColumnWrapMode,
+): boolean {
+	const view = findNativeTableView(app, scope);
+	if (!view || (!isRowContentMode(mode) && mode !== 'inherit')) return false;
+	const current = getNativeTextWrapping(app, scope);
+	const columns = { ...current.columns };
+	if (mode === 'inherit') delete columns[propertyId];
+	else columns[propertyId] = mode;
+	writeTextWrapping(view, { ...current, columns });
 	return true;
 }
 
@@ -474,6 +538,30 @@ export function normalizeColumnAppearance(value: unknown): NativeColumnAppearanc
 
 function isDefaultColumnAppearance(appearance: NativeColumnAppearance): boolean {
 	return appearance.tone === 'default' && !appearance.bold;
+}
+
+function normalizeTextWrapping(value: unknown): NativeTextWrapping {
+	if (!isObject(value)) return { mode: 'truncate', columns: {} };
+	const mode = isRowContentMode(value.mode) ? value.mode : 'truncate';
+	const columns: NativeTextWrapping['columns'] = {};
+	if (isObject(value.columns)) {
+		for (const [propertyId, columnMode] of Object.entries(value.columns)) {
+			if (propertyId.trim() && isRowContentMode(columnMode)) columns[propertyId] = columnMode;
+		}
+	}
+	return { mode, columns };
+}
+
+function isRowContentMode(value: unknown): value is RowContentMode {
+	return ROW_CONTENT_MODES.some((option) => option.value === value);
+}
+
+function writeTextWrapping(view: NativeTableView, wrapping: NativeTextWrapping): void {
+	const hasOverrides = Object.keys(wrapping.columns).length > 0;
+	view.config.set(
+		TEXT_WRAPPING_CONFIG_KEY,
+		wrapping.mode === 'truncate' && !hasOverrides ? null : wrapping,
+	);
 }
 
 function isDomNode(value: object): boolean {

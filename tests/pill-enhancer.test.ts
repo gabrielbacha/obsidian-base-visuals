@@ -643,6 +643,48 @@ describe('PillEnhancer', () => {
 		expect(harness.root.querySelector('.multi-select-pill')?.classList.contains('bpc-pill-style-solid')).toBe(true);
 	});
 
+	it('adds view-scoped text wrapping controls to column menus and updates cells live', async () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const head = table.createDiv('bases-thead');
+			const header = head.createDiv('bases-td');
+			header.dataset.property = 'note.summary';
+			header.createDiv({ cls: 'bases-table-header-name', text: 'Summary' });
+			header.addEventListener('contextmenu', () => {
+				const menu = document.body.createDiv('menu');
+				const scroll = menu.createDiv('menu-scroll');
+				scroll.createDiv({ cls: 'menu-item selected', text: 'Sort A → Z' });
+				scroll.createDiv('menu-separator');
+			});
+			const body = table.createDiv('bases-tbody');
+			const row = body.createDiv('bases-tr');
+			appendTableCell(row, 'note.summary', 'A long value that should wrap');
+		}, undefined, undefined, {
+			dataProperties: ['note.summary'],
+			order: ['note.summary'],
+		});
+		const header = harness.root.querySelector<HTMLElement>('.bases-thead .bases-td');
+		const cell = harness.root.querySelector<HTMLElement>('.bases-tbody .bases-td');
+		expect(cell?.classList.contains('bpc-cell-truncate')).toBe(true);
+
+		header?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+		await mutationCycle();
+		const item = document.querySelector<HTMLElement>('.bpc-column-wrapping-menu-item');
+		expect(item?.textContent).toContain('Text wrapping');
+		expect(item?.textContent).toContain('Table · Truncate');
+		item?.click();
+		const wrap = [...document.querySelectorAll<HTMLButtonElement>('.bpc-column-wrapping-options button')]
+			.find((button) => button.textContent?.includes('Wrap'));
+		wrap?.click();
+		expect(cell?.classList.contains('bpc-cell-wrap')).toBe(true);
+		expect(cell?.classList.contains('bpc-cell-truncate')).toBe(false);
+		expect(item?.textContent).toContain('Wrap');
+
+		harness.enhancer.stop();
+		expect(cell?.classList.contains('bpc-cell-wrap')).toBe(false);
+		expect(document.querySelector('.bpc-column-wrapping-popover')).toBeNull();
+	});
+
 	it('leaves context menus outside tracked Base pills untouched', () => {
 		const harness = createHarness([{ propertyId: 'note.status', value: 'Done' }]);
 		const outside = harness.root.createDiv('outside');
