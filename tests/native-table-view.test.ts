@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	applyNativeColumnWidthPreset,
 	getNativeColumnAppearance,
+	getNativeDateFormat,
 	getNativeGroupProperty,
 	getNativePropertyKind,
 	getNativeUnsetColumnProperties,
@@ -11,6 +12,7 @@ import {
 	resolveNativePropertyId,
 	resetNativeColumnWidths,
 	setNativeColumnAppearance,
+	setNativeDateFormat,
 	setNativeRowHeight,
 } from '../src/core/native-table-view';
 
@@ -76,6 +78,27 @@ describe('native table view bridge', () => {
 		expect(values.get('basesVisualsColumnAppearance')).toEqual({
 			'note.invalid': { tone: 'custom', color: 'not-a-color' },
 		});
+	});
+
+	it('stores date display formats in the current native view', () => {
+		const root = document.body.createDiv();
+		const values = new Map<string, unknown>([
+			['basesVisualsDateFormats', { 'note.due': 'MMM YYYY' }],
+		]);
+		const set = vi.fn((key: string, value: unknown) => values.set(key, value));
+		const nativeTable = {
+			type: 'table',
+			containerEl: root,
+			config: { get: (key: string) => values.get(key), set },
+		};
+		const leaf = { view: { containerEl: root, nativeTable } };
+		const app = appWithLeaves([leaf as unknown as WorkspaceLeaf]);
+
+		expect(getNativeDateFormat(app, root, 'note.due')).toBe('MMM YYYY');
+		expect(setNativeDateFormat(app, root, 'note.due', ' DD MMM YYYY ')).toBe(true);
+		expect(getNativeDateFormat(app, root, 'note.due')).toBe('DD MMM YYYY');
+		setNativeDateFormat(app, root, 'note.due', '');
+		expect(values.get('basesVisualsDateFormats')).toBeNull();
 	});
 
 	it('resolves a displayed column alias to the evaluator property id', () => {

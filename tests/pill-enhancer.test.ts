@@ -20,6 +20,7 @@ interface PillSpec {
 interface NativeFixtureOptions {
 	groupProperty?: string;
 	columnAppearances?: Record<string, unknown>;
+	dateFormats?: Record<string, string>;
 	useScopedStore?: boolean;
 	dataProperties?: string[];
 	order?: string[];
@@ -612,6 +613,97 @@ describe('PillEnhancer', () => {
 		expect(cells[1]?.style.getPropertyValue('--bpc-column-color')).toBe('');
 	});
 
+	it('formats confirmed date columns for display and restores the native text', async () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const head = table.createDiv('bases-thead');
+			const header = head.createDiv('bases-td');
+			header.dataset.property = 'note.due';
+			const calendar = header.createSpan();
+			const calendarIcon = calendar.createSvg('svg');
+			calendarIcon.dataset.icon = 'calendar';
+			header.createDiv({ cls: 'bases-table-header-name', text: 'Due' });
+			header.addEventListener('contextmenu', () => {
+				const menu = document.body.createDiv('menu');
+				const scroll = menu.createDiv('menu-scroll');
+				scroll.createDiv({ cls: 'menu-item selected', text: 'Sort ascending' });
+				scroll.createDiv('menu-separator');
+			});
+			const body = table.createDiv('bases-tbody');
+			appendPassiveDateRow(body, 'note.due', '13/02/2027');
+			appendPassiveDateRow(body, 'note.due', '10/08/2027');
+		}, undefined, undefined, {});
+		const header = harness.root.querySelector<HTMLElement>('.bases-thead .bases-td');
+		const cells = harness.root.querySelectorAll<HTMLElement>('.bases-tbody .bases-td');
+
+		header?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+		await mutationCycle();
+		const item = document.querySelector<HTMLElement>('.bpc-date-format-menu-item');
+		expect(item?.textContent).toContain('Date format');
+		expect(document.querySelector('.bpc-column-pill-appearance-menu-item')).toBeNull();
+		item?.click();
+		const preset = document.querySelector<HTMLButtonElement>('.bpc-date-format-option[data-value="DD MMM YYYY"]');
+		preset?.click();
+		expect(cells[0]?.querySelector('.bpc-date-display')?.textContent).toBe('13 Feb 2027');
+		expect(cells[1]?.querySelector('.bpc-date-display')?.textContent).toBe('10 Aug 2027');
+		expect(cells[0]?.title).toBe('13/02/2027');
+		expect(cells[0]?.querySelector('.metadata-input')?.classList.contains('bpc-date-source-hidden')).toBe(true);
+
+		const custom = document.querySelector<HTMLButtonElement>('.bpc-date-format-option[data-value="custom"]');
+		custom?.click();
+		const input = document.querySelector<HTMLInputElement>('.bpc-date-format__custom input');
+		if (input) {
+			input.value = 'MMM-YY';
+			input.dispatchEvent(new Event('input', { bubbles: true }));
+		}
+		expect(cells[0]?.querySelector('.bpc-date-display')?.textContent).toBe('Feb-27');
+
+		const defaultOption = document.querySelector<HTMLButtonElement>('.bpc-date-format-option[data-value=""]');
+		defaultOption?.click();
+		expect(cells[0]?.querySelector('.bpc-date-display')).toBeNull();
+		expect(cells[0]?.querySelector('.metadata-input')?.classList.contains('bpc-date-source-hidden')).toBe(false);
+		expect(cells[0]?.hasAttribute('title')).toBe(false);
+	});
+
+	it('formats Obsidian’s editable date input and restores it for editing', () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const head = table.createDiv('bases-thead');
+			const header = head.createDiv('bases-td');
+			header.dataset.property = 'note.due';
+			header.createDiv({ cls: 'bases-table-header-name', text: 'Due' });
+			const body = table.createDiv('bases-tbody');
+			const row = body.createDiv('bases-tr');
+			const cell = row.createDiv('bases-td');
+			cell.dataset.property = 'note.due';
+			const value = cell.createDiv('bases-metadata-value metadata-property-value');
+			value.dataset.propertyType = 'date';
+			const input = value.createEl('input', {
+				cls: 'metadata-input metadata-input-text mod-date',
+				attr: { type: 'date', value: '2027-02-13' },
+			});
+			input.value = '2027-02-13';
+		}, undefined, undefined, {
+			dateFormats: { 'note.due': 'DD MMM YYYY' },
+		});
+		const cell = harness.root.querySelector<HTMLElement>('.bases-tbody .bases-td');
+		const input = cell?.querySelector<HTMLInputElement>('input[type="date"]');
+		const display = cell?.querySelector<HTMLElement>('.bpc-date-display');
+
+		expect(display?.textContent).toBe('13 Feb 2027');
+		expect(display?.getAttribute('role')).toBe('button');
+		expect(input?.classList.contains('bpc-date-source-editable')).toBe(true);
+		display?.click();
+		expect(cell?.classList.contains('bpc-date-editing')).toBe(true);
+		expect(document.activeElement).toBe(input);
+		input?.dispatchEvent(new FocusEvent('blur'));
+		expect(cell?.classList.contains('bpc-date-editing')).toBe(false);
+
+		harness.enhancer.stop();
+		expect(cell?.querySelector('.bpc-date-display')).toBeNull();
+		expect(input?.classList.contains('bpc-date-source-editable')).toBe(false);
+	});
+
 	it('adds compact pill strategy and style controls to list column menus', async () => {
 		const harness = createHarness([], (baseView) => {
 			const table = baseView.createDiv('bases-table-container');
@@ -735,6 +827,9 @@ function createHarness(
 		if (nativeOptions.columnAppearances) {
 			values.set('basesVisualsColumnAppearance', nativeOptions.columnAppearances);
 		}
+		if (nativeOptions.dateFormats) {
+			values.set('basesVisualsDateFormats', nativeOptions.dateFormats);
+		}
 		const headerCells = [...baseView.querySelectorAll<HTMLElement>('.bases-thead .bases-td')]
 			.flatMap((element) => element.dataset.property
 				? [{ prop: element.dataset.property, el: element }]
@@ -785,6 +880,17 @@ function appendTableCell(parent: Element, propertyId: string, value: string): vo
 	const cell = parent.createDiv('bases-td');
 	cell.dataset.property = propertyId;
 	cell.textContent = value;
+}
+
+function appendPassiveDateRow(parent: Element, propertyId: string, value: string): void {
+	const row = parent.createDiv('bases-tr');
+	const cell = row.createDiv('bases-td');
+	cell.dataset.property = propertyId;
+	const metadataValue = cell.createDiv('bases-metadata-value');
+	const input = metadataValue.createDiv('metadata-input mod-date');
+	input.contentEditable = 'true';
+	input.createSpan({ text: value });
+	metadataValue.createEl('button', { cls: 'clickable-icon', attr: { type: 'button' } });
 }
 
 function appendToolbarItem(toolbar: HTMLElement, className: string, label: string): void {

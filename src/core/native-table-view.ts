@@ -33,6 +33,7 @@ export const DEFAULT_COLUMN_APPEARANCE: NativeColumnAppearance = {
 };
 
 export const COLUMN_APPEARANCE_CONFIG_KEY = 'basesVisualsColumnAppearance';
+export const DATE_FORMAT_CONFIG_KEY = 'basesVisualsDateFormats';
 
 export interface NativeViewConfig {
 	groupBy?: { property?: unknown };
@@ -267,6 +268,24 @@ export function getNativePropertyKind(
 	return sawScalar ? 'non-list' : 'unknown';
 }
 
+export function isNativeDateProperty(app: App, scope: HTMLElement, propertyId: string): boolean {
+	const canonical = resolveNativePropertyId(app, scope, propertyId) ?? propertyId;
+	const header = getNativeColumnHeaders(app, scope)
+		.find((candidate) => candidate.propertyId === canonical)?.element;
+	if (header?.querySelector('[data-icon="calendar"], .lucide-calendar')) return true;
+	for (const cell of scope.querySelectorAll<HTMLElement>('.bases-td[data-property], .bases-table-cell[data-property]')) {
+		if (resolveNativePropertyId(app, scope, cell) !== canonical) continue;
+		if (cell.closest('.bases-thead')) continue;
+		if (cell.querySelector('time[datetime], input[type="date"], .metadata-input-date, .metadata-input.mod-date, .metadata-input.mod-datetime, [data-type="date"], [data-icon="calendar"], .lucide-calendar')) {
+			return true;
+		}
+	}
+	const result = findNativeTableView(app, scope)?.data;
+	if (!result || !Array.isArray(result.data)) return false;
+	return result.data.some((entry) =>
+		isNativeResultEntry(entry) && isDateLikeValue(entry.getValue(canonical)));
+}
+
 export function getNativeMainProperty(app: App, scope: HTMLElement): string | null {
 	const view = findNativeTableView(app, scope);
 	const first = view?.config.getOrder?.()[0];
@@ -354,6 +373,42 @@ export function setNativeColumnAppearance(
 		COLUMN_APPEARANCE_CONFIG_KEY,
 		Object.keys(stored).length > 0 ? stored : null,
 	);
+	return true;
+}
+
+export function getNativeDateFormat(app: App, scope: HTMLElement, propertyId: string): string {
+	const stored = findNativeTableView(app, scope)?.config.get(DATE_FORMAT_CONFIG_KEY);
+	if (!isObject(stored)) return '';
+	const canonical = resolveNativePropertyId(app, scope, propertyId) ?? propertyId;
+	const direct = stored[canonical] ?? stored[propertyId];
+	if (typeof direct === 'string') return normalizeDateFormatPattern(direct);
+	const comparable = comparablePropertyId(canonical);
+	for (const [storedProperty, value] of Object.entries(stored)) {
+		if (comparablePropertyId(storedProperty) === comparable && typeof value === 'string') {
+			return normalizeDateFormatPattern(value);
+		}
+	}
+	return '';
+}
+
+export function setNativeDateFormat(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+	format: string,
+): boolean {
+	const view = findNativeTableView(app, scope);
+	if (!view) return false;
+	const current = view.config.get(DATE_FORMAT_CONFIG_KEY);
+	const stored = isObject(current) ? { ...current } : {};
+	const canonical = resolveNativePropertyId(app, scope, propertyId) ?? propertyId;
+	const comparable = comparablePropertyId(canonical);
+	for (const storedProperty of Object.keys(stored)) {
+		if (comparablePropertyId(storedProperty) === comparable) delete stored[storedProperty];
+	}
+	const normalized = normalizeDateFormatPattern(format);
+	if (normalized) stored[canonical] = normalized;
+	view.config.set(DATE_FORMAT_CONFIG_KEY, Object.keys(stored).length > 0 ? stored : null);
 	return true;
 }
 
@@ -601,6 +656,27 @@ function isListLikeValue(value: unknown): value is ListLikeValue {
 
 function isTextLikeValue(value: unknown): value is TextLikeValue {
 	return isObject(value) && typeof value.toString === 'function' && value.toString !== Object.prototype.toString;
+}
+
+function isDateLikeValue(value: unknown): boolean {
+	if (value instanceof Date) return Number.isFinite(value.getTime());
+	if (!isObject(value)) return false;
+	const type = typeof value.type === 'string' ? value.type.toLocaleLowerCase() : '';
+	const kind = typeof value.kind === 'string' ? value.kind.toLocaleLowerCase() : '';
+	const constructorName = value.constructor?.name?.toLocaleLowerCase() ?? '';
+	return type === 'date' || kind === 'date' || constructorName.includes('datevalue') ||
+		(typeof value.toDate === 'function' && typeof value.format === 'function');
+}
+
+function normalizeDateFormatPattern(value: string): string {
+	return value.trim().slice(0, 48);
+}
+
+function comparablePropertyId(value: string): string {
+	return value
+		.replace(/^(?:note|file|formula)\./i, '')
+		.toLocaleLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 function saveNativeColumnSizes(

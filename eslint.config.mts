@@ -34,4 +34,12 @@ export default defineConfig(
 			'obsidianmd/prefer-create-el': 'off',
 		},
 	},
+	{
+		files: ['tests/obsidian.ts'],
+		rules: {
+			// The Obsidian test double re-exports the same Moment instance that Obsidian bundles in production.
+			'@typescript-eslint/no-restricted-imports': 'off',
+			'import/no-extraneous-dependencies': 'off',
+		},
+	},
 );

@@ -975,6 +975,202 @@
 	gap: 7px;
 }
 
+.bpc-date-format-popover {
+	position: fixed;
+	z-index: var(--layer-menu, 100);
+	box-sizing: border-box;
+	max-height: calc(100vh - 24px);
+	overflow-y: auto;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m);
+	background: var(--background-primary);
+	box-shadow: var(--shadow-s);
+	color: var(--text-normal);
+}
+
+.bpc-date-format__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 52px;
+	padding: 10px 12px 10px 16px;
+	border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.bpc-date-format__header > div {
+	display: grid;
+	min-width: 0;
+	gap: 1px;
+}
+
+.bpc-date-format__header strong {
+	font-size: var(--font-ui-medium);
+}
+
+.bpc-date-format__header span {
+	overflow: hidden;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bpc-date-format__options {
+	display: grid;
+	gap: 2px;
+	padding: 8px;
+}
+
+.bpc-date-format-option {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 20px;
+	align-items: center;
+	width: 100%;
+	min-height: 48px;
+	box-sizing: border-box;
+	gap: 10px;
+	padding: 7px 9px;
+	border: 0;
+	border-radius: var(--radius-s);
+	background: transparent;
+	box-shadow: none;
+	color: var(--text-normal);
+	text-align: start;
+}
+
+.bpc-date-format-option:hover,
+.bpc-date-format-option:focus-visible,
+.bpc-date-format-option[aria-checked="true"] {
+	background: var(--background-modifier-hover);
+	box-shadow: none;
+}
+
+.bpc-date-format-option[aria-checked="true"] {
+	box-shadow: inset 2px 0 0 var(--interactive-accent);
+}
+
+.bpc-date-format-option__copy {
+	display: grid;
+	min-width: 0;
+	gap: 1px;
+}
+
+.bpc-date-format-option__copy strong,
+.bpc-date-format-option__copy span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bpc-date-format-option__copy strong {
+	font-weight: var(--font-medium, 500);
+}
+
+.bpc-date-format-option__copy span {
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+}
+
+.bpc-date-format-option__check {
+	display: grid;
+	place-items: center;
+	color: transparent;
+}
+
+.bpc-date-format-option[aria-checked="true"] .bpc-date-format-option__check {
+	color: var(--interactive-accent);
+}
+
+.bpc-date-format__custom {
+	display: grid;
+	gap: 6px;
+	padding: 10px 12px 12px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.bpc-date-format__custom[hidden] {
+	display: none;
+}
+
+.bpc-date-format__custom input {
+	width: 100%;
+	box-sizing: border-box;
+	font-family: var(--font-monospace);
+}
+
+.bpc-date-format__preview,
+.bpc-date-format__error,
+.bpc-date-format__help {
+	font-size: var(--font-ui-smaller);
+}
+
+.bpc-date-format__preview,
+.bpc-date-format__help {
+	color: var(--text-muted);
+}
+
+.bpc-date-format__error {
+	min-height: 1em;
+	color: var(--text-error);
+}
+
+.bpc-date-format__help {
+	display: grid;
+	gap: 2px;
+	padding: 10px 14px 12px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.bpc-date-format__help strong {
+	color: var(--text-normal);
+}
+
+.bases-view .bpc-date-source-hidden,
+.bases-embed .bpc-date-source-hidden {
+	display: none !important;
+}
+
+.bases-view .bpc-date-source-editable,
+.bases-embed .bpc-date-source-editable {
+	display: none !important;
+}
+
+.bases-view .bpc-date-editing .bpc-date-source-editable,
+.bases-embed .bpc-date-editing .bpc-date-source-editable {
+	display: block !important;
+}
+
+.bases-view .bpc-date-editing .bpc-date-display,
+.bases-embed .bpc-date-editing .bpc-date-display {
+	display: none;
+}
+
+.bpc-date-display {
+	display: inline-flex;
+	align-items: center;
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+	color: inherit;
+	font: inherit;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.bpc-date-display[role="button"] {
+	cursor: text;
+}
+
+.bpc-date-display__icon {
+	display: inline-flex;
+	width: var(--icon-xs);
+	height: var(--icon-xs);
+	flex: 0 0 auto;
+	margin-inline-end: 6px;
+	color: var(--text-muted);
+}
+
 .bases-view .bpc-pill,
 .bases-embed .bpc-pill,
 .bpc-settings-pill {

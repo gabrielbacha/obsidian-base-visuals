@@ -3,10 +3,12 @@ import { encodeOptionKey, resolveColor } from './colors';
 import {
 	getNativeColumnAppearance,
 	getNativeColumnHeaders,
+	getNativeDateFormat,
 	getNativeGroupProperty,
 	getNativeMainProperty,
 	getNativePropertyKind,
 	getNativePropertyDisplayName,
+	isNativeDateProperty,
 	resolveNativePropertyId,
 	type NativeColumnAppearance,
 } from './native-table-view';
@@ -17,6 +19,8 @@ import { ConditionalRule, OptionIdentity, type PaletteTemplateId } from './types
 import { TableLayoutPopover } from '../ui/table-layout-popover';
 import { ColumnAppearancePopover } from '../ui/column-appearance-popover';
 import { ColumnPillAppearancePopover } from '../ui/column-pill-appearance-popover';
+import { DateFormatPopover } from '../ui/date-format-popover';
+import { dateFormatPreview, formatDateText, inferNumericDateOrder } from './date-format';
 import { compareNaturalValues } from './value-order';
 import { strategyLabel } from './property-strategies';
 import { NativePillRemovalService, type PillRemovalCapability } from './native-pill-removal';
@@ -54,6 +58,18 @@ interface TrackedGroupHeading {
 	key: string;
 }
 
+interface TrackedDateDisplay {
+	propertyId: string;
+	target: Text | null;
+	source: HTMLElement | null;
+	sourceMode: 'hidden' | 'editable' | null;
+	display: HTMLElement | null;
+	original: string;
+	formatted: string;
+	originalTitle: string | null;
+	cleanup: (() => void) | null;
+}
+
 interface RootBinding {
 	observer: MutationObserver;
 	inputHandler: (event: Event) => void;
@@ -89,6 +105,7 @@ export class PillEnhancer {
 	private readonly tableValues = new Map<HTMLElement, Map<string, Set<string>>>();
 	private readonly tables = new Set<HTMLElement>();
 	private readonly columnAppearanceElements = new Set<HTMLElement>();
+	private readonly dateDisplays = new Map<HTMLElement, TrackedDateDisplay>();
 	private readonly toolbarControls = new Set<HTMLElement>();
 	private readonly pendingMenuObservers = new Set<MutationObserver>();
 	private readonly scopedStoreUnsubscribers = new Map<SettingsStore, () => void>();
@@ -96,6 +113,7 @@ export class PillEnhancer {
 	private readonly tableLayoutPopover: TableLayoutPopover;
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
 	private readonly columnPillAppearancePopover: ColumnPillAppearancePopover;
+	private readonly dateFormatPopover: DateFormatPopover;
 	private readonly pillRemoval = new NativePillRemovalService();
 	private unsubscribeStore: (() => void) | null = null;
 	private started = false;
@@ -111,6 +129,7 @@ export class PillEnhancer {
 		this.tableLayoutPopover = new TableLayoutPopover(app, store);
 		this.columnAppearancePopover = new ColumnAppearancePopover(app, baseStores);
 		this.columnPillAppearancePopover = new ColumnPillAppearancePopover();
+		this.dateFormatPopover = new DateFormatPopover(app);
 	}
 
 	start(registerEvent: (eventRef: EventRef) => void): void {
@@ -210,11 +229,14 @@ export class PillEnhancer {
 		this.tableLayoutPopover.close();
 		this.columnAppearancePopover.close();
 		this.columnPillAppearancePopover.close();
+		this.dateFormatPopover.close();
 		this.pillRemoval.dispose();
 		for (const observer of this.pendingMenuObservers) observer.disconnect();
 		this.pendingMenuObservers.clear();
 		for (const element of this.columnAppearanceElements) clearColumnAppearance(element);
 		this.columnAppearanceElements.clear();
+		for (const cell of this.dateDisplays.keys()) this.clearDateDisplay(cell);
+		this.dateDisplays.clear();
 		this.toolbarControls.clear();
 	}
 
@@ -350,9 +372,13 @@ export class PillEnhancer {
 		this.scopedStore(scope).discoverProperty(propertyId);
 		this.applyCellRule(cell, propertyId);
 		if (cell.closest('.bases-thead')) {
+			this.clearDateDisplay(cell);
 			clearColumnAppearance(cell);
 			this.columnAppearanceElements.delete(cell);
-		} else this.applyColumnAppearance(cell, scope, propertyId);
+		} else {
+			this.applyColumnAppearance(cell, scope, propertyId);
+			this.applyDateDisplay(cell, scope, propertyId);
+		}
 		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
 		if (table) this.applyMainColumn(table, cell);
 	}
@@ -683,6 +709,9 @@ export class PillEnhancer {
 		if (this.shouldOfferPillAppearance(scope, propertyId)) {
 			this.injectPillAppearanceMenuItem(menu, scope, propertyId);
 		}
+		if (isNativeDateProperty(this.app, scope, propertyId)) {
+			this.injectDateFormatMenuItem(menu, scope, propertyId);
+		}
 		this.injectColumnAppearanceMenuItem(menu, scope, propertyId);
 	}
 
@@ -710,10 +739,71 @@ export class PillEnhancer {
 			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
 			item.classList.add('selected');
 			this.columnAppearancePopover.close();
+			this.dateFormatPopover.close();
 			this.columnPillAppearancePopover.open(item, store, propertyId, displayName, () => {
 				item.querySelector<HTMLElement>('.menu-item-flair')!.textContent =
 					describePillAppearance(store, propertyId, displayName);
 				this.refreshFromStore();
+			});
+		};
+		item.addEventListener('pointerenter', () => {
+			content.querySelectorAll<HTMLElement>('.menu-item.selected').forEach((candidate) => {
+				if (candidate !== item) candidate.classList.remove('selected');
+			});
+			item.classList.add('selected');
+			openTimer = item.ownerDocument.defaultView?.setTimeout(open, 120) ?? 0;
+		});
+		item.addEventListener('pointerleave', () => {
+			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
+			openTimer = 0;
+		});
+		item.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			open();
+		});
+		item.addEventListener('keydown', (event) => {
+			if (event.key !== 'Enter' && event.key !== ' ') return;
+			event.preventDefault();
+			open();
+		});
+		const appearanceItem = content.querySelector(':scope > .bpc-column-appearance-menu-item');
+		if (appearanceItem) appearanceItem.before(item);
+		else {
+			const firstSeparator = content.querySelector(':scope > .menu-separator');
+			if (firstSeparator) firstSeparator.before(item);
+			else content.append(item);
+		}
+	}
+
+	private injectDateFormatMenuItem(
+		menu: HTMLElement,
+		scope: HTMLElement,
+		propertyId: string,
+	): void {
+		if (menu.querySelector('.bpc-date-format-menu-item')) return;
+		const displayName = getNativePropertyDisplayName(this.app, scope, propertyId)
+			?? propertyId.replace(/^(?:note|file|formula)\./, '');
+		const content = menu.querySelector<HTMLElement>(':scope > .menu-scroll') ?? menu;
+		const item = content.createDiv('menu-item tappable bpc-date-format-menu-item');
+		item.setAttribute('role', 'menuitem');
+		item.tabIndex = -1;
+		const icon = item.createSpan('menu-item-icon');
+		setIcon(icon, 'calendar-days');
+		item.createDiv({ cls: 'menu-item-title', text: 'Date format' });
+		item.createDiv({ cls: 'menu-item-flair', text: describeDateFormat(getNativeDateFormat(this.app, scope, propertyId)) });
+		const chevron = item.createSpan('menu-item-icon');
+		setIcon(chevron, 'chevron-right');
+		let openTimer = 0;
+		const open = () => {
+			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
+			item.classList.add('selected');
+			this.columnAppearancePopover.close();
+			this.columnPillAppearancePopover.close();
+			this.dateFormatPopover.open(item, scope, propertyId, displayName, () => {
+				item.querySelector<HTMLElement>('.menu-item-flair')!.textContent =
+					describeDateFormat(getNativeDateFormat(this.app, scope, propertyId));
+				this.refreshDateFormats(scope);
 			});
 		};
 		item.addEventListener('pointerenter', () => {
@@ -785,6 +875,7 @@ export class PillEnhancer {
 			if (openTimer) item.ownerDocument.defaultView?.clearTimeout(openTimer);
 			item.classList.add('selected');
 			this.columnPillAppearancePopover.close();
+			this.dateFormatPopover.close();
 			this.columnAppearancePopover.open(item, scope, propertyId, () =>
 				this.refreshColumnAppearances(scope, propertyId));
 		};
@@ -886,6 +977,139 @@ export class PillEnhancer {
 		this.columnAppearanceElements.add(element);
 	}
 
+	private applyDateDisplay(cell: HTMLElement, scope: HTMLElement, propertyId: string): void {
+		const format = getNativeDateFormat(this.app, scope, propertyId);
+		if (!format || !isNativeDateProperty(this.app, scope, propertyId)) {
+			this.clearDateDisplay(cell);
+			return;
+		}
+		const order = this.dateOrderFor(scope, propertyId);
+		const existing = this.dateDisplays.get(cell);
+		const rendered = findRenderedDateSource(cell);
+		if (rendered) {
+			const source = rendered.value;
+			const formattedValue = formatDateText(source, format, order);
+			if (!formattedValue) {
+				this.clearDateDisplay(cell);
+				return;
+			}
+			if (existing?.propertyId === propertyId && existing.source === rendered.element &&
+				existing.sourceMode === rendered.mode && existing.display?.isConnected) {
+				existing.original = source;
+				existing.formatted = formattedValue;
+				setDateDisplayContent(existing.display, formattedValue);
+				setEditableDateDisplayAttributes(existing.display, rendered, source);
+				cell.title = source;
+				return;
+			}
+			if (existing) this.clearDateDisplay(cell);
+			const display = (rendered.element.parentElement ?? cell).createSpan('bpc-date-display');
+			setDateDisplayContent(display, formattedValue);
+			setEditableDateDisplayAttributes(display, rendered, source);
+			rendered.element.after(display);
+			const cleanup = rendered.mode === 'editable'
+				? bindEditableDateDisplay(cell, rendered.element as HTMLInputElement, display)
+				: null;
+			if (rendered.mode === 'editable' && cell.ownerDocument.activeElement === rendered.element) {
+				cell.classList.add('bpc-date-editing');
+			}
+			rendered.element.classList.add(rendered.mode === 'editable'
+				? 'bpc-date-source-editable'
+				: 'bpc-date-source-hidden');
+			this.dateDisplays.set(cell, {
+				propertyId,
+				target: null,
+				source: rendered.element,
+				sourceMode: rendered.mode,
+				display,
+				original: source,
+				formatted: formattedValue,
+				originalTitle: cell.getAttribute('title'),
+				cleanup,
+			});
+			cell.title = source;
+			cell.classList.add('bpc-date-formatted');
+			return;
+		}
+		if (existing && existing.propertyId === propertyId && existing.target?.isConnected) {
+			const source = machineDateSource(cell) ?? existing.original.trim();
+			const formattedValue = formatDateText(source, format, order);
+			if (!formattedValue) {
+				this.clearDateDisplay(cell);
+				return;
+			}
+			const formatted = replaceTrimmed(existing.original, formattedValue);
+			existing.formatted = formatted;
+			if (existing.target.data !== formatted) existing.target.data = formatted;
+			cell.title = existing.original.trim();
+			cell.classList.add('bpc-date-formatted');
+			return;
+		}
+		if (existing) this.clearDateDisplay(cell);
+		const target = findDateTextNode(cell, order);
+		if (!target) return;
+		const source = machineDateSource(cell) ?? target.data.trim();
+		const formattedValue = formatDateText(source, format, order);
+		if (!formattedValue) return;
+		const original = target.data;
+		const formatted = replaceTrimmed(original, formattedValue);
+		this.dateDisplays.set(cell, {
+			propertyId,
+			target,
+			source: null,
+			sourceMode: null,
+			display: null,
+			original,
+			formatted,
+			originalTitle: cell.getAttribute('title'),
+			cleanup: null,
+		});
+		target.data = formatted;
+		cell.title = original.trim();
+		cell.classList.add('bpc-date-formatted');
+	}
+
+	private clearDateDisplay(cell: HTMLElement): void {
+		const state = this.dateDisplays.get(cell);
+		if (!state) {
+			cell.classList.remove('bpc-date-formatted');
+			return;
+		}
+		if (state.target?.isConnected && state.target.data === state.formatted) {
+			state.target.data = state.original;
+		}
+		state.cleanup?.();
+		state.source?.classList.remove('bpc-date-source-hidden', 'bpc-date-source-editable');
+		state.display?.remove();
+		if (cell.getAttribute('title') === state.original.trim()) {
+			if (state.originalTitle === null) cell.removeAttribute('title');
+			else cell.setAttribute('title', state.originalTitle);
+		}
+		cell.classList.remove('bpc-date-formatted', 'bpc-date-editing');
+		this.dateDisplays.delete(cell);
+	}
+
+	private refreshDateFormats(scope: HTMLElement): void {
+		for (const cell of scope.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
+			if (cell.closest('.bases-thead')) continue;
+			const propertyId = this.propertyIdFor(scope, cell);
+			if (propertyId) this.applyDateDisplay(cell, scope, propertyId);
+		}
+	}
+
+	private dateOrderFor(scope: HTMLElement, propertyId: string): ReturnType<typeof inferNumericDateOrder> {
+		const values: string[] = [];
+		for (const cell of scope.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
+			if (cell.closest('.bases-thead') || this.propertyIdFor(scope, cell) !== propertyId) continue;
+			const tracked = this.dateDisplays.get(cell);
+			const value = tracked?.original.trim()
+				?? findRenderedDateSource(cell)?.value
+				?? findDateTextNode(cell, 'locale')?.data.trim();
+			if (value) values.push(value);
+		}
+		return inferNumericDateOrder(values);
+	}
+
 	private refreshColumnAppearances(scope: HTMLElement, onlyPropertyId?: string): void {
 		for (const cell of scope.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
 			const propertyId = this.propertyIdFor(scope, cell);
@@ -899,7 +1123,7 @@ export class PillEnhancer {
 
 	private applyCellRule(cell: HTMLElement, propertyId: string): void {
 		clearRuleAppearance(cell, 'bpc-rule-cell');
-		const value = renderedCellValue(cell);
+		const value = this.ruleCellValue(cell);
 		const scope = findBaseTableHost(cell);
 		const rules = scope ? this.scopedStore(scope).settings.rules : this.store.settings.rules;
 		const rule = rules.find((candidate) =>
@@ -918,15 +1142,23 @@ export class PillEnhancer {
 			if (!rule.enabled || rule.target !== 'row' || !ruleHasFormatting(rule)) continue;
 			const cell = cells.find((candidate) =>
 				(scope ? this.propertyIdFor(scope, candidate) : candidate.dataset.property?.trim()) === rule.propertyId);
-			if (cell && evaluateRule(rule, renderedCellValue(cell))) {
+			if (cell && evaluateRule(rule, this.ruleCellValue(cell))) {
 				applyRuleAppearance(row, 'bpc-rule-row', rule, scope ? this.scopedStore(scope).getPaletteTemplateId() : this.store.getPaletteTemplateId());
 				return;
 			}
 		}
 	}
 
+	private ruleCellValue(cell: HTMLElement): { text: string; values: string[] } {
+		const date = this.dateDisplays.get(cell);
+		if (!date) return renderedCellValue(cell);
+		const value = date.original.trim();
+		return { text: value, values: [value] };
+	}
+
 	private untrackCell(cell: HTMLElement): void {
 		this.visibleCells.delete(cell);
+		this.clearDateDisplay(cell);
 		cell.classList.remove('bpc-main-column');
 		clearRuleAppearance(cell, 'bpc-rule-cell');
 		clearColumnAppearance(cell);
@@ -1019,6 +1251,125 @@ export function renderedCellValue(cell: HTMLElement): { text: string; values: st
 	if (input) return { text: input.value.trim(), values: [input.value.trim()] };
 	const text = cell.textContent?.trim() ?? '';
 	return { text, values: [text] };
+}
+
+function findDateTextNode(
+	cell: HTMLElement,
+	order: ReturnType<typeof inferNumericDateOrder>,
+): Text | null {
+	const showText = cell.ownerDocument.defaultView?.NodeFilter.SHOW_TEXT ?? 4;
+	const walker = cell.ownerDocument.createTreeWalker(cell, showText);
+	let node = walker.nextNode();
+	while (node) {
+		const text = node as Text;
+		const parent = text.parentElement;
+		const value = text.data.trim();
+		if (value && parent && !parent.closest('svg, input, textarea, [contenteditable="true"]') &&
+			formatDateText(value, 'YYYY-MM-DD', order)) {
+			return text;
+		}
+		node = walker.nextNode();
+	}
+	return null;
+}
+
+interface RenderedDateSource {
+	element: HTMLElement;
+	value: string;
+	mode: 'hidden' | 'editable';
+}
+
+function findRenderedDateSource(cell: HTMLElement): RenderedDateSource | null {
+	const input = cell.querySelector<HTMLInputElement>(
+		'input[type="date"], input[type="datetime-local"], input.metadata-input.mod-date, input.metadata-input.mod-datetime',
+	);
+	if (input?.value.trim()) {
+		return {
+			element: input,
+			value: input.value.trim(),
+			mode: input.disabled || Boolean(input.closest('.bases-rendered-value')) ? 'hidden' : 'editable',
+		};
+	}
+	const metadata = cell.querySelector<HTMLElement>(
+		'.bases-metadata-value .metadata-input.mod-date, ' +
+		'.bases-metadata-value .metadata-input.mod-datetime, ' +
+		'.metadata-input.mod-date, .metadata-input.mod-datetime',
+	);
+	if (metadata) {
+		const nestedInput = metadata.querySelector<HTMLInputElement>('input');
+		const value = nestedInput?.value.trim() || metadata.textContent?.trim() || '';
+		if (value) return { element: metadata, value, mode: 'hidden' };
+	}
+	return null;
+}
+
+function setEditableDateDisplayAttributes(
+	display: HTMLElement,
+	source: RenderedDateSource,
+	value: string,
+): void {
+	if (source.mode !== 'editable') {
+		display.removeAttribute('role');
+		display.removeAttribute('tabindex');
+		display.removeAttribute('aria-label');
+		return;
+	}
+	display.setAttribute('role', 'button');
+	display.tabIndex = 0;
+	display.setAttribute('aria-label', `Edit date, current value ${value}`);
+}
+
+function bindEditableDateDisplay(
+	cell: HTMLElement,
+	input: HTMLInputElement,
+	display: HTMLElement,
+): () => void {
+	const edit = (event: Event): void => {
+		if (event.type === 'keydown') {
+			const keyboardEvent = event as KeyboardEvent;
+			if (keyboardEvent.key !== 'Enter' && keyboardEvent.key !== ' ') return;
+			keyboardEvent.preventDefault();
+		}
+		cell.classList.add('bpc-date-editing');
+		input.focus();
+		if ('showPicker' in input && typeof input.showPicker === 'function') {
+			try { input.showPicker(); } catch { /* The platform may restrict programmatic pickers. */ }
+		}
+	};
+	const finish = (): void => cell.classList.remove('bpc-date-editing');
+	display.addEventListener('click', edit);
+	display.addEventListener('keydown', edit);
+	input.addEventListener('blur', finish);
+	return () => {
+		display.removeEventListener('click', edit);
+		display.removeEventListener('keydown', edit);
+		input.removeEventListener('blur', finish);
+	};
+}
+
+function setDateDisplayContent(display: HTMLElement, value: string): void {
+	display.empty();
+	const icon = display.createSpan('bpc-date-display__icon');
+	icon.setAttribute('aria-hidden', 'true');
+	setIcon(icon, 'calendar-days');
+	display.createSpan({ cls: 'bpc-date-display__text', text: value });
+}
+
+function machineDateSource(cell: HTMLElement): string | null {
+	for (const element of cell.querySelectorAll<HTMLElement>('[datetime], [data-date], [data-value]')) {
+		for (const attribute of ['datetime', 'data-date', 'data-value']) {
+			const value = element.getAttribute(attribute)?.trim();
+			if (value && formatDateText(value, 'YYYY-MM-DD')) return value;
+		}
+	}
+	return null;
+}
+
+function replaceTrimmed(original: string, replacement: string): string {
+	const start = original.search(/\S/);
+	if (start < 0) return replacement;
+	const end = original.search(/\s*$/);
+	return `${original.slice(0, start)}${replacement}${original.slice(end)}`;
 }
 
 function applyRuleAppearance(element: HTMLElement, className: string, rule: ConditionalRule, paletteId?: PaletteTemplateId): void {
@@ -1186,6 +1537,10 @@ function describeColumnAppearance(appearance: NativeColumnAppearance): string {
 			? 'Custom'
 			: appearance.tone[0]?.toLocaleUpperCase() + appearance.tone.slice(1);
 	return [tone, appearance.bold ? 'Bold' : ''].filter(Boolean).join(' + ') || 'Default';
+}
+
+function describeDateFormat(format: string): string {
+	return format ? dateFormatPreview(format) : 'Default';
 }
 
 function describePillAppearance(store: SettingsStore, propertyId: string, displayName: string): string {

@@ -1,3 +1,7 @@
+import momentLibrary from 'moment';
+
+export const moment = momentLibrary;
+
 export class Modal {
 	readonly modalEl = document.body.createDiv('modal-container');
 	readonly contentEl = this.modalEl.createDiv('modal-content');

@@ -2,6 +2,13 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## Unreleased
+
+- Add display-only date formatting for confirmed Base date columns through their native header menus.
+- Include presets for day–month–year, short month–year, month–year, and ISO displays plus custom Moment-style patterns with live previews.
+- Infer day-first or month-first numeric input from unambiguous rendered values while leaving ambiguous columns to Obsidian's locale.
+- Preserve original date values for editing, sorting, filtering, formulas, conditional rules, and cleanup.
+
 ## 0.13.1 — 2026-08-31
 
 - Rework conditional-formatting treatments so long actions no longer overlap or clip.
