@@ -56,6 +56,7 @@ export function renderColorControls(
 		swatch.addEventListener('click', () => {
 			store.setOverride(identity, { kind: 'preset', name: swatch.dataset.preset as PresetName });
 			syncSelection();
+			void store.flush();
 			onClose?.();
 		});
 	}
@@ -75,9 +76,16 @@ export function renderColorControls(
 		syncSelection();
 	};
 	colorInput.addEventListener('input', () => applyCustom(colorInput.value));
-	textInput.addEventListener('change', () => applyCustom(textInput.value));
+	colorInput.addEventListener('change', () => void store.flush());
+	textInput.addEventListener('change', () => {
+		applyCustom(textInput.value);
+		void store.flush();
+	});
 	textInput.addEventListener('keydown', (event) => {
-		if (event.key === 'Enter') applyCustom(textInput.value);
+		if (event.key === 'Enter') {
+			applyCustom(textInput.value);
+			void store.flush();
+		}
 	});
 
 	const actions = container.createDiv('bpc-popover__actions');
@@ -86,6 +94,7 @@ export function renderColorControls(
 	autoButton.addEventListener('click', () => {
 		store.setOverride(identity);
 		syncSelection();
+		void store.flush();
 		onClose?.();
 	});
 	const offButton = actions.createEl('button', {
@@ -96,6 +105,7 @@ export function renderColorControls(
 	offButton.addEventListener('click', () => {
 		store.setOverride(identity, { kind: 'disabled' });
 		syncSelection();
+		void store.flush();
 		onClose?.();
 	});
 

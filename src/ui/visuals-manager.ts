@@ -13,6 +13,7 @@ export class BasesVisualsModal extends Modal {
 	private activeView: PillColorManagerView | RuleManagerView | null = null;
 	private section: ManagerSection;
 	private basePropertyIds: ReadonlySet<string> | undefined;
+	private baseRulePropertyIds: ReadonlySet<string> | undefined;
 	private propertyScopeRevision = 0;
 	private propertyScopeLoading: boolean;
 
@@ -24,10 +25,12 @@ export class BasesVisualsModal extends Modal {
 		initialSection: ManagerSection = 'pill-colors',
 		private readonly tableScope?: HTMLElement,
 		private readonly propertyIdsPromise?: Promise<ReadonlySet<string>>,
+		private readonly rulePropertyIdsPromise?: Promise<ReadonlySet<string>>,
 	) {
 		super(app);
 		this.section = initialSection;
 		this.basePropertyIds = tableScope ? new Set() : undefined;
+		this.baseRulePropertyIds = tableScope ? new Set(priorityProperties) : undefined;
 		this.propertyScopeLoading = Boolean(propertyIdsPromise);
 	}
 
@@ -40,6 +43,11 @@ export class BasesVisualsModal extends Modal {
 			if (revision !== this.propertyScopeRevision || !this.modalEl.isConnected) return;
 			this.basePropertyIds = propertyIds;
 			this.propertyScopeLoading = false;
+			this.render();
+		});
+		void this.rulePropertyIdsPromise?.then((propertyIds) => {
+			if (revision !== this.propertyScopeRevision || !this.modalEl.isConnected) return;
+			this.baseRulePropertyIds = propertyIds;
 			this.render();
 		});
 	}
@@ -97,7 +105,14 @@ export class BasesVisualsModal extends Modal {
 				this.basePropertyIds,
 			);
 		} else {
-			this.activeView = new RuleManagerView(this.app, this.store, this.priorityProperties);
+			this.activeView = new RuleManagerView(
+				this.app,
+				this.store,
+				this.priorityProperties,
+				true,
+				this.baseRulePropertyIds,
+				this.tableScope,
+			);
 		}
 		this.activeView.mount(panel);
 	}

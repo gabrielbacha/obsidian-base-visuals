@@ -59,6 +59,7 @@ export class ColumnPillPopover {
 				const reset = createMenuItem(menu, 'Use property strategy', undefined, 'reset');
 				reset.addEventListener('click', () => {
 					store.setOverride(selectedIdentity);
+					void store.flush();
 					this.close();
 				});
 			}
@@ -130,6 +131,7 @@ export class ColumnPillPopover {
 					'Value overrides will be cleared and this property will return to its Smart strategy.',
 					() => {
 						store.resetProperty(request.propertyId);
+						void store.flush();
 						renderColumn();
 					},
 				).open();

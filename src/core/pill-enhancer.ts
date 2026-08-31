@@ -1021,8 +1021,10 @@ export function renderedCellValue(cell: HTMLElement): { text: string; values: st
 }
 
 function applyRuleAppearance(element: HTMLElement, className: string, rule: ConditionalRule, paletteId?: PaletteTemplateId): void {
-	const color = ruleColorVariables(rule.color, paletteId);
+	const color = ruleColorVariables(rule.color, rule.fontColor, paletteId, rule.backgroundOpacity);
 	element.classList.add(className);
+	element.classList.toggle('bpc-rule-bold', rule.bold === true);
+	element.classList.toggle('bpc-rule-strikethrough', rule.strikethrough === true);
 	element.dataset.bpcRuleId = rule.id;
 	element.style.setProperty('--bpc-rule-bg', color.background);
 	element.style.setProperty('--bpc-rule-bg-hover', color.hover);
@@ -1031,7 +1033,7 @@ function applyRuleAppearance(element: HTMLElement, className: string, rule: Cond
 }
 
 function clearRuleAppearance(element: HTMLElement, className: string): void {
-	element.classList.remove(className);
+	element.classList.remove(className, 'bpc-rule-bold', 'bpc-rule-strikethrough');
 	delete element.dataset.bpcRuleId;
 	element.style.removeProperty('--bpc-rule-bg');
 	element.style.removeProperty('--bpc-rule-bg-hover');

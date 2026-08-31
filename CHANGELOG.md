@@ -2,6 +2,17 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.12.0 — 2026-08-31
+
+- Redesign conditional-formatting cards into a responsive When/Then layout without horizontal scrolling.
+- Restrict conditional-formatting properties to the current Base and add native value autocomplete.
+- Add independent background and exact text colors, including a permanent light Neutral treatment.
+- Add optional Bold and Strikethrough text treatments to formatting rules.
+- Add per-rule background tint strength from 0–100%, with synchronized controls and a stronger hover state.
+- Keep pill appearance changes responsive and persistent across live views and rerendered Base configuration objects.
+- Improve compact pill-style and color-strategy controls throughout the full manager and column popovers.
+- Preserve backward compatibility by safely discarding the unsupported conditional row-height experiment from saved rules.
+
 ## 0.11.0 — 2026-08-31
 
 - Convert Pill style and Color strategy settings into space-efficient live preview dropdown triggers.

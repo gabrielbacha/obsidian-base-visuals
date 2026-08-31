@@ -54,6 +54,7 @@ interface BaseStoreGroup {
 
 export class BaseVisualStoreRepository {
 	private readonly stores = new WeakMap<NativeViewConfig, SettingsStore>();
+	private readonly storesByScope = new WeakMap<HTMLElement, SettingsStore>();
 	private readonly liveStores = new Set<SettingsStore>();
 	private readonly recordsByStore = new Map<SettingsStore, StoreRecord>();
 	private readonly groups = new Map<BaseGroupKey, BaseStoreGroup>();
@@ -71,6 +72,16 @@ export class BaseVisualStoreRepository {
 		if (!config) return this.globalStore;
 		const existing = this.stores.get(config);
 		if (existing) return existing;
+		const scoped = this.storesByScope.get(scope);
+		if (scoped) {
+			const record = this.recordsByStore.get(scoped);
+			if (record) {
+				record.config = config;
+				this.stores.set(config, scoped);
+				config.set(BASE_VISUALS_KEY, structuredClone(record.group.base));
+			}
+			return scoped;
+		}
 
 		const storedBase = normalizeBaseData(config.get(BASE_VISUALS_KEY));
 		const fallback = storedBase ?? migrateGlobalVisuals(this.globalStore.settings);
@@ -85,7 +96,7 @@ export class BaseVisualStoreRepository {
 			const localBase = baseDataFromSettings(next, record.baseSnapshot);
 			const nextBase = mergeBaseChanges(record.baseSnapshot, localBase, group.base);
 			const nextView = viewDataFromSettings(next);
-			config.set(VIEW_VISUALS_KEY, nextView.rules.length ? nextView : null);
+			record.config.set(VIEW_VISUALS_KEY, nextView.rules.length ? nextView : null);
 			this.publishBase(group, nextBase, record);
 			await this.queueBaseSync(group, scope, nextBase);
 		});
@@ -94,6 +105,7 @@ export class BaseVisualStoreRepository {
 			baseSnapshot: structuredClone(base),
 		};
 		this.stores.set(config, store);
+		this.storesByScope.set(scope, store);
 		this.liveStores.add(store);
 		this.recordsByStore.set(store, record);
 		group.records.add(record);
@@ -132,6 +144,24 @@ export class BaseVisualStoreRepository {
 			if (getNativePropertyKind(this.app, scope, propertyId) === 'list') {
 				ids.add(resolveWithAliases(context.aliases, propertyId));
 			}
+		}
+		return ids;
+	}
+
+	/** Every canonical property declared or referenced by any view in the current Base. */
+	async rulePropertyIdsForScope(
+		scope: HTMLElement,
+		fallback: readonly string[] = [],
+	): Promise<ReadonlySet<string>> {
+		const context = await this.propertyContext(scope);
+		const ids = new Set<string>();
+		for (const propertyId of context.definedPropertyIds) ids.add(propertyId);
+		for (const propertyId of context.referencedPropertyIds) ids.add(propertyId);
+		for (const propertyId of getNativePropertyIds(this.app, scope)) {
+			ids.add(resolveWithAliases(context.aliases, propertyId));
+		}
+		for (const propertyId of fallback) {
+			ids.add(resolveWithAliases(context.aliases, propertyId));
 		}
 		return ids;
 	}
@@ -357,12 +387,13 @@ function scopedSettings(
 }
 
 function migrateGlobalVisuals(global: BasesPillColorsSettings): BaseVisualData {
+	const normalizedRules = SettingsStore.normalize({ rules: global.rules }).rules;
 	return {
 		schemaVersion: 6,
 		paletteTemplateId: global.paletteTemplateId,
 		options: structuredClone(global.options),
 		knownProperties: structuredClone(global.knownProperties),
-		rules: global.rules.map((rule) => ({ ...structuredClone(rule), scope: 'base' })),
+		rules: normalizedRules.map((rule) => ({ ...structuredClone(rule), scope: 'base' })),
 		propertyStrategies: structuredClone(global.propertyStrategies),
 	};
 }
@@ -502,6 +533,7 @@ function normalizeBaseData(value: unknown): BaseVisualData | null {
 
 interface BasePropertyContext {
 	aliases: Map<string, string>;
+	definedPropertyIds: Set<string>;
 	listPropertyIds: Set<string>;
 	nonListPropertyIds: Set<string>;
 	referencedPropertyIds: Set<string>;
@@ -509,6 +541,7 @@ interface BasePropertyContext {
 
 async function loadBasePropertyContext(app: App, scope: HTMLElement): Promise<BasePropertyContext> {
 	const aliases = new Map<string, string>();
+	const definedPropertyIds = new Set<string>();
 	const listPropertyIds = new Set<string>();
 	const nonListPropertyIds = new Set<string>();
 	const nativeIds = getNativePropertyIds(app, scope);
@@ -520,15 +553,16 @@ async function loadBasePropertyContext(app: App, scope: HTMLElement): Promise<Ba
 
 	const file = getNativeBaseFile(app, scope);
 	if (!file || !app.vault?.cachedRead) {
-		return { aliases, listPropertyIds, nonListPropertyIds, referencedPropertyIds: new Set() };
+		return { aliases, definedPropertyIds, listPropertyIds, nonListPropertyIds, referencedPropertyIds: new Set() };
 	}
 	try {
 		const parsed = parseYaml(await app.vault.cachedRead(file)) as Record<string, unknown> | null;
-		if (!parsed) return { aliases, listPropertyIds, nonListPropertyIds, referencedPropertyIds: new Set() };
+		if (!parsed) return { aliases, definedPropertyIds, listPropertyIds, nonListPropertyIds, referencedPropertyIds: new Set() };
 		const definitions = isRecord(parsed.properties) ? parsed.properties : {};
 		const lowerAliases = new Map<string, string | null>();
 		for (const [name, definition] of Object.entries(definitions)) {
 			const canonical = canonicalDefinitionId(name);
+			definedPropertyIds.add(canonical);
 			registerAlias(aliases, lowerAliases, name, canonical);
 			registerAlias(aliases, lowerAliases, canonical, canonical);
 			if (isRecord(definition) && typeof definition.displayName === 'string') {
@@ -551,9 +585,9 @@ async function loadBasePropertyContext(app: App, scope: HTMLElement): Promise<Ba
 			collectViewPropertyReferences(parsed.views).map((propertyId) =>
 				resolveWithAliases(aliases, canonicalDefinitionId(propertyId))),
 		);
-		return { aliases, listPropertyIds, nonListPropertyIds, referencedPropertyIds };
+		return { aliases, definedPropertyIds, listPropertyIds, nonListPropertyIds, referencedPropertyIds };
 	} catch {
-		return { aliases, listPropertyIds, nonListPropertyIds, referencedPropertyIds: new Set() };
+		return { aliases, definedPropertyIds, listPropertyIds, nonListPropertyIds, referencedPropertyIds: new Set() };
 	}
 }
 

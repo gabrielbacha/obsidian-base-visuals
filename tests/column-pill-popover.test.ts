@@ -74,7 +74,7 @@ describe('ColumnPillPopover', () => {
 	});
 
 	it('edits pill style independently from the color strategy', () => {
-		const { popover, store } = createPopover();
+		const { popover, store, saveSettings } = createPopover();
 		popover.open(createRequest());
 		findMenuItem('Manage “status” colors')?.click();
 		const styleTrigger = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__trigger[aria-label="Pill style for status"]');
@@ -84,6 +84,9 @@ describe('ColumnPillPopover', () => {
 		const outlineOption = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__option[data-value="outline"]');
 		outlineOption?.click();
 		expect(store.getPropertyStyle('note.status')).toBe('outline');
+		expect(saveSettings).toHaveBeenCalledOnce();
+		expect(document.querySelector('.bpc-custom-dropdown__menu')).toBeNull();
+		expect(styleTrigger?.getAttribute('aria-expanded')).toBe('false');
 		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'smart', style: 'outline' });
 		expect(document.querySelector('.bpc-column-manager__row .bpc-settings-pill')?.classList.contains('bpc-pill-style-outline')).toBe(true);
 	});
@@ -159,12 +162,17 @@ function findMenuItem(label: string): HTMLButtonElement | undefined {
 		.find((button) => button.querySelector('.bpc-context-menu__label')?.textContent === label);
 }
 
-function createPopover(): { popover: ColumnPillPopover; store: SettingsStore } {
-	const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+function createPopover(): {
+	popover: ColumnPillPopover;
+	store: SettingsStore;
+	saveSettings: ReturnType<typeof vi.fn>;
+} {
+	const saveSettings = vi.fn(async () => undefined);
+	const store = new SettingsStore(SettingsStore.normalize(null), saveSettings);
 	const popover = new ColumnPillPopover({} as App, store);
 	stores.push(store);
 	popovers.push(popover);
-	return { popover, store };
+	return { popover, store, saveSettings };
 }
 
 function createRequest() {

@@ -35,6 +35,7 @@ export default class BasesPillColorsPlugin extends Plugin {
 				'pill-colors',
 				scope,
 				scope ? this.baseStores.propertyIdsForScope(scope, propertyIds) : undefined,
+				scope ? this.baseStores.rulePropertyIdsForScope(scope, propertyIds) : undefined,
 			).open(),
 			(request) => {
 				this.popover.close();

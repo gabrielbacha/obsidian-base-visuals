@@ -1,4 +1,11 @@
-import { normalizeHex, normalizePresetName, resolvePreset, resolveRuleColor } from './colors';
+import {
+	adjustForContrast,
+	normalizeHex,
+	normalizePresetName,
+	resolvePreset,
+	resolveRuleColor,
+	tintedHex,
+} from './colors';
 import {
 	ConditionalRule,
 	RULE_OPERATORS,
@@ -66,7 +73,12 @@ export function matchingRule(
 	);
 }
 
-export function ruleColorVariables(color: RuleColor, paletteId: PaletteTemplateId = 'default'): {
+export function ruleColorVariables(
+	color: RuleColor,
+	fontColor?: RuleColor,
+	paletteId: PaletteTemplateId = 'default',
+	backgroundOpacity?: number,
+): {
 	background: string;
 	hover: string;
 	foregroundLight: string;
@@ -75,7 +87,57 @@ export function ruleColorVariables(color: RuleColor, paletteId: PaletteTemplateI
 	const resolved = color.kind === 'preset'
 		? resolvePreset(color.name, paletteId)
 		: resolveRuleColor(color.hex);
-	return { background: resolved.background, hover: resolved.hoverBackground, foregroundLight: resolved.foregroundLight, foregroundDark: resolved.foregroundDark };
+	const text = fontColor
+		? fontColor.kind === 'preset'
+			? resolvePreset(fontColor.name, paletteId)
+			: resolveRuleColor(fontColor.hex)
+		: resolved;
+	const opacity = effectiveRuleBackgroundOpacity(color, backgroundOpacity);
+	const hoverOpacity = Math.min(100, opacity + 6);
+	const accent = color.kind === 'preset' && color.name === 'default'
+		? 'var(--text-muted)'
+		: resolved.dot;
+	const background = opacity === 0
+		? 'transparent'
+		: `color-mix(in srgb, ${accent} ${opacity}%, transparent)`;
+	const hover = hoverOpacity === 0
+		? 'transparent'
+		: `color-mix(in srgb, ${accent} ${hoverOpacity}%, transparent)`;
+	if (!fontColor && color.kind === 'preset' && color.name === 'default') {
+		return {
+			background,
+			hover,
+			foregroundLight: 'var(--text-muted)',
+			foregroundDark: 'var(--text-muted)',
+		};
+	}
+	if (fontColor?.kind === 'preset' && fontColor.name === 'default') {
+		return {
+			background,
+			hover,
+			foregroundLight: 'var(--text-muted)',
+			foregroundDark: 'var(--text-muted)',
+		};
+	}
+	const automaticForeground = !fontColor && /^#[0-9A-F]{6}$/i.test(resolved.dot)
+		? {
+			light: adjustForContrast(resolved.dot, tintedHex(resolved.dot, '#FFFFFF', hoverOpacity / 100)),
+			dark: adjustForContrast(resolved.dot, tintedHex(resolved.dot, '#1E1E1E', hoverOpacity / 100)),
+		}
+		: null;
+	return {
+		background,
+		hover,
+		foregroundLight: fontColor ? text.dot : automaticForeground?.light ?? text.foregroundLight,
+		foregroundDark: fontColor ? text.dot : automaticForeground?.dark ?? text.foregroundDark,
+	};
+}
+
+export function effectiveRuleBackgroundOpacity(color: RuleColor, stored?: number): number {
+	if (typeof stored === 'number' && Number.isFinite(stored)) {
+		return Math.max(0, Math.min(100, Math.round(stored)));
+	}
+	return color.kind === 'preset' && color.name === 'default' ? 3 : 12;
 }
 
 export function normalizeRuleColor(value: unknown): RuleColor | null {

@@ -315,6 +315,14 @@ export class SettingsStore {
 		const rule = this.settings.rules.find((candidate) => candidate.id === id);
 		if (!rule) return;
 		Object.assign(rule, patch);
+		if ('fontColor' in patch && patch.fontColor === undefined) delete rule.fontColor;
+		if ('backgroundOpacity' in patch) {
+			const opacity = normalizeRuleOpacity(patch.backgroundOpacity);
+			if (opacity === undefined) delete rule.backgroundOpacity;
+			else rule.backgroundOpacity = opacity;
+		}
+		if ('bold' in patch && !patch.bold) delete rule.bold;
+		if ('strikethrough' in patch && !patch.strikethrough) delete rule.strikethrough;
 		if (patch.propertyId) this.discoverProperty(patch.propertyId);
 		this.changed();
 	}
@@ -506,6 +514,8 @@ function normalizeRule(value: unknown, index: number): ConditionalRule | null {
 	if (value.target !== 'cell' && value.target !== 'row') return null;
 	const color = normalizeRuleColor(value.color);
 	if (!color) return null;
+	const fontColor = normalizeRuleColor(value.fontColor);
+	const backgroundOpacity = normalizeRuleOpacity(value.backgroundOpacity);
 	return {
 		id: typeof value.id === 'string' && value.id.trim() ? value.id : `migrated-rule-${index}`,
 		name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : 'Formatting rule',
@@ -516,7 +526,17 @@ function normalizeRule(value: unknown, index: number): ConditionalRule | null {
 		target: value.target,
 		scope: value.scope === 'view' ? 'view' : 'base',
 		color,
+		...(backgroundOpacity !== undefined ? { backgroundOpacity } : {}),
+		...(fontColor ? { fontColor } : {}),
+		...(value.bold === true ? { bold: true } : {}),
+		...(value.strikethrough === true ? { strikethrough: true } : {}),
 	};
+}
+
+function normalizeRuleOpacity(value: unknown): number | undefined {
+	return typeof value === 'number' && Number.isFinite(value)
+		? Math.max(0, Math.min(100, Math.round(value)))
+		: undefined;
 }
 
 function normalizeOverride(value: unknown): ColorOverride | undefined {

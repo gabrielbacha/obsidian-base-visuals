@@ -67,7 +67,7 @@ export function renderPropertyStrategyControls(
 		onSelect: (value) => {
 			store.setPropertyStyle(propertyId, value);
 			styleSubtext.textContent = ({ soft: 'Soft background', solid: 'Saturated background', outline: 'Colored border' })[value];
-			onChange?.();
+			commitExplicitChange(store, onChange);
 		},
 	});
 
@@ -108,7 +108,7 @@ export function renderPropertyStrategyControls(
 				? `Smart · ${strategyLabel(inferred)}`
 				: (STRATEGIES.find((s) => s.value === value)?.label ?? 'Smart');
 			paletteContainer.hidden = value !== 'single';
-			onChange?.();
+			commitExplicitChange(store, onChange);
 		},
 	});
 
@@ -135,7 +135,7 @@ export function renderPropertyStrategyControls(
 			for (const s of palette.querySelectorAll<HTMLButtonElement>('.bpc-property-strategy__swatch')) {
 				s.setAttribute('aria-pressed', String(s === swatch));
 			}
-			onChange?.();
+			commitExplicitChange(store, onChange);
 		});
 	}
 }
@@ -214,9 +214,17 @@ function renderDropdown<T extends string>(options: {
 		const check = button.createSpan('bpc-custom-dropdown__option-check');
 		if (isSelected) setIcon(check, 'check');
 
-		button.addEventListener('click', () => {
+		button.addEventListener('pointerdown', (event) => {
+			// The listbox lives at document level. Keep Obsidian's native menu
+			// dismissal handlers from consuming the activation before click.
+			event.stopPropagation();
+		});
+		button.addEventListener('click', (event) => {
+			event.preventDefault();
+			event.stopPropagation();
 			activeValue = item.value;
 			updateVisualSelection(item.value);
+			closeDropdown();
 			options.onSelect(item.value);
 		});
 
@@ -318,6 +326,13 @@ function renderDropdown<T extends string>(options: {
 		event.preventDefault();
 		buttons[next]?.focus();
 	});
+}
+
+function commitExplicitChange(store: SettingsStore, onChange?: () => void): void {
+	// Discovery writes remain debounced, but a deliberate UI choice must become
+	// authoritative before Obsidian can rerender the native Base view.
+	onChange?.();
+	void store.flush();
 }
 
 function positionDropdownMenu(menu: HTMLElement, trigger: HTMLElement, doc: Document): void {

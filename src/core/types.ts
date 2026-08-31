@@ -93,6 +93,13 @@ export interface ConditionalRule {
 	target: RuleTarget;
 	scope?: RuleScope;
 	color: RuleColor;
+	/** Background tint strength. Omission derives the color's default. */
+	backgroundOpacity?: number;
+	/** Optional explicit text accent. Omission keeps accessible automatic contrast. */
+	fontColor?: RuleColor;
+	/** Optional text emphasis applied after the color treatment. */
+	bold?: boolean;
+	strikethrough?: boolean;
 }
 
 export interface KnownProperty {

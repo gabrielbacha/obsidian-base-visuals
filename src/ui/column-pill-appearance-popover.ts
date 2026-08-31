@@ -50,6 +50,7 @@ export class ColumnPillAppearancePopover {
 			reset.addEventListener('click', () => {
 				store.resetProperty(propertyId);
 				onChange();
+				void store.flush();
 				this.close();
 			});
 		};

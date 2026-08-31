@@ -58,6 +58,9 @@ describe('SettingsStore', () => {
 					id: 'valid', name: 'Done', enabled: true,
 					propertyId: 'note.status', operator: 'equals', operand: 'done',
 					target: 'row', color: { kind: 'custom', hex: 'abc' },
+					fontColor: { kind: 'preset', name: 'red' },
+					bold: true, strikethrough: true,
+					backgroundOpacity: 120.6, rowHeight: 'collapsed',
 				},
 				{ propertyId: 'note.status', operator: 'mystery', target: 'cell', color: { kind: 'preset', name: 'red' } },
 			],
@@ -66,6 +69,11 @@ describe('SettingsStore', () => {
 	expect(settings.schemaVersion).toBe(8);
 		expect(settings.rules).toHaveLength(1);
 		expect(settings.rules[0]?.color).toEqual({ kind: 'custom', hex: '#AABBCC' });
+		expect(settings.rules[0]?.fontColor).toEqual({ kind: 'preset', name: 'pomegranate' });
+		expect(settings.rules[0]).toMatchObject({
+			bold: true, strikethrough: true, backgroundOpacity: 100,
+		});
+		expect(settings.rules[0]).not.toHaveProperty('rowHeight');
 		expect(settings.knownProperties['note.status']).toEqual({ propertyId: 'note.status' });
 	});
 

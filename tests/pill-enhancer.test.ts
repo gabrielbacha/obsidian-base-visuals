@@ -387,14 +387,28 @@ describe('PillEnhancer', () => {
 		const row = harness.root.querySelector<HTMLElement>('.bases-tr');
 		const cell = harness.root.querySelector<HTMLElement>('.bases-td');
 		const rowRule = harness.store.addRule('note.status');
-		harness.store.updateRule(rowRule.id, { operand: 'done', target: 'row', color: { kind: 'preset', name: 'green-sea' } });
+		harness.store.updateRule(rowRule.id, {
+			operand: 'done', target: 'row', color: { kind: 'preset', name: 'green-sea' },
+			backgroundOpacity: 35,
+		});
 		const cellRule = harness.store.addRule('note.status');
-		harness.store.updateRule(cellRule.id, { operand: 'done', target: 'cell', color: { kind: 'preset', name: 'pomegranate' } });
+		harness.store.updateRule(cellRule.id, {
+			operand: 'done', target: 'cell', color: { kind: 'preset', name: 'pomegranate' },
+			bold: true, strikethrough: true,
+		});
 
 		expect(row?.dataset.bpcRuleId).toBe(rowRule.id);
+		expect(row?.style.getPropertyValue('--bpc-rule-bg')).toContain('35%');
 		expect(cell?.dataset.bpcRuleId).toBe(cellRule.id);
+		expect(cell?.classList.contains('bpc-rule-bold')).toBe(true);
+		expect(cell?.classList.contains('bpc-rule-strikethrough')).toBe(true);
 		harness.store.updateRule(cellRule.id, { enabled: false });
 		expect(cell?.classList.contains('bpc-rule-cell')).toBe(false);
+		expect(cell?.classList.contains('bpc-rule-bold')).toBe(false);
+		expect(cell?.classList.contains('bpc-rule-strikethrough')).toBe(false);
+		harness.store.updateRule(rowRule.id, { target: 'cell' });
+		expect(row?.classList.contains('bpc-rule-row')).toBe(false);
+		expect(cell?.classList.contains('bpc-rule-cell')).toBe(true);
 	});
 
 	it('handles checkbox and live input values', () => {

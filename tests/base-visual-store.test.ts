@@ -30,10 +30,11 @@ describe('BaseVisualStoreRepository', () => {
 			override: { kind: 'preset', name: 'green-sea' },
 		};
 		legacy.knownProperties['note.status'] = { propertyId: 'note.status' };
-		legacy.rules.push({
+		(legacy.rules as unknown as Array<Record<string, unknown>>).push({
 			id: 'legacy', name: 'Legacy', enabled: true, propertyId: 'note.status',
-			operator: 'equals', operand: 'Done', target: 'cell', scope: 'base',
-			color: { kind: 'preset', name: 'green-sea' },
+			operator: 'equals', operand: 'Done', target: 'row', scope: 'base',
+			color: { kind: 'preset', name: 'green-sea' }, backgroundOpacity: 38,
+			rowHeight: 'collapsed',
 		});
 		legacy.propertyStrategies['note.status'] = { mode: 'status' };
 		const global = new SettingsStore(legacy, async () => undefined);
@@ -46,9 +47,15 @@ describe('BaseVisualStoreRepository', () => {
 		store.addRule('note.status');
 		await store.flush();
 
-		const base = values.get(BASE_VISUALS_KEY) as { rules: Array<{ id: string }>; schemaVersion: number; propertyStrategies: unknown };
+		const base = values.get(BASE_VISUALS_KEY) as {
+			rules: Array<{ id: string; backgroundOpacity?: number }>;
+			schemaVersion: number;
+			propertyStrategies: unknown;
+		};
 		const view = values.get(VIEW_VISUALS_KEY) as { rules: Array<{ scope: string }> };
 		expect(base.rules.map((rule) => rule.id)).toEqual(['legacy']);
+		expect(base.rules[0]).toMatchObject({ backgroundOpacity: 38 });
+		expect(base.rules[0]).not.toHaveProperty('rowHeight');
 		expect(base.schemaVersion).toBe(6);
 		expect(base.propertyStrategies).toEqual({ 'note.status': { mode: 'status' } });
 		expect(view.rules).toHaveLength(1);
@@ -77,6 +84,42 @@ describe('BaseVisualStoreRepository', () => {
 		expect(repository.getBaseColumnAppearances(scope)).toEqual({
 			'note.priority': { tone: 'muted', bold: true },
 		});
+		root.remove();
+	});
+
+	it('keeps the scoped settings store authoritative when Obsidian replaces the native view config', async () => {
+		const root = document.body.createDiv();
+		const scope = root.createDiv('bases-view');
+		const firstValues = new Map<string, unknown>();
+		const secondValues = new Map<string, unknown>();
+		const createConfig = (values: Map<string, unknown>) => ({
+			get: (key: string) => values.get(key),
+			set: vi.fn((key: string, value: unknown) => values.set(key, value)),
+		});
+		const nativeTable: {
+			type: string;
+			containerEl: HTMLElement;
+			config: ReturnType<typeof createConfig>;
+		} = { type: 'table', containerEl: scope, config: createConfig(firstValues) };
+		const leaf = { view: { containerEl: root, nativeTable } } as unknown as WorkspaceLeaf;
+		const app = {
+			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
+			vault: { getFileByPath: () => null },
+		} as unknown as App;
+		const global = new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined);
+		const repository = new BaseVisualStoreRepository(app, global);
+		const store = repository.forScope(scope);
+
+		store.setPropertyStyle('note.status', 'solid');
+		await store.flush();
+		nativeTable.config = createConfig(secondValues);
+		const rebound = repository.forScope(scope);
+
+		expect(rebound).toBe(store);
+		expect(rebound.getPropertyStyle('note.status')).toBe('solid');
+		expect((secondValues.get(BASE_VISUALS_KEY) as { propertyStrategies: unknown }).propertyStrategies)
+			.toEqual({ 'note.status': { mode: 'smart', style: 'solid' } });
+		await repository.dispose();
 		root.remove();
 	});
 
@@ -139,8 +182,10 @@ describe('BaseVisualStoreRepository', () => {
 		const store = repository.forScope(scope);
 
 		const propertyIds = await repository.propertyIdsForScope(scope, ['note.Status']);
+		const rulePropertyIds = await repository.rulePropertyIdsForScope(scope, ['note.Status']);
 		await Promise.resolve();
 		expect(propertyIds).toEqual(new Set(['note.status_todo']));
+		expect(rulePropertyIds).toEqual(new Set(['note.status_todo', 'note.other']));
 		expect(repository.resolvePropertyId(scope, 'note.Status')).toBe('note.status_todo');
 		expect(store.get({ propertyId: 'note.status_todo', value: 'Done' })?.override)
 			.toEqual({ kind: 'preset', name: 'green-sea' });

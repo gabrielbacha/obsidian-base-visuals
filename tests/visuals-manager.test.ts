@@ -18,8 +18,10 @@ describe('Bases visuals manager', () => {
 			undefined,
 			undefined,
 			Promise.resolve(new Set(['note.status'])),
+			Promise.resolve(new Set(['note.status', 'file.name'])),
 		);
 		modal.open();
+		await Promise.resolve();
 		await Promise.resolve();
 
 		const active = document.querySelector<HTMLElement>('.bpc-visuals-tab.is-active');
@@ -34,6 +36,13 @@ describe('Bases visuals manager', () => {
 		expect(templates[1]?.querySelectorAll('.bpc-palette-strip__color')).toHaveLength(10);
 		templates[1]?.click();
 		expect(store.getPaletteTemplateId()).toBe('sunset-spectrum');
+
+		document.querySelectorAll<HTMLButtonElement>('.bpc-visuals-tab')[1]?.click();
+		document.querySelector<HTMLButtonElement>('.bpc-rule-manager__toolbar .mod-cta')?.click();
+		const properties = [...document.querySelectorAll<HTMLOptionElement>('select[aria-label="Property"] option')]
+			.map((option) => option.value);
+		expect(properties).toEqual(['note.status', 'file.name']);
+		expect(properties).not.toContain('note.other');
 
 		modal.close();
 		store.dispose();

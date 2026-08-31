@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateRule, matchingRule, normalizeRuleColor } from '../src/core/rules';
+import { evaluateRule, matchingRule, normalizeRuleColor, ruleColorVariables } from '../src/core/rules';
 import type { ConditionalRule } from '../src/core/types';
 
 describe('conditional formatting rules', () => {
@@ -36,6 +36,35 @@ describe('conditional formatting rules', () => {
 		expect(normalizeRuleColor({ kind: 'custom', hex: 'abc' })).toEqual({ kind: 'custom', hex: '#AABBCC' });
 		expect(normalizeRuleColor({ kind: 'preset', name: 'green' })).toEqual({ kind: 'preset', name: 'green-sea' });
 		expect(normalizeRuleColor({ kind: 'preset', name: 'teal' })).toBeNull();
+	});
+
+	it('uses automatic contrast by default and preserves an explicit font color exactly', () => {
+		const background = { kind: 'preset', name: 'sun-flower' } as const;
+		const automatic = ruleColorVariables(background);
+		const explicit = ruleColorVariables(background, { kind: 'custom', hex: '#FFFFFF' });
+		expect(explicit.background).toBe(automatic.background);
+		expect(explicit.hover).toBe(automatic.hover);
+		expect(explicit.foregroundLight).toBe('#FFFFFF');
+		expect(explicit.foregroundDark).toBe('#FFFFFF');
+	});
+
+	it('keeps the permanent Neutral treatment muted', () => {
+		const neutral = ruleColorVariables({ kind: 'preset', name: 'default' });
+		expect(neutral.background).toBe('color-mix(in srgb, var(--text-muted) 3%, transparent)');
+		expect(neutral.hover).toBe('color-mix(in srgb, var(--text-muted) 9%, transparent)');
+		expect(neutral.foregroundLight).toBe('var(--text-muted)');
+		expect(neutral.foregroundDark).toBe('var(--text-muted)');
+	});
+
+	it('honors exact background opacity and caps the stronger hover tint', () => {
+		const color = { kind: 'preset', name: 'peter-river' } as const;
+		const transparent = ruleColorVariables(color, undefined, 'default', 0);
+		expect(transparent.background).toBe('transparent');
+		expect(transparent.hover).toContain('6%');
+		const solid = ruleColorVariables(color, { kind: 'custom', hex: '#FFFFFF' }, 'default', 100);
+		expect(solid.background).toContain('100%');
+		expect(solid.hover).toContain('100%');
+		expect(solid.foregroundLight).toBe('#FFFFFF');
 	});
 });
 
