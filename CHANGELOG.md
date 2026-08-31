@@ -2,6 +2,13 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.13.1 — 2026-08-31
+
+- Rework conditional-formatting treatments so long actions no longer overlap or clip.
+- Give Override pill colors a dedicated full-width setting row with supporting text.
+- Truncate long color summaries cleanly and remove intrusive field-group tooltips.
+- Allocate more room to formatting controls while retaining the responsive stacked layout.
+
 ## 0.13.0 — 2026-08-31
 
 - Make new conditional-formatting rules visually empty until a treatment is selected.

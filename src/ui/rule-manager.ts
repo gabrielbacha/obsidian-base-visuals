@@ -41,6 +41,7 @@ export class RuleManagerView {
 	private popover: RuleColorPopover | null = null;
 	private readonly valueSuggests = new Set<RuleValueSuggest>();
 	private draggedRuleId: string | null = null;
+	private fieldGroupSequence = 0;
 
 	constructor(
 		private readonly app: App,
@@ -70,6 +71,7 @@ export class RuleManagerView {
 	private render(): void {
 		if (!this.container) return;
 		this.closeValueSuggests();
+		this.fieldGroupSequence = 0;
 		this.container.empty();
 		this.container.addClass('bpc-rule-manager');
 		this.container.createEl('p', {
@@ -298,6 +300,11 @@ export class RuleManagerView {
 			this.store.updateRule(rule.id, { strikethrough: !rule.strikethrough }));
 		const override = this.styleToggle(styles, 'paint-bucket', 'Override pill colors', rule.overridePillColors === true, () =>
 			this.store.updateRule(rule.id, { overridePillColors: !rule.overridePillColors }));
+		override.addClass('bpc-rule-style-toggle--pills');
+		override.createSpan({
+			text: 'Replace individual pill backgrounds',
+			cls: 'bpc-rule-style-toggle__detail',
+		});
 		override.disabled = !rule.color;
 		override.title = rule.color ? 'Apply the rule background to pills' : 'Choose a background first';
 	}
@@ -406,8 +413,10 @@ export class RuleManagerView {
 	private fieldGroup(container: HTMLElement, label: string, detail: string): HTMLElement {
 		const group = container.createDiv('bpc-rule-field-group');
 		group.setAttribute('role', 'group');
-		group.setAttribute('aria-label', `${label}: ${detail}`);
+		const labelId = `bpc-rule-field-group-${this.fieldGroupSequence += 1}`;
+		group.setAttribute('aria-labelledby', labelId);
 		const legend = group.createDiv('bpc-rule-field-group__legend');
+		legend.id = labelId;
 		legend.createEl('strong', { text: label });
 		legend.createSpan({ text: detail });
 		return group;

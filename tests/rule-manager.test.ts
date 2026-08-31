@@ -29,11 +29,16 @@ describe('RuleManagerView', () => {
 		expect(groups.map((group) => group.querySelector('.bpc-rule-field-group__legend')?.textContent))
 			.toEqual(['WhenMatch a value', 'ThenApply this format']);
 		expect(groups.map((group) => group.getAttribute('role'))).toEqual(['group', 'group']);
-		expect(groups.map((group) => group.getAttribute('aria-label')))
-			.toEqual(['When: Match a value', 'Then: Apply this format']);
+		expect(groups.every((group) => group.getAttribute('aria-label') === null)).toBe(true);
+		expect(groups.every((group) => {
+			const labelledBy = group.getAttribute('aria-labelledby');
+			return Boolean(labelledBy && group.querySelector(`#${labelledBy}`));
+		})).toBe(true);
 		expect(container.querySelectorAll('.bpc-rule-field')).toHaveLength(8);
 		expect(container.querySelectorAll('.bpc-rule-color')).toHaveLength(2);
 		expect(container.querySelector<HTMLButtonElement>('.bpc-rule-color:not(.bpc-rule-font-color)')?.textContent).toContain('None');
+		expect(container.querySelector('.bpc-rule-style-toggle--pills .bpc-rule-style-toggle__detail')?.textContent)
+			.toBe('Replace individual pill backgrounds');
 		expect(store.settings.rules[0]?.color).toBeUndefined();
 		expect(container.querySelector<HTMLInputElement>('.bpc-rule-manager__toolbar input')?.placeholder).toBe('Search rules…');
 	});

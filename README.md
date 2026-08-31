@@ -15,6 +15,7 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 - Ordered conditional-formatting rules for text, lists, checkboxes, inputs, and numbers
 - Drag, button, and keyboard ordering for conditional-formatting rules
 - Responsive, Base-scoped conditional-formatting cards with value autocomplete
+- Balanced treatment controls with a dedicated pill-override row and clean truncation for long color summaries
 - Independent background and exact text colors, including a permanent light Muted treatment
 - Optional bold and strikethrough conditional formatting
 - Per-rule background tint strength from 0–100%, with a slightly stronger hover state
