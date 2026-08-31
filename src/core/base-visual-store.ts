@@ -35,10 +35,28 @@ interface ViewVisualData {
 	rules: ConditionalRule[];
 }
 
+type BaseGroupKey = string | NativeViewConfig;
+
+interface StoreRecord {
+	store: SettingsStore;
+	scope: HTMLElement;
+	config: NativeViewConfig;
+	group: BaseStoreGroup;
+	baseSnapshot: BaseVisualData;
+}
+
+interface BaseStoreGroup {
+	base: BaseVisualData;
+	records: Set<StoreRecord>;
+	pendingSync: { scope: HTMLElement; data: BaseVisualData } | null;
+	syncPromise: Promise<void> | null;
+}
+
 export class BaseVisualStoreRepository {
 	private readonly stores = new WeakMap<NativeViewConfig, SettingsStore>();
 	private readonly liveStores = new Set<SettingsStore>();
-	private readonly scopeByStore = new WeakMap<SettingsStore, HTMLElement>();
+	private readonly recordsByStore = new Map<SettingsStore, StoreRecord>();
+	private readonly groups = new Map<BaseGroupKey, BaseStoreGroup>();
 	private readonly unsubscribers = new Map<SettingsStore, () => void>();
 	private readonly propertyContexts = new WeakMap<HTMLElement, Promise<BasePropertyContext>>();
 	private readonly canonicalProperties = new WeakMap<HTMLElement, Map<string, string>>();
@@ -55,24 +73,36 @@ export class BaseVisualStoreRepository {
 		if (existing) return existing;
 
 		const storedBase = normalizeBaseData(config.get(BASE_VISUALS_KEY));
-		const base = storedBase ?? migrateGlobalVisuals(this.globalStore.settings);
+		const fallback = storedBase ?? migrateGlobalVisuals(this.globalStore.settings);
+		const group = this.getOrCreateGroup(scope, config, fallback);
+		const base = group.base;
 		const view = normalizeViewData(config.get(VIEW_VISUALS_KEY));
 		const settings = scopedSettings(this.globalStore.settings, base, view);
+		let record!: StoreRecord;
 		const store = new SettingsStore(settings, async (next) => {
 			this.globalStore.setManagerSearch(next.managerSearch);
 			this.globalStore.setRuleManagerSearch(next.ruleManagerSearch);
-			const nextBase = baseDataFromSettings(next, config.get(BASE_VISUALS_KEY));
+			const localBase = baseDataFromSettings(next, record.baseSnapshot);
+			const nextBase = mergeBaseChanges(record.baseSnapshot, localBase, group.base);
 			const nextView = viewDataFromSettings(next);
-			config.set(BASE_VISUALS_KEY, nextBase);
 			config.set(VIEW_VISUALS_KEY, nextView.rules.length ? nextView : null);
-			await this.syncBaseViews(scope, nextBase);
+			this.publishBase(group, nextBase, record);
+			await this.queueBaseSync(group, scope, nextBase);
 		});
+		record = {
+			store, scope, config, group,
+			baseSnapshot: structuredClone(base),
+		};
 		this.stores.set(config, store);
 		this.liveStores.add(store);
-		this.scopeByStore.set(store, scope);
+		this.recordsByStore.set(store, record);
+		group.records.add(record);
+		if (!deepEqual(storedBase, base)) {
+			config.set(BASE_VISUALS_KEY, structuredClone(base));
+		}
 		this.unsubscribers.set(store, store.subscribe(() => this.globalStore.notify()));
 		if (!storedBase) {
-			void this.hydrateOrMigrate(scope, config, store, base)
+			void this.hydrateOrMigrate(scope, record, fallback)
 				.then(() => this.initializePropertyIdentity(scope, config, store));
 		} else void this.initializePropertyIdentity(scope, config, store);
 		return store;
@@ -108,7 +138,10 @@ export class BaseVisualStoreRepository {
 
 	getBaseColumnAppearances(scope: HTMLElement): Record<string, unknown> {
 		const config = getNativeViewConfig(this.app, scope);
-		const base = normalizeBaseData(config?.get(BASE_VISUALS_KEY));
+		const store = config ? this.stores.get(config) : undefined;
+		const base = store
+			? this.recordsByStore.get(store)?.group.base
+			: normalizeBaseData(config?.get(BASE_VISUALS_KEY));
 		return { ...(base?.columnAppearances ?? {}) };
 	}
 
@@ -116,14 +149,15 @@ export class BaseVisualStoreRepository {
 		const config = getNativeViewConfig(this.app, scope);
 		if (!config) return false;
 		const store = this.forScope(scope);
-		const base = baseDataFromSettings(store.settings, config.get(BASE_VISUALS_KEY));
+		const record = this.recordsByStore.get(store);
+		if (!record) return false;
+		const base = structuredClone(record.group.base);
 		const appearances = { ...(base.columnAppearances ?? {}) };
 		if (value === null) delete appearances[propertyId];
 		else appearances[propertyId] = value;
 		base.columnAppearances = appearances;
-		config.set(BASE_VISUALS_KEY, base);
-		void this.syncBaseViews(scope, base);
-		this.globalStore.notify();
+		this.publishBase(record.group, base);
+		void this.queueBaseSync(record.group, scope, base);
 		return true;
 	}
 
@@ -131,36 +165,90 @@ export class BaseVisualStoreRepository {
 		for (const unsubscribe of this.unsubscribers.values()) unsubscribe();
 		this.unsubscribers.clear();
 		await Promise.all([...this.liveStores].map((store) => store.flush()));
+		await Promise.all([...this.groups.values()].flatMap((group) =>
+			group.syncPromise ? [group.syncPromise] : []));
 		this.liveStores.clear();
+		this.recordsByStore.clear();
+		this.groups.clear();
 	}
 
 	private async hydrateOrMigrate(
 		scope: HTMLElement,
-		config: NativeViewConfig,
-		store: SettingsStore,
+		record: StoreRecord,
 		fallback: BaseVisualData,
 	): Promise<void> {
 		const sibling = await this.readSiblingBaseData(scope);
-		if (sibling) {
-			const viewRules = store.settings.rules.filter((rule) => rule.scope === 'view');
-			store.settings.options = {
-				...store.settings.options,
-				...structuredClone(sibling.options),
-			};
-			store.settings.paletteTemplateId = sibling.paletteTemplateId;
-			store.settings.knownProperties = {
-				...store.settings.knownProperties,
-				...structuredClone(sibling.knownProperties),
-			};
-			store.settings.rules = [...structuredClone(sibling.rules), ...viewRules];
-			store.settings.propertyStrategies = structuredClone(sibling.propertyStrategies);
-			config.set(BASE_VISUALS_KEY, sibling);
-			this.globalStore.notify();
-			return;
+		const group = record.group;
+		const hydrated = sibling
+			? mergeBaseChanges(fallback, group.base, sibling)
+			: group.base;
+		this.publishBase(group, hydrated);
+		await this.queueBaseSync(group, scope, hydrated);
+	}
+
+	private getOrCreateGroup(
+		scope: HTMLElement,
+		config: NativeViewConfig,
+		initial: BaseVisualData,
+	): BaseStoreGroup {
+		const file = getNativeBaseFile(this.app, scope);
+		const key: BaseGroupKey = file?.path ? `file:${file.path}` : config;
+		const existing = this.groups.get(key);
+		if (existing) return existing;
+		const group: BaseStoreGroup = {
+			base: structuredClone(initial),
+			records: new Set(),
+			pendingSync: null,
+			syncPromise: null,
+		};
+		this.groups.set(key, group);
+		return group;
+	}
+
+	private publishBase(
+		group: BaseStoreGroup,
+		data: BaseVisualData,
+		source?: StoreRecord,
+	): void {
+		group.base = structuredClone(data);
+		for (const record of group.records) {
+			if (record === source) {
+				record.baseSnapshot = structuredClone(data);
+				applyBaseToSettings(record.store.settings, data);
+				record.config.set(BASE_VISUALS_KEY, structuredClone(data));
+				record.store.notify();
+				continue;
+			}
+			const local = baseDataFromSettings(record.store.settings, record.baseSnapshot);
+			const projected = mergeBaseChanges(record.baseSnapshot, local, data);
+			record.baseSnapshot = structuredClone(data);
+			applyBaseToSettings(record.store.settings, projected);
+			record.config.set(BASE_VISUALS_KEY, structuredClone(data));
+			record.store.notify();
 		}
-		const migrated = baseDataFromSettings(store.settings, fallback);
-		config.set(BASE_VISUALS_KEY, migrated);
-		await this.syncBaseViews(scope, migrated);
+		this.globalStore.notify();
+	}
+
+	private queueBaseSync(
+		group: BaseStoreGroup,
+		scope: HTMLElement,
+		data: BaseVisualData,
+	): Promise<void> {
+		group.pendingSync = { scope, data: structuredClone(data) };
+		if (!group.syncPromise) {
+			group.syncPromise = this.drainBaseSync(group).finally(() => {
+				group.syncPromise = null;
+			});
+		}
+		return group.syncPromise;
+	}
+
+	private async drainBaseSync(group: BaseStoreGroup): Promise<void> {
+		while (group.pendingSync) {
+			const pending = group.pendingSync;
+			group.pendingSync = null;
+			await this.syncBaseViews(pending.scope, pending.data);
+		}
 	}
 
 	private async initializePropertyIdentity(
@@ -188,11 +276,16 @@ export class BaseVisualStoreRepository {
 				config.set(COLUMN_APPEARANCE_CONFIG_KEY, canonicalAppearances);
 			}
 		}
-		if (current && baseChanged) config.set(BASE_VISUALS_KEY, current);
 		const storeChanged = store.rekeyProperties(resolve);
-		if (current && baseChanged && !storeChanged) {
-			await this.syncBaseViews(scope, current);
+		if (current && baseChanged) {
+			const record = this.recordsByStore.get(store);
+			if (record) {
+				const merged = mergeBaseChanges(record.baseSnapshot, current, record.group.base);
+				this.publishBase(record.group, merged);
+				await this.queueBaseSync(record.group, scope, merged);
+			} else config.set(BASE_VISUALS_KEY, current);
 		}
+		if (storeChanged) await store.flush();
 		this.globalStore.notify();
 	}
 
@@ -285,6 +378,99 @@ function baseDataFromSettings(settings: BasesPillColorsSettings, current: unknow
 		propertyStrategies: structuredClone(settings.propertyStrategies),
 		...(previous?.columnAppearances ? { columnAppearances: structuredClone(previous.columnAppearances) } : {}),
 	};
+}
+
+function mergeBaseChanges(
+	previous: BaseVisualData,
+	next: BaseVisualData,
+	current: BaseVisualData,
+): BaseVisualData {
+	const merged: BaseVisualData = {
+		...structuredClone(current),
+		paletteTemplateId: deepEqual(previous.paletteTemplateId, next.paletteTemplateId)
+			? current.paletteTemplateId
+			: next.paletteTemplateId,
+		options: mergeRecordChanges(previous.options, next.options, current.options),
+		knownProperties: mergeRecordChanges(
+			previous.knownProperties,
+			next.knownProperties,
+			current.knownProperties,
+		),
+		rules: mergeRuleChanges(previous.rules, next.rules, current.rules),
+		propertyStrategies: mergeRecordChanges(
+			previous.propertyStrategies,
+			next.propertyStrategies,
+			current.propertyStrategies,
+		),
+	};
+	const appearances = mergeRecordChanges(
+		previous.columnAppearances ?? {},
+		next.columnAppearances ?? {},
+		current.columnAppearances ?? {},
+	);
+	if (Object.keys(appearances).length) merged.columnAppearances = appearances;
+	else delete merged.columnAppearances;
+	return merged;
+}
+
+function mergeRecordChanges<T>(
+	previous: Record<string, T>,
+	next: Record<string, T>,
+	current: Record<string, T>,
+): Record<string, T> {
+	const merged = structuredClone(current);
+	for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+		if (deepEqual(previous[key], next[key])) continue;
+		if (key in next) merged[key] = structuredClone(next[key] as T);
+		else delete merged[key];
+	}
+	return merged;
+}
+
+function mergeRuleChanges(
+	previous: ConditionalRule[],
+	next: ConditionalRule[],
+	current: ConditionalRule[],
+): ConditionalRule[] {
+	if (deepEqual(previous, next)) return structuredClone(current);
+	const previousById = new Map(previous.map((rule) => [rule.id, rule]));
+	const nextById = new Map(next.map((rule) => [rule.id, rule]));
+	const mergedById = new Map(current.map((rule) => [rule.id, structuredClone(rule)]));
+	for (const id of previousById.keys()) {
+		if (!nextById.has(id)) mergedById.delete(id);
+	}
+	for (const rule of next) {
+		if (!deepEqual(previousById.get(rule.id), rule)) {
+			mergedById.set(rule.id, structuredClone(rule));
+		}
+	}
+	const orderChanged = !deepEqual(
+		previous.map((rule) => rule.id),
+		next.map((rule) => rule.id),
+	);
+	const order = orderChanged
+		? [...next.map((rule) => rule.id), ...current.map((rule) => rule.id)]
+		: current.map((rule) => rule.id);
+	return [...new Set(order)].flatMap((id) => {
+		const rule = mergedById.get(id);
+		return rule ? [rule] : [];
+	});
+}
+
+function applyBaseToSettings(
+	settings: BasesPillColorsSettings,
+	base: BaseVisualData,
+): void {
+	const viewRules = settings.rules.filter((rule) => rule.scope === 'view');
+	settings.paletteTemplateId = base.paletteTemplateId;
+	settings.options = structuredClone(base.options);
+	settings.knownProperties = structuredClone(base.knownProperties);
+	settings.propertyStrategies = structuredClone(base.propertyStrategies);
+	settings.rules = [...structuredClone(base.rules), ...viewRules];
+}
+
+function deepEqual(first: unknown, second: unknown): boolean {
+	return JSON.stringify(first) === JSON.stringify(second);
 }
 
 function viewDataFromSettings(settings: BasesPillColorsSettings): ViewVisualData {

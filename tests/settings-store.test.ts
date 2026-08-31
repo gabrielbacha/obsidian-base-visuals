@@ -83,6 +83,20 @@ describe('SettingsStore', () => {
 		store.dispose();
 	});
 
+	it('preserves non-default pill styles attached to Smart during normalization', () => {
+		const settings = SettingsStore.normalize({
+			propertyStrategies: {
+				'note.priority_todo': { mode: 'smart', style: 'solid' },
+				'note.workstream_todo': { mode: 'smart', style: 'outline' },
+				'note.default': { mode: 'smart' },
+			},
+		});
+		expect(settings.propertyStrategies).toEqual({
+			'note.priority_todo': { mode: 'smart', style: 'solid' },
+			'note.workstream_todo': { mode: 'smart', style: 'outline' },
+		});
+	});
+
 	it('normalizes and persists a selected palette template', () => {
 		const save = vi.fn(async () => undefined);
 		const store = new SettingsStore(SettingsStore.normalize({ paletteTemplateId: 'ocean-depth' }), save);

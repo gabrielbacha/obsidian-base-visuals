@@ -151,4 +151,156 @@ describe('BaseVisualStoreRepository', () => {
 		await repository.dispose();
 		root.remove();
 	});
+
+	it('merges rapid pill-style edits from separate live views of the same Base', async () => {
+		const roots = [document.body.createDiv(), document.body.createDiv()];
+		const scopes = roots.map((root) => root.createDiv('bases-view'));
+		const initialBase = {
+			schemaVersion: 6,
+			paletteTemplateId: 'default',
+			options: {}, knownProperties: {}, rules: [], propertyStrategies: {},
+		};
+		const values = [new Map<string, unknown>(), new Map<string, unknown>()];
+		for (const map of values) map.set(BASE_VISUALS_KEY, structuredClone(initialBase));
+		const configs = values.map((map) => ({
+			get: (key: string) => map.get(key),
+			set: vi.fn((key: string, value: unknown) => map.set(key, value)),
+			getOrder: () => ['note.priority_todo', 'note.workstream_todo'],
+			getDisplayName: (propertyId: string) => propertyId === 'note.priority_todo'
+				? 'Priority'
+				: propertyId === 'note.workstream_todo' ? 'Workstream' : propertyId,
+		}));
+		const baseFile = { path: 'todos.base', extension: 'base' };
+		const tables = scopes.map((scope, index) => ({
+			type: 'table', containerEl: scope, config: configs[index],
+			path: 'todos.base',
+			data: { properties: ['note.priority_todo', 'note.workstream_todo'], data: [] },
+		}));
+		const leaves = roots.map((root, index) => ({
+			view: { containerEl: root, nativeTable: tables[index] },
+		})) as unknown as WorkspaceLeaf[];
+		let source = JSON.stringify({
+			properties: {
+				'note.priority_todo': { type: 'select', displayName: 'Priority' },
+				'note.workstream_todo': { type: 'select', displayName: 'Workstream' },
+			},
+			views: [
+				{ type: 'table', basesVisualsBase: structuredClone(initialBase) },
+				{ type: 'table', basesVisualsBase: structuredClone(initialBase) },
+			],
+		});
+		const process = vi.fn(async (
+			_file: unknown,
+			update: (current: string) => string,
+		) => { source = update(source); });
+		const app = {
+			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? leaves : [] },
+			vault: {
+				getFileByPath: (path: string) => path === 'todos.base' ? baseFile : null,
+				cachedRead: async () => source,
+				process,
+			},
+		} as unknown as App;
+		const global = new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined);
+		const repository = new BaseVisualStoreRepository(app, global);
+		const priorityView = repository.forScope(scopes[0]!);
+		const workstreamView = repository.forScope(scopes[1]!);
+
+		priorityView.setPropertyStyle('note.priority_todo', 'solid');
+		workstreamView.setPropertyStyle('note.workstream_todo', 'outline');
+		await Promise.all([priorityView.flush(), workstreamView.flush()]);
+
+		for (const store of [priorityView, workstreamView]) {
+			expect(store.getPropertyStyle('note.priority_todo')).toBe('solid');
+			expect(store.getPropertyStyle('note.workstream_todo')).toBe('outline');
+		}
+		for (const map of values) {
+			expect((map.get(BASE_VISUALS_KEY) as { propertyStrategies: unknown }).propertyStrategies)
+				.toEqual({
+					'note.priority_todo': { mode: 'smart', style: 'solid' },
+					'note.workstream_todo': { mode: 'smart', style: 'outline' },
+				});
+		}
+		const persisted = JSON.parse(source) as {
+			views: Array<{ basesVisualsBase: { propertyStrategies: unknown } }>;
+		};
+		for (const view of persisted.views) {
+			expect(view.basesVisualsBase.propertyStrategies).toEqual({
+				'note.priority_todo': { mode: 'smart', style: 'solid' },
+				'note.workstream_todo': { mode: 'smart', style: 'outline' },
+			});
+		}
+
+		await repository.dispose();
+		for (const root of roots) root.remove();
+	});
+
+	it('preserves a local style change made while sibling Base data is hydrating', async () => {
+		const root = document.body.createDiv();
+		const scope = root.createDiv('bases-view');
+		const values = new Map<string, unknown>();
+		const config = {
+			get: (key: string) => values.get(key),
+			set: (key: string, value: unknown) => values.set(key, value),
+			getOrder: () => ['note.priority_todo', 'note.workstream_todo'],
+		};
+		const baseFile = { path: 'hydrating.base', extension: 'base' };
+		const nativeTable = {
+			type: 'table', containerEl: scope, config, path: 'hydrating.base',
+			data: { properties: ['note.priority_todo', 'note.workstream_todo'], data: [] },
+		};
+		const leaf = { view: { containerEl: root, nativeTable } } as unknown as WorkspaceLeaf;
+		let resolveRead: ((source: string) => void) | undefined;
+		const read = new Promise<string>((resolve) => { resolveRead = resolve; });
+		let source = JSON.stringify({
+			properties: {
+				'note.priority_todo': { type: 'select', displayName: 'Priority' },
+				'note.workstream_todo': { type: 'select', displayName: 'Workstream' },
+			},
+			views: [{
+				type: 'table',
+				basesVisualsBase: {
+					schemaVersion: 6, paletteTemplateId: 'default', options: {},
+					knownProperties: {}, rules: [],
+					propertyStrategies: {
+						'note.workstream_todo': { mode: 'smart', style: 'outline' },
+					},
+				},
+			}],
+		});
+		const app = {
+			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
+			vault: {
+				getFileByPath: (path: string) => path === 'hydrating.base' ? baseFile : null,
+				cachedRead: () => read,
+				process: async (_file: unknown, update: (current: string) => string) => {
+					source = update(source);
+				},
+			},
+		} as unknown as App;
+		const global = new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined);
+		const repository = new BaseVisualStoreRepository(app, global);
+		const store = repository.forScope(scope);
+
+		store.setPropertyStyle('note.priority_todo', 'solid');
+		resolveRead?.(source);
+		await read;
+		await vi.waitFor(() => {
+			expect(store.getPropertyStyle('note.workstream_todo')).toBe('outline');
+		});
+		await store.flush();
+
+		expect(store.getPropertyStyle('note.priority_todo')).toBe('solid');
+		expect(store.getPropertyStyle('note.workstream_todo')).toBe('outline');
+		const persisted = JSON.parse(source) as {
+			views: Array<{ basesVisualsBase: { propertyStrategies: unknown } }>;
+		};
+		expect(persisted.views[0]?.basesVisualsBase.propertyStrategies).toEqual({
+			'note.workstream_todo': { mode: 'smart', style: 'outline' },
+			'note.priority_todo': { mode: 'smart', style: 'solid' },
+		});
+
+		await repository.dispose();
+		root.remove();
+	});
 });

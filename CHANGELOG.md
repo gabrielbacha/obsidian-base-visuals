@@ -2,6 +2,15 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.10.1 — 2026-08-31
+
+- Preserve Solid and Outline pill styles when they are attached to the default Smart color strategy.
+- Merge Base-wide visual changes from separate live views instead of letting stale complete records overwrite one another.
+- Propagate merged pill settings immediately across every open view of the same `.base` file.
+- Serialize `.base` synchronization so an older save cannot finish after and undo a newer change.
+- Preserve local edits made while sibling Base settings and canonical property identities are still hydrating.
+- Add regression coverage for simultaneous `note.priority_todo` and `note.workstream_todo` style changes.
+
 ## 0.10.0 — 2026-08-30
 
 - Add complete arrow, Home, and End keyboard behavior with roving focus to custom row-height, width-scope, and column-tone radio groups.

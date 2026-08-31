@@ -539,7 +539,9 @@ function normalizePropertyStrategies(value: unknown): Record<string, PropertyCol
 	for (const [rawPropertyId, candidate] of Object.entries(value)) {
 		const propertyId = rawPropertyId.trim();
 		const strategy = normalizePropertyStrategy(candidate);
-		if (propertyId && strategy && strategy.mode !== 'smart') strategies[propertyId] = strategy;
+		if (propertyId && strategy && (strategy.mode !== 'smart' || strategy.style)) {
+			strategies[propertyId] = strategy;
+		}
 	}
 	return strategies;
 }
