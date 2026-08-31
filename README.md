@@ -9,6 +9,7 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 - Eight switchable palette templates with full live previews: Default · Bases Visuals plus Sunset spectrum, Desert coast, Editorial, Ocean depth, Ember, Citrus grove, and Electric bloom. Changing a template updates automatic and preset colors per Base while preserving custom colors.
 - A centralized manager for every discovered pill color
 - Searchable settings manager grouped by property
+- Collapsible property categories whose state is remembered across Obsidian reloads
 - Long labels stay compact with ellipsis and a full-value tooltip
 - Native and embedded Base table support
 - Light and dark theme-aware colors

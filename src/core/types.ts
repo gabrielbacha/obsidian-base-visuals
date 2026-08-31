@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export const PALETTE_NAMES = [
 	'green-sea',
@@ -128,6 +128,7 @@ export interface BasesPillColorsSettings {
 	rules: ConditionalRule[];
 	knownProperties: Record<string, KnownProperty>;
 	propertyStrategies: Record<string, PropertyColorStrategy>;
+	collapsedPropertyGroups: string[];
 	ruleManagerSearch: string;
 	layoutPresets: LayoutPreset[];
 	lastColumnWidthPreset: number | null;
@@ -141,6 +142,7 @@ export const DEFAULT_SETTINGS: BasesPillColorsSettings = {
 	rules: [],
 	knownProperties: {},
 	propertyStrategies: {},
+	collapsedPropertyGroups: [],
 	ruleManagerSearch: '',
 	layoutPresets: [],
 	lastColumnWidthPreset: null,

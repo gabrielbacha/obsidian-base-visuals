@@ -73,6 +73,7 @@ export class SettingsStore {
 		for (const propertyId of Object.keys(propertyStrategies)) {
 			knownProperties[propertyId] = { propertyId };
 		}
+		const collapsedPropertyGroups = normalizePropertyIds(raw.collapsedPropertyGroups);
 
 		return {
 			schemaVersion: SCHEMA_VERSION,
@@ -83,6 +84,7 @@ export class SettingsStore {
 			rules,
 			knownProperties,
 			propertyStrategies,
+			collapsedPropertyGroups,
 			ruleManagerSearch:
 				typeof raw.ruleManagerSearch === 'string' ? raw.ruleManagerSearch : '',
 			layoutPresets,
@@ -266,11 +268,16 @@ export class SettingsStore {
 			if (propertyId !== rule.propertyId) changed = true;
 			return propertyId === rule.propertyId ? rule : { ...rule, propertyId };
 		});
+		const collapsedPropertyGroups = normalizePropertyIds(
+			this.settings.collapsedPropertyGroups.map((propertyId) => resolve(propertyId)),
+		);
+		if (!sameStrings(collapsedPropertyGroups, this.settings.collapsedPropertyGroups)) changed = true;
 		if (!changed) return false;
 		this.settings.options = options;
 		this.settings.knownProperties = knownProperties;
 		this.settings.propertyStrategies = propertyStrategies;
 		this.settings.rules = rules;
+		this.settings.collapsedPropertyGroups = collapsedPropertyGroups;
 		this.changed();
 		return true;
 	}
@@ -279,6 +286,26 @@ export class SettingsStore {
 		if (this.settings.managerSearch === search) return;
 		this.settings.managerSearch = search;
 		this.scheduleSave();
+	}
+
+	isPropertyGroupCollapsed(propertyId: string): boolean {
+		return this.settings.collapsedPropertyGroups.includes(propertyId);
+	}
+
+	setPropertyGroupCollapsed(propertyId: string, collapsed: boolean): void {
+		const normalized = propertyId.trim();
+		if (!normalized) return;
+		const next = new Set(this.settings.collapsedPropertyGroups);
+		if (collapsed) next.add(normalized);
+		else next.delete(normalized);
+		this.setCollapsedPropertyGroups([...next]);
+	}
+
+	setCollapsedPropertyGroups(propertyIds: readonly string[]): void {
+		const normalized = normalizePropertyIds(propertyIds);
+		if (sameStrings(normalized, this.settings.collapsedPropertyGroups)) return;
+		this.settings.collapsedPropertyGroups = normalized;
+		this.changed();
 	}
 
 	discoverProperty(propertyId: string): void {
@@ -501,6 +528,19 @@ function normalizeLayoutPresets(value: unknown): LayoutPreset[] {
 		});
 	}
 	return presets;
+}
+
+function normalizePropertyIds(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	return [...new Set(value.flatMap((candidate) => {
+		if (typeof candidate !== 'string') return [];
+		const propertyId = candidate.trim();
+		return propertyId ? [propertyId] : [];
+	}))].sort((first, second) => first.localeCompare(second));
+}
+
+function sameStrings(first: readonly string[], second: readonly string[]): boolean {
+	return first.length === second.length && first.every((value, index) => value === second[index]);
 }
 
 function isStoredRowHeight(value: unknown): value is LayoutPreset['rowHeight'] {

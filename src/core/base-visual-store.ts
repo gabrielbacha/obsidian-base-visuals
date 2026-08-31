@@ -93,6 +93,7 @@ export class BaseVisualStoreRepository {
 		const store = new SettingsStore(settings, async (next) => {
 			this.globalStore.setManagerSearch(next.managerSearch);
 			this.globalStore.setRuleManagerSearch(next.ruleManagerSearch);
+			this.globalStore.setCollapsedPropertyGroups(next.collapsedPropertyGroups);
 			const localBase = baseDataFromSettings(next, record.baseSnapshot);
 			const nextBase = mergeBaseChanges(record.baseSnapshot, localBase, group.base);
 			const nextView = viewDataFromSettings(next);
@@ -380,6 +381,7 @@ function scopedSettings(
 		propertyStrategies: structuredClone(base.propertyStrategies),
 		rules: [...structuredClone(base.rules), ...structuredClone(view.rules)],
 		managerSearch: global.managerSearch,
+		collapsedPropertyGroups: [...global.collapsedPropertyGroups],
 		ruleManagerSearch: global.ruleManagerSearch,
 		layoutPresets: [],
 		lastColumnWidthPreset: global.lastColumnWidthPreset,

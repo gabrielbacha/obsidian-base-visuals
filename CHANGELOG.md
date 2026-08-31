@@ -2,6 +2,12 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.13.2 — 2026-08-31
+
+- Add collapsible property categories to the Pill colors manager with clear chevrons and keyboard-accessible title controls.
+- Save collapsed categories by canonical property ID across manager and Obsidian reloads while temporarily expanding search results.
+- Prevent theme button hover and focus styles from turning disclosure headers into oversized gray controls.
+
 ## 0.13.1 — 2026-08-31
 
 - Rework conditional-formatting treatments so long actions no longer overlap or clip.

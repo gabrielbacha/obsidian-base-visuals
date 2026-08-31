@@ -12,6 +12,7 @@ export class PillColorManagerView {
 	private container: HTMLElement | null = null;
 	private unsubscribe: (() => void) | null = null;
 	private palettePickerCleanup: (() => void) | null = null;
+	private propertyGroupSequence = 0;
 
 	constructor(
 		private readonly app: App,
@@ -241,6 +242,7 @@ export class PillColorManagerView {
 	}
 
 	private renderGroups(container: HTMLElement, query: string): void {
+		this.propertyGroupSequence = 0;
 		const allOptions = this.store.allOptions().filter((option) =>
 			this.allowedPropertyIds?.has(option.propertyId) ?? true);
 		const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -271,14 +273,30 @@ export class PillColorManagerView {
 		}
 
 		for (const [propertyId, propertyOptions] of groupOptions(options)) {
-			this.renderGroup(container, propertyId, propertyOptions);
+			this.renderGroup(container, propertyId, propertyOptions, normalizedQuery.length > 0);
 		}
 	}
 
-	private renderGroup(container: HTMLElement, propertyId: string, options: StoredOption[]): void {
+	private renderGroup(
+		container: HTMLElement,
+		propertyId: string,
+		options: StoredOption[],
+		forceExpanded: boolean,
+	): void {
 		const section = container.createEl('section', { cls: 'bpc-property-group' });
 		const header = section.createDiv('bpc-property-group__header');
-		const titleGroup = header.createDiv('bpc-property-group__title-group');
+		const bodyId = `bpc-property-group-body-${this.propertyGroupSequence += 1}`;
+		const collapsed = !forceExpanded && this.store.isPropertyGroupCollapsed(propertyId);
+		const titleGroup = header.createEl('button', {
+			cls: 'bpc-property-group__toggle',
+			attr: {
+				type: 'button',
+				'aria-expanded': String(!collapsed),
+				'aria-controls': bodyId,
+			},
+		});
+		const disclosure = titleGroup.createSpan('bpc-property-group__chevron');
+		setIcon(disclosure, 'chevron-down');
 		const heading = titleGroup.createSpan({
 			text: this.propertyNameFor(propertyId),
 			cls: 'bpc-property-group__title',
@@ -305,9 +323,21 @@ export class PillColorManagerView {
 			).open();
 		});
 
-		renderPropertyStrategyControls(section, this.store, propertyId, this.propertyNameFor(propertyId));
+		const body = section.createDiv('bpc-property-group__body');
+		body.id = bodyId;
+		body.hidden = collapsed;
+		section.classList.toggle('is-collapsed', collapsed);
+		const setCollapsed = (next: boolean): void => {
+			section.classList.toggle('is-collapsed', next);
+			body.hidden = next;
+			titleGroup.setAttribute('aria-expanded', String(!next));
+			this.store.setPropertyGroupCollapsed(propertyId, next);
+		};
+		titleGroup.addEventListener('click', () => setCollapsed(!body.hidden));
 
-		const list = section.createDiv('bpc-option-list');
+		renderPropertyStrategyControls(body, this.store, propertyId, this.propertyNameFor(propertyId));
+
+		const list = body.createDiv('bpc-option-list');
 		for (const option of options) this.renderOption(list, option);
 	}
 

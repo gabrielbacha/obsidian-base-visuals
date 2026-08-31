@@ -20,7 +20,7 @@ describe('SettingsStore', () => {
 			},
 		});
 
-	expect(settings.schemaVersion).toBe(8);
+		expect(settings.schemaVersion).toBe(9);
 		expect(Object.values(settings.options)).toEqual([
 			{
 				propertyId: 'note.status',
@@ -49,6 +49,19 @@ describe('SettingsStore', () => {
 		store.dispose();
 	});
 
+	it('normalizes and persists collapsed property groups by canonical ID', () => {
+		const settings = SettingsStore.normalize({
+			collapsedPropertyGroups: [' note.priority ', '', 'note.priority', 42, 'note.status'],
+		});
+		expect(settings.collapsedPropertyGroups).toEqual(['note.priority', 'note.status']);
+		const store = new SettingsStore(settings, vi.fn(async () => undefined));
+		expect(store.isPropertyGroupCollapsed('note.priority')).toBe(true);
+		store.setPropertyGroupCollapsed('note.priority', false);
+		store.setPropertyGroupCollapsed('note.workstream', true);
+		expect(store.settings.collapsedPropertyGroups).toEqual(['note.status', 'note.workstream']);
+		store.dispose();
+	});
+
 	it('migrates schema one settings and rejects malformed rules', () => {
 		const settings = SettingsStore.normalize({
 			schemaVersion: 1,
@@ -66,7 +79,7 @@ describe('SettingsStore', () => {
 			],
 		});
 
-	expect(settings.schemaVersion).toBe(8);
+		expect(settings.schemaVersion).toBe(9);
 		expect(settings.rules).toHaveLength(1);
 		expect(settings.rules[0]?.color).toEqual({ kind: 'custom', hex: '#AABBCC' });
 		expect(settings.rules[0]?.fontColor).toEqual({ kind: 'preset', name: 'pomegranate' });
