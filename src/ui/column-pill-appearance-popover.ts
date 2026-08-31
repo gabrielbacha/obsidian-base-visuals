@@ -35,19 +35,41 @@ export class ColumnPillAppearancePopover {
 			close.addEventListener('click', () => this.close());
 
 			const controls = panel.createDiv('bpc-column-pill-appearance__controls');
-				renderPropertyStrategyControls(controls, store, propertyId, displayName, () => {
-					onChange();
-					render();
-					positionPopover(panel, doc, anchorRect);
-				});
+			renderPropertyStrategyControls(controls, store, propertyId, displayName, () => {
+				onChange();
+			});
+
+			const footer = panel.createDiv('bpc-column-appearance__footer');
+			const reset = footer.createEl('button', {
+				cls: 'clickable-icon',
+				attr: { type: 'button', 'aria-label': 'Reset pill appearance' },
+			});
+			const resetIcon = reset.createSpan();
+			setIcon(resetIcon, 'rotate-ccw');
+			reset.createSpan({ text: 'Reset appearance' });
+			reset.addEventListener('click', () => {
+				store.resetProperty(propertyId);
+				onChange();
+				this.close();
+			});
 		};
 		render();
 
 		const dismiss = (event: PointerEvent) => {
-			if (!panel.contains(event.target as Node) && !anchor.contains(event.target as Node)) this.close();
+			const target = event.target as Node | null;
+			if (
+				target &&
+				!panel.contains(target) &&
+				!anchor.contains(target) &&
+				!(target as Element).closest?.('.bpc-custom-dropdown__menu')
+			) {
+				this.close();
+			}
 		};
 		const changeNativeMenuItem = (event: PointerEvent) => {
-			const item = (event.target as Element | null)?.closest?.('.menu-item');
+			const target = event.target as Element | null;
+			if (target?.closest?.('.bpc-custom-dropdown__menu')) return;
+			const item = target?.closest?.('.menu-item');
 			if (item && item !== anchor && !panel.contains(item)) this.close();
 		};
 		const keydown = (event: KeyboardEvent) => {
@@ -60,6 +82,9 @@ export class ColumnPillAppearancePopover {
 		doc.addEventListener('pointerover', changeNativeMenuItem, true);
 		panel.addEventListener('keydown', keydown);
 		this.cleanup = () => {
+			for (const openMenu of doc.querySelectorAll<HTMLElement>('.bpc-custom-dropdown__menu')) {
+				openMenu.remove();
+			}
 			doc.removeEventListener('pointerdown', dismiss, true);
 			doc.removeEventListener('pointerover', changeNativeMenuItem, true);
 			panel.removeEventListener('keydown', keydown);
@@ -67,7 +92,7 @@ export class ColumnPillAppearancePopover {
 			panel.remove();
 		};
 		positionPopover(panel, doc, anchorRect);
-		queueMicrotask(() => panel.querySelector<HTMLSelectElement>('select')?.focus());
+		queueMicrotask(() => panel.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__trigger')?.focus());
 	}
 
 	close(): void {

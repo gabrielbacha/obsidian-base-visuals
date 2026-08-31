@@ -557,6 +557,42 @@ describe('PillEnhancer', () => {
 		expect(document.querySelector('.bpc-column-appearance-popover')).toBeNull();
 	});
 
+	it('bolds columns without tone overrides when some rows are empty', async () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const head = table.createDiv('bases-thead');
+			const header = head.createDiv('bases-td');
+			header.dataset.property = 'note.summary';
+			header.createDiv({ cls: 'bases-table-header-name', text: 'Summary' });
+
+			const body = table.createDiv('bases-tbody');
+			const row1 = body.createDiv('bases-tr');
+			const cell1 = row1.createDiv('bases-td');
+			cell1.dataset.property = 'note.summary';
+			const input1 = cell1.createEl('input', { cls: 'metadata-input metadata-input-text', attr: { placeholder: 'Empty' } });
+			input1.value = 'First note';
+
+			const row2 = body.createDiv('bases-tr');
+			const cell2 = row2.createDiv('bases-td');
+			cell2.dataset.property = 'note.summary';
+			const input2 = cell2.createEl('input', { cls: 'metadata-input metadata-input-text', attr: { placeholder: 'Empty' } });
+			input2.value = '';
+		}, undefined, undefined, {
+			columnAppearances: {
+				'note.summary': { tone: 'default', bold: true },
+			},
+		});
+
+		const cells = harness.root.querySelectorAll<HTMLElement>('.bases-tbody .bases-td');
+		expect(cells).toHaveLength(2);
+		expect(cells[0]?.classList.contains('bpc-column-emphasized')).toBe(true);
+		expect(cells[1]?.classList.contains('bpc-column-emphasized')).toBe(true);
+		expect(cells[0]?.classList.contains('bpc-column-tone-default')).toBe(true);
+		expect(cells[1]?.classList.contains('bpc-column-tone-default')).toBe(true);
+		expect(cells[0]?.style.getPropertyValue('--bpc-column-color')).toBe('');
+		expect(cells[1]?.style.getPropertyValue('--bpc-column-color')).toBe('');
+	});
+
 	it('adds compact pill strategy and style controls to list column menus', async () => {
 		const harness = createHarness([], (baseView) => {
 			const table = baseView.createDiv('bases-table-container');
@@ -592,11 +628,10 @@ describe('PillEnhancer', () => {
 		expect(panel?.style.top).toBe('80px');
 		expect(document.querySelectorAll('.bpc-column-pill-appearance-menu-item')).toHaveLength(1);
 		item?.closest('.menu')?.remove();
-		const style = panel?.querySelector<HTMLSelectElement>('select[aria-label="Pill style for Status"]');
-		if (style) {
-			style.value = 'outline';
-			style.dispatchEvent(new Event('change', { bubbles: true }));
-		}
+		const styleTrigger = panel?.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__trigger[aria-label="Pill style for Status"]');
+		styleTrigger?.click();
+		const outlineBtn = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__option[data-value="outline"]');
+		outlineBtn?.click();
 		expect(harness.store.getPropertyStyle('note.status')).toBe('outline');
 		expect(panel?.style.left).toBe('306px');
 		expect(panel?.style.top).toBe('80px');
@@ -631,11 +666,10 @@ describe('PillEnhancer', () => {
 		const item = document.querySelector<HTMLElement>('.bpc-column-pill-appearance-menu-item');
 		expect(item?.textContent).toContain('Pill appearance');
 		item?.click();
-		const style = document.querySelector<HTMLSelectElement>('select[aria-label="Pill style for Status"]');
-		if (style) {
-			style.value = 'solid';
-			style.dispatchEvent(new Event('change', { bubbles: true }));
-		}
+		const styleTrigger = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__trigger[aria-label="Pill style for Status"]');
+		styleTrigger?.click();
+		const solidBtn = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__option[data-value="solid"]');
+		solidBtn?.click();
 		expect(harness.store.getPropertyStyle('note.status_todo')).toBe('solid');
 		expect(harness.store.getExplicitPropertyStrategy('note.status_todo')).toEqual({ mode: 'smart', style: 'solid' });
 		expect(harness.store.getExplicitPropertyStrategy('note.status')).toBeUndefined();

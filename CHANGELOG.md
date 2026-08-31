@@ -2,6 +2,18 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.11.0 — 2026-08-31
+
+- Convert Pill style and Color strategy settings into space-efficient live preview dropdown triggers.
+- Support continuous live previewing with dropdowns remaining open during option selection.
+- Reduce pill preview rounding to 4px to match Obsidian's native multi-select pill styling.
+- Streamline Color strategy choices to Smart, Distinct values, Single color, Neutral, and Off.
+- Remove redundant single-color swatch palette from Smart mode so automatic heuristics apply cleanly.
+- Fix dropdown menu overflow clipping in popovers and modals with fixed body-mounted positioning and auto-flip collision handling.
+- Fix right-click column context menu popover interaction and live updates.
+- Keep the Reset property button permanently visible in the format manager to eliminate layout shifts.
+- Fix column bolding in tables where some rows contain empty cells.
+
 ## 0.10.1 — 2026-08-31
 
 - Preserve Solid and Outline pill styles when they are attached to the default Smart color strategy.

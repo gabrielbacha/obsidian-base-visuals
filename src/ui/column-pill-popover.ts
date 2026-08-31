@@ -178,6 +178,8 @@ export class ColumnPillPopover {
 		};
 
 		const outsideHandler = (event: PointerEvent) => {
+			const target = event.target as Node | null;
+			if (target && (target as Element).closest?.('.bpc-custom-dropdown__menu')) return;
 			const modal = request.document.querySelector('.modal-container');
 			if (!panel.contains(event.target as Node) && !modal?.contains(event.target as Node)) this.close();
 		};

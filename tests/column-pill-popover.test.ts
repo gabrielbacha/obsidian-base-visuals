@@ -61,11 +61,12 @@ describe('ColumnPillPopover', () => {
 		const { popover, store } = createPopover();
 		popover.open(createRequest());
 		findMenuItem('Manage “status” colors')?.click();
-		const select = document.querySelector<HTMLSelectElement>('.bpc-property-strategy select');
-		expect(select?.value).toBe('smart');
-		expect(document.querySelector('.bpc-property-strategy__text')?.textContent).toContain('Smart · Status');
-		if (select) select.value = 'single';
-		select?.dispatchEvent(new Event('change', { bubbles: true }));
+		const strategyTrigger = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__trigger[aria-label="Color strategy for status"]');
+		expect(strategyTrigger?.textContent).toContain('Smart');
+		strategyTrigger?.click();
+
+		const singleOption = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__option[data-value="single"]');
+		singleOption?.click();
 		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'single', preset: 'peter-river' });
 		expect(document.querySelectorAll('.bpc-property-strategy__swatch')).toHaveLength(9);
 		document.querySelector<HTMLButtonElement>('.bpc-property-strategy__swatch[aria-label="Raspberry"]')?.click();
@@ -76,10 +77,12 @@ describe('ColumnPillPopover', () => {
 		const { popover, store } = createPopover();
 		popover.open(createRequest());
 		findMenuItem('Manage “status” colors')?.click();
-		const style = document.querySelector<HTMLSelectElement>('[aria-label="Pill style for status"]');
-		expect(style?.value).toBe('soft');
-		if (style) style.value = 'outline';
-		style?.dispatchEvent(new Event('change', { bubbles: true }));
+		const styleTrigger = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__trigger[aria-label="Pill style for status"]');
+		expect(styleTrigger?.textContent).toContain('Soft');
+		styleTrigger?.click();
+
+		const outlineOption = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__option[data-value="outline"]');
+		outlineOption?.click();
 		expect(store.getPropertyStyle('note.status')).toBe('outline');
 		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'smart', style: 'outline' });
 		expect(document.querySelector('.bpc-column-manager__row .bpc-settings-pill')?.classList.contains('bpc-pill-style-outline')).toBe(true);

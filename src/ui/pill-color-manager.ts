@@ -25,8 +25,43 @@ export class PillColorManagerView {
 
 	mount(container: HTMLElement): void {
 		this.container = container;
-		if (this.reactive) this.unsubscribe = this.store.subscribe(() => this.render());
+		if (this.reactive) {
+			this.unsubscribe = this.store.subscribe(() => {
+				const doc = this.container?.ownerDocument ?? document;
+				if (doc.querySelector('.bpc-custom-dropdown.is-open')) {
+					this.updateOptionPreviews();
+				} else {
+					this.render();
+				}
+			});
+		}
 		this.render();
+	}
+
+	private updateOptionPreviews(): void {
+		if (!this.container) return;
+		for (const section of this.container.querySelectorAll<HTMLElement>('.bpc-property-group')) {
+			const heading = section.querySelector<HTMLElement>('.bpc-property-group__title');
+			const propertyId = heading?.title;
+			if (!propertyId) continue;
+			for (const row of section.querySelectorAll<HTMLElement>('.bpc-option-row')) {
+				const preview = row.querySelector<HTMLElement>('.bpc-settings-pill');
+				const state = row.querySelector<HTMLElement>('.bpc-option-row__state');
+				const val = preview?.title;
+				if (!preview || !val) continue;
+				const identity = { propertyId, value: val };
+				const opt: StoredOption = this.store.get(identity) ?? identity;
+				applyPreviewColor(preview, opt, this.store, this.propertyNameFor(propertyId));
+				if (state) {
+					state.textContent = resolveColor(
+						opt,
+						opt.override,
+						this.store.getPropertyStrategy(propertyId, this.propertyNameFor(propertyId)),
+						this.store.getPaletteTemplateId(),
+					).label;
+				}
+			}
+		}
 	}
 
 	unmount(): void {
@@ -256,21 +291,19 @@ export class PillColorManagerView {
 			attr: { 'aria-label': `${options.length} values` },
 		});
 
-		if (options.some((option) => option.override !== undefined) || this.store.getExplicitPropertyStrategy(propertyId)) {
-			const reset = header.createEl('button', {
-				text: 'Reset property',
-				cls: 'bpc-property-group__reset',
-				attr: { type: 'button' },
-			});
-			reset.addEventListener('click', () => {
-				new ConfirmResetModal(
-					this.app,
-					`Reset ${this.propertyNameFor(propertyId)} colors?`,
-					'Value overrides will be cleared and this property will return to its Smart strategy.',
-					() => this.store.resetProperty(propertyId),
-				).open();
-			});
-		}
+		const reset = header.createEl('button', {
+			text: 'Reset property',
+			cls: 'bpc-property-group__reset',
+			attr: { type: 'button' },
+		});
+		reset.addEventListener('click', () => {
+			new ConfirmResetModal(
+				this.app,
+				`Reset ${this.propertyNameFor(propertyId)} colors?`,
+				'Value overrides will be cleared and this property will return to its Smart strategy.',
+				() => this.store.resetProperty(propertyId),
+			).open();
+		});
 
 		renderPropertyStrategyControls(section, this.store, propertyId, this.propertyNameFor(propertyId));
 
