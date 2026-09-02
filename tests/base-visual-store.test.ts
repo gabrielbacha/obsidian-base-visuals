@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { App, WorkspaceLeaf } from 'obsidian';
-import { BASE_VISUALS_KEY, BaseVisualStoreRepository, VIEW_VISUALS_KEY } from '../src/core/base-visual-store';
+import {
+	BASE_VISUALS_KEY,
+	LEGACY_BASE_VISUALS_KEY,
+	BaseVisualStoreRepository,
+	VIEW_VISUALS_KEY,
+	updateBaseVisualsSource,
+} from '../src/core/base-visual-store';
 import { SettingsStore } from '../src/core/settings-store';
 import { DEFAULT_SETTINGS } from '../src/core/types';
 import { encodeOptionKey } from '../src/core/colors';
@@ -37,7 +43,8 @@ describe('BaseVisualStoreRepository', () => {
 			rowHeight: 'collapsed',
 		});
 		legacy.propertyStrategies['note.status'] = { mode: 'status' };
-		const global = new SettingsStore(legacy, async () => undefined);
+		values.set(LEGACY_BASE_VISUALS_KEY, legacy);
+		const global = new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined);
 		const repository = new BaseVisualStoreRepository(app, global);
 		const store = repository.forScope(scope);
 
@@ -47,17 +54,7 @@ describe('BaseVisualStoreRepository', () => {
 		store.addRule('note.status');
 		await store.flush();
 
-		const base = values.get(BASE_VISUALS_KEY) as {
-			rules: Array<{ id: string; backgroundOpacity?: number }>;
-			schemaVersion: number;
-			propertyStrategies: unknown;
-		};
 		const view = values.get(VIEW_VISUALS_KEY) as { rules: Array<{ scope: string }> };
-		expect(base.rules.map((rule) => rule.id)).toEqual(['legacy']);
-		expect(base.rules[0]).toMatchObject({ backgroundOpacity: 38 });
-		expect(base.rules[0]).not.toHaveProperty('rowHeight');
-		expect(base.schemaVersion).toBe(6);
-		expect(base.propertyStrategies).toEqual({ 'note.status': { mode: 'status' } });
 		expect(view.rules).toHaveLength(1);
 		expect(view.rules[0]?.scope).toBe('view');
 		await repository.dispose();
@@ -117,8 +114,7 @@ describe('BaseVisualStoreRepository', () => {
 
 		expect(rebound).toBe(store);
 		expect(rebound.getPropertyStyle('note.status')).toBe('solid');
-		expect((secondValues.get(BASE_VISUALS_KEY) as { propertyStrategies: unknown }).propertyStrategies)
-			.toEqual({ 'note.status': { mode: 'smart', style: 'solid' } });
+		expect(secondValues.has(BASE_VISUALS_KEY)).toBe(false);
 		await repository.dispose();
 		root.remove();
 	});
@@ -131,7 +127,7 @@ describe('BaseVisualStoreRepository', () => {
 		header.dataset.property = 'Status';
 		const values = new Map<string, unknown>();
 		const aliasIdentity = { propertyId: 'note.Status', value: 'Done' };
-		values.set(BASE_VISUALS_KEY, {
+		values.set(LEGACY_BASE_VISUALS_KEY, {
 			schemaVersion: 3,
 			options: {
 				[encodeOptionKey(aliasIdentity)]: {
@@ -206,7 +202,7 @@ describe('BaseVisualStoreRepository', () => {
 			options: {}, knownProperties: {}, rules: [], propertyStrategies: {},
 		};
 		const values = [new Map<string, unknown>(), new Map<string, unknown>()];
-		for (const map of values) map.set(BASE_VISUALS_KEY, structuredClone(initialBase));
+		for (const map of values) map.set(LEGACY_BASE_VISUALS_KEY, structuredClone(initialBase));
 		const configs = values.map((map) => ({
 			get: (key: string) => map.get(key),
 			set: vi.fn((key: string, value: unknown) => map.set(key, value)),
@@ -259,22 +255,16 @@ describe('BaseVisualStoreRepository', () => {
 			expect(store.getPropertyStyle('note.priority_todo')).toBe('solid');
 			expect(store.getPropertyStyle('note.workstream_todo')).toBe('outline');
 		}
-		for (const map of values) {
-			expect((map.get(BASE_VISUALS_KEY) as { propertyStrategies: unknown }).propertyStrategies)
-				.toEqual({
-					'note.priority_todo': { mode: 'smart', style: 'solid' },
-					'note.workstream_todo': { mode: 'smart', style: 'outline' },
-				});
-		}
 		const persisted = JSON.parse(source) as {
-			views: Array<{ basesVisualsBase: { propertyStrategies: unknown } }>;
+			basesVisuals: { schemaVersion: number; propertyStrategies: unknown };
+			views: Array<Record<string, unknown>>;
 		};
-		for (const view of persisted.views) {
-			expect(view.basesVisualsBase.propertyStrategies).toEqual({
-				'note.priority_todo': { mode: 'smart', style: 'solid' },
-				'note.workstream_todo': { mode: 'smart', style: 'outline' },
-			});
-		}
+		expect(persisted.basesVisuals.schemaVersion).toBe(7);
+		expect(persisted.basesVisuals.propertyStrategies).toEqual({
+			'note.priority_todo': { mode: 'smart', style: 'solid' },
+			'note.workstream_todo': { mode: 'smart', style: 'outline' },
+		});
+		expect(persisted.views.every((view) => !(LEGACY_BASE_VISUALS_KEY in view))).toBe(true);
 
 		await repository.dispose();
 		for (const root of roots) root.remove();
@@ -338,14 +328,43 @@ describe('BaseVisualStoreRepository', () => {
 		expect(store.getPropertyStyle('note.priority_todo')).toBe('solid');
 		expect(store.getPropertyStyle('note.workstream_todo')).toBe('outline');
 		const persisted = JSON.parse(source) as {
-			views: Array<{ basesVisualsBase: { propertyStrategies: unknown } }>;
+			basesVisuals: { propertyStrategies: unknown };
+			views: Array<Record<string, unknown>>;
 		};
-		expect(persisted.views[0]?.basesVisualsBase.propertyStrategies).toEqual({
+		expect(persisted.basesVisuals.propertyStrategies).toEqual({
 			'note.workstream_todo': { mode: 'smart', style: 'outline' },
 			'note.priority_todo': { mode: 'smart', style: 'solid' },
 		});
+		expect(persisted.views[0]).not.toHaveProperty(LEGACY_BASE_VISUALS_KEY);
 
 		await repository.dispose();
 		root.remove();
+	});
+
+	it('replaces only plugin-owned YAML while preserving unrelated source exactly', () => {
+		const source = [
+			'# human comment',
+			'filters:',
+			'  and:',
+			'    - file.ext == "md"',
+			'views:',
+			'  - type: table',
+			'    name: Main',
+			'    basesVisualsBase:',
+			'      schemaVersion: 6',
+			'      options: {}',
+			'    order:',
+			'      - file.name',
+			'',
+		].join('\n');
+		const next = updateBaseVisualsSource(source, {
+			schemaVersion: 7,
+			options: {}, knownProperties: {}, rules: [],
+			propertyStrategies: { 'note.status': { mode: 'status' } },
+		});
+		expect(next).toContain('# human comment\nfilters:\n  and:\n    - file.ext == "md"\n');
+		expect(next).toContain('"basesVisuals": {\n    "schemaVersion": 7,\n    "propertyStrategies":');
+		expect(next).not.toContain(LEGACY_BASE_VISUALS_KEY);
+		expect(next).toContain('    order:\n      - file.name\n');
 	});
 });

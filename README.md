@@ -47,7 +47,7 @@ Open a Base table containing a list property. Values receive stable automatic co
 - In Conditional formatting, choose a property from the current Base and start typing to select a value from Obsidian's suggestion menu. New rules start without a visual treatment. Choose an optional **Background** and its tint percentage, optional **Text** color, Bold or Strikethrough, and whether that background should override pill colors. Explicit text colors render exactly as selected; leave Text on **Automatic** when you want accessible contrast against the background.
 - Reorder conditional-formatting rules by dragging their grip, with Move up/down buttons and **Alt+Arrow** retained for keyboard and mobile use.
 
-Pill colors are scoped to the current Base and shared by its views. Friendly column names are display-only: settings remain attached to the underlying note property even when a Base renames the column. Conditional-formatting rules can target only the current view or every view in the Base, remain case-insensitive, and are evaluated top-to-bottom. Color and conditional-formatting changes never modify note properties. Layout and column-appearance actions use Obsidian's native Base view configuration. Column appearance can also be shared across every view in the Base. The explicit **Remove from row** action delegates that one list edit to Obsidian.
+Pill colors are scoped to the current Base and shared by its views. Base-wide choices are stored once in a sparse top-level `basesVisuals` block, while automatic values are discovered in memory and never written. Friendly column names are display-only: settings remain attached to the underlying note property even when a Base renames the column. Conditional-formatting rules can target only the current view or every view in the Base, remain case-insensitive, and are evaluated top-to-bottom. Color and conditional-formatting changes never modify note properties. Layout and column-appearance actions use Obsidian's native Base view configuration. Column appearance can also be shared across every view in the Base. The explicit **Remove from row** action delegates that one list edit to Obsidian.
 
 Smart strategies recognize common property families such as `status`, `state`, `workflow`, `phase`, `priority`, `severity`, and suffixed forms such as `status_todo` or `sprint_priority`. Ordered labels and explanatory suffixes are normalized, so values such as `2. In Progress`, `3.Waiting (for a dependency)`, and `1.P0` retain their semantic colors.
 
@@ -66,8 +66,8 @@ Bases Visuals is being prepared for the Obsidian Community Plugins directory. On
 ## Privacy and data access
 
 - Bases Visuals works entirely offline and makes no network requests.
-- It observes rendered Base tables and stores visual preferences in namespaced Base view configuration.
-- It does not modify note Markdown or frontmatter. Pill colors, conditional formatting, layout, and column appearance are saved as namespaced Base view configuration; **Remove from row** invokes Obsidian's native list-value removal control.
+- It observes rendered Base tables and stores only explicit visual preferences in sparse, namespaced Base configuration.
+- It does not modify note Markdown or frontmatter. Base-wide choices are saved once at the top level of the `.base` file; view-specific choices remain with that view. **Remove from row** invokes Obsidian's native list-value removal control.
 - It includes no telemetry or analytics.
 
 ## Development

@@ -2,6 +2,13 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.14.0 — 2026-09-02
+
+- Store Base-wide visual choices once in a sparse, portable top-level `basesVisuals` block instead of copying a complete registry into every view.
+- Keep automatically discovered properties and values in memory so opening or scrolling a Base no longer grows its file.
+- Migrate legacy `basesVisualsBase` blocks while discarding default-only values and settings unrelated to the current Base.
+- Scope **Clean unused** to the current Base result set instead of treating values elsewhere in the vault as locally used.
+
 ## 0.13.2 — 2026-08-31
 
 - Add collapsible property categories to the Pill colors manager with clear chevrons and keyboard-accessible title controls.

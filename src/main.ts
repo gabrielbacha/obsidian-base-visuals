@@ -17,9 +17,12 @@ export default class BasesPillColorsPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		this.active = true;
-		const settings = SettingsStore.normalize(await this.loadData());
+		const settings = SettingsStore.compactForPersistence(
+			SettingsStore.normalize(await this.loadData()),
+		);
+		await this.saveData(settings);
 		this.store = new SettingsStore(settings, (nextSettings) =>
-			this.saveData(nextSettings),
+			this.saveData(SettingsStore.compactForPersistence(nextSettings)),
 		);
 		this.baseStores = new BaseVisualStoreRepository(this.app, this.store);
 		this.popover = new ColorPopover(this.store);

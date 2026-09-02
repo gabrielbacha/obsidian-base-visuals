@@ -20,7 +20,7 @@ describe('SettingsStore', () => {
 			},
 		});
 
-		expect(settings.schemaVersion).toBe(9);
+		expect(settings.schemaVersion).toBe(10);
 		expect(Object.values(settings.options)).toEqual([
 			{
 				propertyId: 'note.status',
@@ -46,6 +46,25 @@ describe('SettingsStore', () => {
 		expect(store.allOptions()).toHaveLength(2);
 		store.resetProperty('note.status');
 		expect(store.allOptions().every((option) => !option.override)).toBe(true);
+		store.dispose();
+	});
+
+	it('keeps discovered values transient and compacts them before persistence', async () => {
+		const save = vi.fn(async () => undefined);
+		const store = new SettingsStore(SettingsStore.normalize(null), save);
+		store.ensure({ propertyId: 'note.status', value: 'Observed' });
+		store.discoverProperty('note.observed');
+		await new Promise((resolve) => window.setTimeout(resolve, 300));
+		expect(save).not.toHaveBeenCalled();
+		store.setOverride(
+			{ propertyId: 'note.status', value: 'Chosen' },
+			{ kind: 'preset', name: 'green-sea' },
+		);
+		const compact = SettingsStore.compactForPersistence(store.settings);
+		expect(Object.values(compact.options).map((option) => option.value)).toEqual(['Chosen']);
+		expect(compact.knownProperties).toEqual({
+			'note.status': { propertyId: 'note.status' },
+		});
 		store.dispose();
 	});
 
@@ -79,7 +98,7 @@ describe('SettingsStore', () => {
 			],
 		});
 
-		expect(settings.schemaVersion).toBe(9);
+		expect(settings.schemaVersion).toBe(10);
 		expect(settings.rules).toHaveLength(1);
 		expect(settings.rules[0]?.color).toEqual({ kind: 'custom', hex: '#AABBCC' });
 		expect(settings.rules[0]?.fontColor).toEqual({ kind: 'preset', name: 'pomegranate' });

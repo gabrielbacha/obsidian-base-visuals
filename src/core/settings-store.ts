@@ -92,6 +92,23 @@ export class SettingsStore {
 		};
 	}
 
+	/** Remove values learned while rendering; only deliberate choices are durable. */
+	static compactForPersistence(settings: BasesPillColorsSettings): BasesPillColorsSettings {
+		const compact = structuredClone(settings);
+		compact.options = Object.fromEntries(
+			Object.entries(compact.options).filter(([, option]) => option.override !== undefined),
+		);
+		const referencedProperties = new Set([
+			...Object.values(compact.options).map((option) => option.propertyId),
+			...compact.rules.map((rule) => rule.propertyId),
+			...Object.keys(compact.propertyStrategies),
+		]);
+		compact.knownProperties = Object.fromEntries(
+			[...referencedProperties].map((propertyId) => [propertyId, { propertyId }]),
+		);
+		return compact;
+	}
+
 	getPaletteTemplateId(): PaletteTemplateId {
 		return this.settings.paletteTemplateId;
 	}
@@ -114,7 +131,6 @@ export class SettingsStore {
 
 		const option = { ...identity };
 		this.settings.options[key] = option;
-		this.scheduleSave();
 		this.emit();
 		return option;
 	}
@@ -312,7 +328,6 @@ export class SettingsStore {
 		const normalized = propertyId.trim();
 		if (!normalized || this.settings.knownProperties[normalized]) return;
 		this.settings.knownProperties[normalized] = { propertyId: normalized };
-		this.scheduleSave();
 		this.emit();
 	}
 
