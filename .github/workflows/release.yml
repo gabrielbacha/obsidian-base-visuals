@@ -36,8 +36,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          release_notes="${RUNNER_TEMP}/bases-visuals-release-notes.md"
+          printf "%s\n\n" "More software, tools, and ideas: [gabrielbacha.com](https://www.gabrielbacha.com/?utm_source=github&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=bases_visuals_release)" > "$release_notes"
+          cat CHANGELOG.md >> "$release_notes"
           gh release create "$GITHUB_REF_NAME" \
             --draft \
             --title "$GITHUB_REF_NAME" \
-            --notes-file CHANGELOG.md \
+            --notes-file "$release_notes" \
             main.js manifest.json styles.css

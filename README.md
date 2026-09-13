@@ -2,6 +2,8 @@
 
 Bases Visuals adds compact, Notion-inspired pill colors and conditional formatting to Obsidian Base tables.
 
+> Created by [Gabriel Bacha](https://www.gabrielbacha.com/?utm_source=obsidian_community&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=bases_visuals_readme_header) · [Visit gabrielbacha.com](https://www.gabrielbacha.com/?utm_source=obsidian_community&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=bases_visuals_readme_header) · [Request a feature](https://github.com/gabrielbacha/obsidian-base-visuals/issues/new?template=feature_request.yml)
+
 ## Features
 
 - Stable automatic colors scoped by property and value
