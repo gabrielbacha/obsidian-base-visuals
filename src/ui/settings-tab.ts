@@ -3,7 +3,7 @@ import type { SettingDefinitionItem } from 'obsidian';
 import { SettingsStore } from '../core/settings-store';
 import { ColorPopover } from './color-popover';
 import type BasesPillColorsPlugin from '../main';
-import { ABOUT_AND_FEEDBACK, BUG_REPORT_URL, FEATURE_REQUEST_URL, WEBSITE_URL } from '../external-links';
+import { ABOUT_AND_FEEDBACK, BUG_REPORT_URL, FEATURE_REQUEST_URL, MORE_PLUGINS_URL, WEBSITE_URL } from '../external-links';
 
 export class BasesPillColorsSettingTab extends PluginSettingTab {
 	private renderRoot: HTMLElement | null = null;
@@ -52,6 +52,7 @@ export class BasesPillColorsSettingTab extends PluginSettingTab {
 			.setName(ABOUT_AND_FEEDBACK.name)
 			.setDesc(ABOUT_AND_FEEDBACK.description)
 			.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.websiteLabel).setCta().onClick(() => openExternalLink(WEBSITE_URL)))
+			.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.morePluginsLabel).onClick(() => openExternalLink(MORE_PLUGINS_URL)))
 			.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.featureRequestLabel).onClick(() => openExternalLink(FEATURE_REQUEST_URL)))
 			.addButton((button) => button.setButtonText(ABOUT_AND_FEEDBACK.bugReportLabel).onClick(() => openExternalLink(BUG_REPORT_URL)));
 

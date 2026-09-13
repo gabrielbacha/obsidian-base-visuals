@@ -2,7 +2,16 @@
 
 Bases Visuals adds compact, Notion-inspired pill colors and conditional formatting to Obsidian Base tables.
 
-> Created by [Gabriel Bacha](https://www.gabrielbacha.com/?utm_source=obsidian_community&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=bases_visuals_readme_header) · [Visit gabrielbacha.com](https://www.gabrielbacha.com/?utm_source=obsidian_community&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=bases_visuals_readme_header) · [Request a feature](https://github.com/gabrielbacha/obsidian-base-visuals/issues/new?template=feature_request.yml)
+<div align="center">
+  <h3>Created by <a href="https://github.com/gabrielbacha">Gabriel Bacha</a></h3>
+  <p>
+    <a href="https://www.gabrielbacha.com/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=bases_visuals_readme_header"><strong>Visit gabrielbacha.com</strong></a>
+    &nbsp;·&nbsp;
+    <a href="https://obsidian.md/plugins?search=Gabriel%20Bacha"><strong>Explore more Obsidian plugins</strong></a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/gabrielbacha/obsidian-base-visuals/issues/new?template=feature_request.yml"><strong>Request a feature</strong></a>
+  </p>
+</div>
 
 ## Features
 
@@ -88,3 +97,16 @@ Report bugs and request features through [GitHub Issues](https://github.com/gabr
 ## License
 
 [MIT](LICENSE)
+
+---
+
+<div align="center">
+  <h3>Created by <a href="https://github.com/gabrielbacha">Gabriel Bacha</a></h3>
+  <p>
+    <a href="https://www.gabrielbacha.com/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=bases_visuals_readme_header"><strong>Visit gabrielbacha.com</strong></a>
+    &nbsp;·&nbsp;
+    <a href="https://obsidian.md/plugins?search=Gabriel%20Bacha"><strong>Explore more Obsidian plugins</strong></a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/gabrielbacha/obsidian-base-visuals/issues/new?template=feature_request.yml"><strong>Request a feature</strong></a>
+  </p>
+</div>
