@@ -1,4 +1,4 @@
-import type { App, TFile, WorkspaceLeaf } from 'obsidian';
+import { parsePropertyId, type App, type BasesPropertyId, type TFile, type WorkspaceLeaf } from 'obsidian';
 import { normalizeHex } from './colors';
 
 export const ROW_HEIGHTS = [
@@ -46,6 +46,10 @@ interface NativeTableView {
 	type: string;
 	containerEl: HTMLElement;
 	config: NativeViewConfig;
+	createFileForView?: (
+		baseFileName?: string,
+		frontmatterProcessor?: (frontmatter: Record<string, unknown>) => void,
+	) => Promise<void>;
 	data?: { properties?: unknown[]; data?: unknown[] };
 	columnInfo?: Record<string, NativeColumnInfo>;
 	minColWidth?: number;
@@ -286,6 +290,36 @@ export function getNativeGroupProperty(app: App, scope: HTMLElement): string | n
 		: null;
 }
 
+export function canCreateNativeFileForGroup(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+): boolean {
+	const view = findNativeTableView(app, scope);
+	return Boolean(
+		view?.createFileForView &&
+		writableNotePropertyName(propertyId) &&
+		getNativePropertyKind(app, scope, propertyId) === 'list',
+	);
+}
+
+export async function createNativeFileForGroup(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+	value: string,
+): Promise<boolean> {
+	const view = findNativeTableView(app, scope);
+	const propertyName = writableNotePropertyName(propertyId);
+	if (!view?.createFileForView || !propertyName || getNativePropertyKind(app, scope, propertyId) !== 'list') {
+		return false;
+	}
+	await view.createFileForView('New todo', (frontmatter) => {
+		frontmatter[propertyName] = [value];
+	});
+	return true;
+}
+
 export function getNativePropertyDisplayName(app: App, scope: HTMLElement, propertyId: string): string | undefined {
 	const canonical = resolveNativePropertyId(app, scope, propertyId) ?? propertyId;
 	const value = findNativeTableView(app, scope)?.config.getDisplayName?.(canonical);
@@ -455,6 +489,15 @@ function elementsOverlap(first: HTMLElement, second: HTMLElement): boolean {
 
 function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
+}
+
+function writableNotePropertyName(propertyId: string): string | null {
+	try {
+		const property = parsePropertyId(propertyId as BasesPropertyId);
+		return property.type === 'note' && property.name ? property.name : null;
+	} catch {
+		return null;
+	}
 }
 
 export function normalizeColumnAppearance(value: unknown): NativeColumnAppearance {

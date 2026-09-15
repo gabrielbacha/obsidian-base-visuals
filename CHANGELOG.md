@@ -2,6 +2,14 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.15.0 — 2026-09-15
+
+- Add an accessible **+** button to writable list-property group headings.
+- Open Obsidian's native new-note prompt with the clicked group value already assigned while preserving Base creation defaults.
+- Add a per-property **Wrap pills** option for flowing long list values onto additional lines.
+- Make new column-appearance changes Base-wide by default while preserving explicit view overrides.
+- Require Obsidian 1.10.2 for the supported Bases file-creation API.
+
 ## 0.14.0 — 2026-09-02
 
 - Store Base-wide visual choices once in a sparse, portable top-level `basesVisuals` block instead of copying a complete registry into every view.

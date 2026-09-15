@@ -37,6 +37,7 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 - Temporary header indicators showing which columns match the selected width
 - Subtle table-header tinting and emphasis for the first visible column
 - Grouped row headings that automatically mirror the grouped value's pill color
+- A compact group-heading button that creates a new note with the clicked list value already assigned
 - View-specific column appearance with muted, faint, custom-color, and bold treatments
 - Keyboard-accessible layout, width-scope, and column-tone controls
 - Guarded native pill removal that never lets Delete or Backspace clear the whole cell
@@ -51,14 +52,15 @@ Open a Base table containing a list property. Values receive stable automatic co
 - Click **Format** in a Base table toolbar to open the Base-scoped manager directly on Pill colors; Conditional formatting remains available in its second tab.
 - Click **Layout** to adjust row height, test column-width presets, reset widths, or save the current combination as a reusable layout.
 - Use **Unset only** to preserve unrelated manual widths. Header indicators show which columns will change. **All columns** always asks for confirmation.
-- Group a table by a colored list property to carry each value's pill color into its group heading.
+- Group a table by a colored list property to carry each value's pill color into its group heading. Use the **+** button beside a group to open Obsidian's new-note prompt with that list value already assigned.
 - Right-click a column header and choose **Column appearance** to de-emphasize, recolor, or bold that field in the current view or every view in the Base.
 - For list columns, right-click the header and choose **Pill appearance** to change its color strategy and Soft, Solid, or Outline style without opening the full manager.
+- Enable **Wrap pills** there to flow multiple list pills onto additional lines within the column.
 - Choose **Format** in the Base toolbar to manage conditional formatting and every discovered property value for that Base.
 - In Conditional formatting, choose a property from the current Base and start typing to select a value from Obsidian's suggestion menu. New rules start without a visual treatment. Choose an optional **Background** and its tint percentage, optional **Text** color, Bold or Strikethrough, and whether that background should override pill colors. Explicit text colors render exactly as selected; leave Text on **Automatic** when you want accessible contrast against the background.
 - Reorder conditional-formatting rules by dragging their grip, with Move up/down buttons and **Alt+Arrow** retained for keyboard and mobile use.
 
-Pill colors are scoped to the current Base and shared by its views. Base-wide choices are stored once in a sparse top-level `basesVisuals` block, while automatic values are discovered in memory and never written. Friendly column names are display-only: settings remain attached to the underlying note property even when a Base renames the column. Conditional-formatting rules can target only the current view or every view in the Base, remain case-insensitive, and are evaluated top-to-bottom. Color and conditional-formatting changes never modify note properties. Layout and column-appearance actions use Obsidian's native Base view configuration. Column appearance can also be shared across every view in the Base. The explicit **Remove from row** action delegates that one list edit to Obsidian.
+Pill colors are scoped to the current Base and shared by its views. Base-wide choices are stored once in a sparse top-level `basesVisuals` block, while automatic values are discovered in memory and never written. Friendly column names are display-only: settings remain attached to the underlying note property even when a Base renames the column. Conditional-formatting rules can target only the current view or every view in the Base, remain case-insensitive, and are evaluated top-to-bottom. Color and conditional-formatting changes never modify existing note properties; the group **+** action creates a new note with the selected list value. Layout and column-appearance actions use Obsidian's native Base view configuration. Column appearance is shared across every view in the Base by default; turn off **All views in this base** to create a view-specific override. The explicit **Remove from row** action delegates that one list edit to Obsidian.
 
 Smart strategies recognize common property families such as `status`, `state`, `workflow`, `phase`, `priority`, `severity`, and suffixed forms such as `status_todo` or `sprint_priority`. Ordered labels and explanatory suffixes are normalized, so values such as `2. In Progress`, `3.Waiting (for a dependency)`, and `1.P0` retain their semantic colors.
 
@@ -78,7 +80,7 @@ Bases Visuals is being prepared for the Obsidian Community Plugins directory. On
 
 - Bases Visuals works entirely offline and makes no network requests.
 - It observes rendered Base tables and stores only explicit visual preferences in sparse, namespaced Base configuration.
-- It does not modify note Markdown or frontmatter. Base-wide choices are saved once at the top level of the `.base` file; view-specific choices remain with that view. **Remove from row** invokes Obsidian's native list-value removal control.
+- Visual settings do not modify note Markdown or frontmatter. The group **+** action explicitly creates a new note with the selected list value, and **Remove from row** invokes Obsidian's native list-value removal control. Base-wide choices are saved once at the top level of the `.base` file; view-specific choices remain with that view.
 - It includes no telemetry or analytics.
 
 ## Development

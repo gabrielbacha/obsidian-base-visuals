@@ -1,7 +1,9 @@
-import { setIcon, type App, type EventRef, type WorkspaceLeaf } from 'obsidian';
+import { Notice, setIcon, type App, type EventRef, type WorkspaceLeaf } from 'obsidian';
 import { encodeOptionKey, resolveColor } from './colors';
 import {
 	getNativeColumnAppearance,
+	canCreateNativeFileForGroup,
+	createNativeFileForGroup,
 	getNativeColumnHeaders,
 	getNativeGroupProperty,
 	getNativeMainProperty,
@@ -26,6 +28,7 @@ const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
 const CELL_SELECTOR = '.bases-td[data-property], .bases-table-cell[data-property]';
 const ROW_SELECTOR = '.bases-tr';
 const GROUP_HEADING_SELECTOR = '.bases-group-heading';
+const GROUP_ADD_BUTTON_SELECTOR = '.bpc-group-add-button';
 const TOOLBAR_SELECTOR = '.bases-toolbar, .query-toolbar';
 const TABLE_SELECTOR = '.bases-table-container';
 const TOOLBAR_CONTROL_SELECTOR = [
@@ -170,7 +173,7 @@ export class PillEnhancer {
 			if (target) this.refreshAround(target);
 		};
 		const contextMenuHandler = (event: MouseEvent) => this.handleContextMenu(event);
-		const clickHandler = (event: MouseEvent) => this.handleNativeRemoveClick(event);
+		const clickHandler = (event: MouseEvent) => this.handleClick(event);
 		const pointerDownHandler = (event: PointerEvent) => this.handlePillPointerDown(root, event);
 		const focusInHandler = (event: FocusEvent) => this.handlePillFocusIn(root, event);
 		const keyDownHandler = (event: KeyboardEvent) => this.handlePillKeyDown(root, event);
@@ -347,7 +350,9 @@ export class PillEnhancer {
 		const propertyId = this.propertyIdFor(scope, cell);
 		if (!propertyId) return;
 		this.visibleCells.add(cell);
-		this.scopedStore(scope).discoverProperty(propertyId);
+		const store = this.scopedStore(scope);
+		store.discoverProperty(propertyId);
+		cell.classList.toggle('bpc-wrap-pills', !cell.closest('.bases-thead') && store.getWrapPills(propertyId));
 		this.applyCellRule(cell, propertyId);
 		if (cell.closest('.bases-thead')) {
 			clearColumnAppearance(cell);
@@ -389,6 +394,7 @@ export class PillEnhancer {
 		this.rememberTableValue(scope, identity);
 		this.scopedStore(scope).ensure(identity);
 		this.applyGroupHeadingAppearance(heading, identity, scope);
+		this.ensureGroupAddButton(heading, identity, scope);
 	}
 
 	private processToolbar(toolbar: HTMLElement): void {
@@ -574,6 +580,54 @@ export class PillEnhancer {
 			removal: this.pillRemoval.capability(pill),
 			store: this.scopedStore(host),
 		});
+	}
+
+	private handleClick(event: MouseEvent): void {
+		const target = asElement(event.target);
+		const button = target?.closest<HTMLButtonElement>(GROUP_ADD_BUTTON_SELECTOR);
+		const heading = button?.closest<HTMLElement>(GROUP_HEADING_SELECTOR);
+		const metadata = heading ? this.trackedGroups.get(heading) : undefined;
+		const scope = heading ? findBaseTableHost(heading) : null;
+		if (button && heading && metadata && scope) {
+			event.preventDefault();
+			event.stopPropagation();
+			button.disabled = true;
+			void createNativeFileForGroup(
+				this.app, scope, metadata.identity.propertyId, metadata.identity.value,
+			).then((created) => {
+				if (!created) new Notice('Could not create a note in this group.');
+			}).catch(() => {
+				new Notice('Could not create a note in this group.');
+			}).finally(() => {
+				if (button.isConnected) button.disabled = false;
+			});
+			return;
+		}
+		this.handleNativeRemoveClick(event);
+	}
+
+	private ensureGroupAddButton(
+		heading: HTMLElement,
+		identity: OptionIdentity,
+		scope: HTMLElement,
+	): void {
+		const existing = heading.querySelector<HTMLButtonElement>(GROUP_ADD_BUTTON_SELECTOR);
+		if (!canCreateNativeFileForGroup(this.app, scope, identity.propertyId)) {
+			existing?.remove();
+			return;
+		}
+		if (existing) {
+			const label = `New note in ${identity.value}`;
+			existing.title = label;
+			existing.setAttribute('aria-label', label);
+			return;
+		}
+		const label = `New note in ${identity.value}`;
+		const button = heading.createEl('button', {
+			cls: 'clickable-icon bpc-group-add-button',
+			attr: { type: 'button', title: label, 'aria-label': label },
+		});
+		setIcon(button, 'plus');
 	}
 
 	private handleNativeRemoveClick(event: MouseEvent): void {
@@ -872,7 +926,12 @@ export class PillEnhancer {
 		scope: HTMLElement,
 		propertyId: string,
 	): void {
-		const appearance = getNativeColumnAppearance(this.app, scope, propertyId);
+		const appearance = getNativeColumnAppearance(
+			this.app,
+			scope,
+			propertyId,
+			this.baseStores?.getBaseColumnAppearances(scope),
+		);
 		clearColumnAppearance(element);
 		if (appearance.tone === 'default' && !appearance.bold) {
 			this.columnAppearanceElements.delete(element);
@@ -927,7 +986,7 @@ export class PillEnhancer {
 
 	private untrackCell(cell: HTMLElement): void {
 		this.visibleCells.delete(cell);
-		cell.classList.remove('bpc-main-column');
+		cell.classList.remove('bpc-main-column', 'bpc-wrap-pills');
 		clearRuleAppearance(cell, 'bpc-rule-cell');
 		clearColumnAppearance(cell);
 		this.columnAppearanceElements.delete(cell);
@@ -939,6 +998,7 @@ export class PillEnhancer {
 	}
 
 	private untrackGroupHeading(heading: HTMLElement): void {
+		heading.querySelector(GROUP_ADD_BUTTON_SELECTOR)?.remove();
 		const metadata = this.trackedGroups.get(heading);
 		if (!metadata) return;
 		const elements = this.visibleGroupsByKey.get(metadata.key);

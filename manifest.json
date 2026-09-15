@@ -1,8 +1,8 @@
 {
 	"id": "bases-pill-colors",
 	"name": "Bases Visuals",
-	"version": "0.14.2",
-	"minAppVersion": "1.9.10",
+	"version": "0.15.0",
+	"minAppVersion": "1.10.2",
 	"description": "Add Notion-style pill colors and conditional formatting to Base tables.",
 	"author": "Gabriel Bacha",
 	"authorUrl": "https://www.gabrielbacha.com/?utm_source=obsidian_community&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=bases_visuals_manifest",

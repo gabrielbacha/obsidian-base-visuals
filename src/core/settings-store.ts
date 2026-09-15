@@ -159,12 +159,23 @@ export class SettingsStore {
 		return this.settings.propertyStrategies[propertyId]?.style ?? 'soft';
 	}
 
+	getWrapPills(propertyId: string): boolean {
+		return this.settings.propertyStrategies[propertyId]?.wrapPills === true;
+	}
+
 	setPropertyStrategy(propertyId: string, strategy: PropertyColorStrategy | undefined): void {
 		const currentStyle = this.getPropertyStyle(propertyId);
+		const currentWrapPills = this.getWrapPills(propertyId);
 		const normalized = normalizePropertyStrategy(strategy
-			? { ...strategy, ...(strategy.style ? {} : { style: currentStyle }) }
-			: currentStyle === 'soft' ? undefined : { mode: 'smart', style: currentStyle });
-		if (!normalized || (normalized.mode === 'smart' && !normalized.style)) delete this.settings.propertyStrategies[propertyId];
+			? {
+				...strategy,
+				...(strategy.style ? {} : { style: currentStyle }),
+				...(strategy.wrapPills === undefined && currentWrapPills ? { wrapPills: true } : {}),
+			}
+			: currentStyle === 'soft' && !currentWrapPills
+				? undefined
+				: { mode: 'smart', style: currentStyle, ...(currentWrapPills ? { wrapPills: true } : {}) });
+		if (!normalized || (normalized.mode === 'smart' && !normalized.style && !normalized.wrapPills)) delete this.settings.propertyStrategies[propertyId];
 		else this.settings.propertyStrategies[propertyId] = normalized;
 		this.discoverProperty(propertyId);
 		this.changed();
@@ -178,7 +189,20 @@ export class SettingsStore {
 			...(normalizedStyle === 'soft' ? {} : { style: normalizedStyle }),
 		};
 		if (normalizedStyle === 'soft') delete next.style;
-		if (next.mode === 'smart' && !next.style) delete this.settings.propertyStrategies[propertyId];
+		if (next.mode === 'smart' && !next.style && !next.wrapPills) delete this.settings.propertyStrategies[propertyId];
+		else this.settings.propertyStrategies[propertyId] = next;
+		this.discoverProperty(propertyId);
+		this.changed();
+	}
+
+	setWrapPills(propertyId: string, enabled: boolean): void {
+		const current = this.settings.propertyStrategies[propertyId] ?? { mode: 'smart' as const };
+		const next: PropertyColorStrategy = {
+			...current,
+			...(enabled ? { wrapPills: true } : {}),
+		};
+		if (!enabled) delete next.wrapPills;
+		if (next.mode === 'smart' && !next.style && !next.wrapPills) delete this.settings.propertyStrategies[propertyId];
 		else this.settings.propertyStrategies[propertyId] = next;
 		this.discoverProperty(propertyId);
 		this.changed();
@@ -620,7 +644,7 @@ function normalizePropertyStrategies(value: unknown): Record<string, PropertyCol
 	for (const [rawPropertyId, candidate] of Object.entries(value)) {
 		const propertyId = rawPropertyId.trim();
 		const strategy = normalizePropertyStrategy(candidate);
-		if (propertyId && strategy && (strategy.mode !== 'smart' || strategy.style)) {
+		if (propertyId && strategy && (strategy.mode !== 'smart' || strategy.style || strategy.wrapPills)) {
 			strategies[propertyId] = strategy;
 		}
 	}
@@ -632,15 +656,21 @@ function normalizePropertyStrategy(value: unknown): PropertyColorStrategy | unde
 	const style = PILL_STYLES.includes(value.style as PillStyle) && value.style !== 'soft'
 		? value.style as PillStyle
 		: undefined;
+	const wrapPills = value.wrapPills === true;
 	if (value.mode === 'single') {
 		const preset = normalizePresetName(value.preset);
 		return {
 			mode: 'single',
 			preset: preset && preset !== 'default' ? preset : 'peter-river',
 			...(style ? { style } : {}),
+			...(wrapPills ? { wrapPills: true } : {}),
 		};
 	}
-	return { mode: value.mode as PropertyColorStrategy['mode'], ...(style ? { style } : {}) };
+	return {
+		mode: value.mode as PropertyColorStrategy['mode'],
+		...(style ? { style } : {}),
+		...(wrapPills ? { wrapPills: true } : {}),
+	};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -46,8 +46,9 @@ export class ColumnAppearancePopover {
 		close.addEventListener('click', () => this.close());
 
 		const baseAppearances = this.baseStores?.getBaseColumnAppearances(scope) ?? {};
-		let applyToAllViews = !hasNativeColumnAppearance(this.app, scope, propertyId) &&
-			Object.prototype.hasOwnProperty.call(baseAppearances, propertyId);
+		// New formatting is Base-wide by default. An existing view override keeps
+		// its narrower scope until the user explicitly promotes it.
+		let applyToAllViews = !hasNativeColumnAppearance(this.app, scope, propertyId);
 		let appearance = getNativeColumnAppearance(this.app, scope, propertyId, baseAppearances);
 		const commit = (next: NativeColumnAppearance) => {
 			appearance = next;
@@ -73,7 +74,10 @@ export class ColumnAppearancePopover {
 			if (applyToAllViews && this.baseStores) {
 				setNativeColumnAppearance(this.app, scope, propertyId, DEFAULT_COLUMN_APPEARANCE);
 				this.baseStores.setBaseColumnAppearance(scope, propertyId, appearance);
-			} else setNativeColumnAppearance(this.app, scope, propertyId, appearance);
+			} else {
+				this.baseStores?.setBaseColumnAppearance(scope, propertyId, null);
+				setNativeColumnAppearance(this.app, scope, propertyId, appearance);
+			}
 			onChange();
 		});
 

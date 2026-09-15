@@ -606,6 +606,37 @@
 	color: var(--bases-group-heading-value-color);
 }
 
+.bases-table .bases-group-heading .bpc-group-add-button {
+	flex: 0 0 auto;
+	align-self: center;
+	width: 26px;
+	height: 26px;
+	margin-inline-start: 4px;
+	padding: 4px;
+	border-radius: var(--radius-s);
+	color: var(--text-muted);
+	opacity: 0.65;
+}
+
+.bases-table .bases-group-heading .bpc-group-add-button:is(:hover, :focus-visible) {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+	opacity: 1;
+}
+
+.bases-table .bases-group-heading .bpc-group-add-button:disabled {
+	cursor: wait;
+	opacity: 0.4;
+}
+
+@media (pointer: coarse) {
+	.bases-table .bases-group-heading .bpc-group-add-button {
+		width: 32px;
+		height: 32px;
+		padding: 7px;
+	}
+}
+
 .bpc-column-pill-appearance-popover {
 	position: fixed;
 	z-index: var(--layer-menu, 100);
@@ -992,6 +1023,17 @@
 	line-height: 1.35;
 	vertical-align: middle;
 	text-indent: 0;
+}
+
+/* Wrap list pills as intact units while leaving each pill label compact. */
+:is(.bases-view, .bases-embed) :is(.bases-td, .bases-table-cell).bpc-wrap-pills,
+:is(.bases-view, .bases-embed) :is(.bases-td, .bases-table-cell).bpc-wrap-pills > :is(
+	.bases-rendered-value,
+	.metadata-property-value,
+	.multi-select-container
+) {
+	flex-wrap: wrap !important;
+	white-space: normal !important;
 }
 
 .bases-view .bpc-pill--colored,
@@ -2416,6 +2458,14 @@
 	min-width: 0;
 	flex-direction: column;
 	gap: 2px;
+}
+
+.bpc-property-strategy__toggle {
+	cursor: var(--cursor);
+}
+
+.bpc-property-strategy__toggle input[type="checkbox"] {
+	flex: none;
 }
 
 .bpc-property-strategy__text strong {

@@ -47,6 +47,8 @@ export interface PropertyColorStrategy {
 	mode: PropertyStrategyMode;
 	preset?: PalettePresetName;
 	style?: PillStyle;
+	/** Allow pills in this list property to flow onto additional lines. */
+	wrapPills?: boolean;
 }
 
 export type ColorOverride =

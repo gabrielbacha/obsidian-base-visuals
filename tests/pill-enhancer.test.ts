@@ -1,7 +1,8 @@
-import type { App, EventRef } from 'obsidian';
+import { Notice, type App, type EventRef } from 'obsidian';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ColumnMenuRequest, PillEnhancer } from '../src/core/pill-enhancer';
 import { SettingsStore } from '../src/core/settings-store';
+import type { BaseVisualStoreRepository } from '../src/core/base-visual-store';
 
 interface Harness {
 	root: HTMLElement;
@@ -20,9 +21,15 @@ interface PillSpec {
 interface NativeFixtureOptions {
 	groupProperty?: string;
 	columnAppearances?: Record<string, unknown>;
+	baseColumnAppearances?: Record<string, unknown>;
 	useScopedStore?: boolean;
 	dataProperties?: string[];
 	order?: string[];
+	listProperties?: string[];
+	createFileForView?: (
+		baseFileName?: string,
+		frontmatterProcessor?: (frontmatter: Record<string, unknown>) => void,
+	) => Promise<void>;
 }
 
 const activeHarnesses: Harness[] = [];
@@ -33,6 +40,7 @@ afterEach(() => {
 		for (const store of harness.stores) store.dispose();
 	}
 	document.body.replaceChildren();
+	(Notice as unknown as { messages: string[] }).messages.length = 0;
 });
 
 describe('PillEnhancer', () => {
@@ -45,6 +53,22 @@ describe('PillEnhancer', () => {
 		expect(pills[0]?.classList.contains('bpc-pill--colored')).toBe(true);
 		expect(pills[0]?.title).toBe('In progress');
 		expect(pills[1]?.classList.contains('bpc-pill')).toBe(false);
+	});
+
+	it('wraps pills live for the configured list property only', () => {
+		const harness = createHarness([
+			{ propertyId: 'note.status', value: 'In progress' },
+			{ propertyId: 'note.owner', value: 'Gabriel' },
+		]);
+		const cells = harness.root.querySelectorAll<HTMLElement>('.bases-td');
+		expect([...cells].some((cell) => cell.classList.contains('bpc-wrap-pills'))).toBe(false);
+
+		harness.store.setWrapPills('note.status', true);
+		expect(cells[0]?.classList.contains('bpc-wrap-pills')).toBe(true);
+		expect(cells[1]?.classList.contains('bpc-wrap-pills')).toBe(false);
+
+		harness.store.setWrapPills('note.status', false);
+		expect(cells[0]?.classList.contains('bpc-wrap-pills')).toBe(false);
 	});
 
 	it('does not style list-like pills in non-table Base layouts', async () => {
@@ -130,6 +154,69 @@ describe('PillEnhancer', () => {
 			harness.root.querySelector('.bases-group-heading')?.classList.contains('bpc-group-heading--colored'),
 		).toBe(true);
 		expect(harness.store.get({ propertyId: 'note.category', value: 'Later group' })).toBeDefined();
+	});
+
+
+	it('adds one accessible group creation button and delegates to the native view', async () => {
+		const frontmatter: Record<string, unknown> = { tags: ['todo'] };
+		const createFileForView = vi.fn(async (
+			_name?: string,
+			processor?: (value: Record<string, unknown>) => void,
+		) => processor?.(frontmatter));
+		const harness = createHarness([], (baseView) => appendGroupHeading(
+			baseView, 'note.subcategory', 'Subcategory', 'Baby home preparation',
+		), undefined, undefined, {
+			groupProperty: 'note.subcategory',
+			dataProperties: ['note.subcategory'],
+			listProperties: ['note.subcategory'],
+			createFileForView,
+		});
+		const heading = harness.root.querySelector<HTMLElement>('.bases-group-heading');
+		const button = heading?.querySelector<HTMLButtonElement>('.bpc-group-add-button');
+		expect(button?.getAttribute('aria-label')).toBe('New note in Baby home preparation');
+		expect(button?.querySelector('svg')?.getAttribute('data-icon')).toBe('plus');
+
+		heading?.append(document.createTextNode(' '));
+		await mutationCycle();
+		expect(heading?.querySelectorAll('.bpc-group-add-button')).toHaveLength(1);
+
+		const headingClick = vi.fn();
+		heading?.addEventListener('click', headingClick);
+		button?.click();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(headingClick).not.toHaveBeenCalled();
+		expect(createFileForView.mock.calls[0]?.[0]).toBe('New todo');
+		expect(frontmatter).toEqual({ tags: ['todo'], subcategory: ['Baby home preparation'] });
+
+		harness.enhancer.stop();
+		expect(heading?.querySelector('.bpc-group-add-button')).toBeNull();
+	});
+
+	it('omits group creation for unsupported properties and reports native failures', async () => {
+		const unsupported = createHarness([], (baseView) => appendGroupHeading(
+			baseView, 'formula.subcategory', 'Subcategory', 'Computed',
+		), undefined, undefined, {
+			groupProperty: 'formula.subcategory',
+			dataProperties: ['formula.subcategory'],
+			listProperties: ['formula.subcategory'],
+			createFileForView: vi.fn(async () => undefined),
+		});
+		expect(unsupported.root.querySelector('.bpc-group-add-button')).toBeNull();
+
+		const failing = createHarness([], (baseView) => appendGroupHeading(
+			baseView, 'note.subcategory', 'Subcategory', 'General',
+		), undefined, undefined, {
+			groupProperty: 'note.subcategory',
+			dataProperties: ['note.subcategory'],
+			listProperties: ['note.subcategory'],
+			createFileForView: vi.fn(async () => { throw new Error('Creation failed'); }),
+		});
+		failing.root.querySelector<HTMLButtonElement>('.bpc-group-add-button')?.click();
+		await mutationCycle();
+		expect((Notice as unknown as { messages: string[] }).messages).toContain(
+			'Could not create a note in this group.',
+		);
 	});
 
 	it('keeps identical values independent across properties', () => {
@@ -612,6 +699,23 @@ describe('PillEnhancer', () => {
 		expect(cells[1]?.style.getPropertyValue('--bpc-column-color')).toBe('');
 	});
 
+	it('renders Base-wide column appearance when the current view has no override', () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const body = table.createDiv('bases-tbody');
+			const row = body.createDiv('bases-tr');
+			appendTableCell(row, 'note.status', 'Ready');
+		}, undefined, undefined, {
+			baseColumnAppearances: {
+				'note.status': { tone: 'faint', bold: true },
+			},
+		});
+
+		const cell = harness.root.querySelector<HTMLElement>('.bases-tbody .bases-td');
+		expect(cell?.classList.contains('bpc-column-tone-faint')).toBe(true);
+		expect(cell?.classList.contains('bpc-column-emphasized')).toBe(true);
+	});
+
 	it('adds compact pill strategy and style controls to list column menus', async () => {
 		const harness = createHarness([], (baseView) => {
 			const table = baseView.createDiv('bases-table-container');
@@ -751,8 +855,22 @@ function createHarness(
 					set: (key: string, value: unknown) => values.set(key, value),
 					...(nativeOptions.order ? { getOrder: () => nativeOptions.order ?? [] } : {}),
 				},
-				...(nativeOptions.dataProperties
-					? { data: { properties: nativeOptions.dataProperties, data: [] } }
+				...(nativeOptions.dataProperties || nativeOptions.listProperties
+					? {
+						data: {
+							properties: nativeOptions.dataProperties ?? nativeOptions.listProperties ?? [],
+							data: nativeOptions.listProperties
+								? [{
+									getValue: (propertyId: string) => nativeOptions.listProperties?.includes(propertyId)
+										? { length: () => 1, get: () => 'value' }
+										: null,
+								}]
+								: [],
+						},
+					}
+					: {}),
+				...(nativeOptions.createFileForView
+					? { createFileForView: nativeOptions.createFileForView }
 					: {}),
 				header: { cells: headerCells },
 			},
@@ -769,6 +887,12 @@ function createHarness(
 		openRuleManager,
 		openColumnManager,
 		() => store,
+		nativeOptions?.baseColumnAppearances
+			? {
+				resolvePropertyId: (_scope: HTMLElement, propertyId: string) => propertyId,
+				getBaseColumnAppearances: () => nativeOptions.baseColumnAppearances ?? {},
+			} as unknown as BaseVisualStoreRepository
+			: undefined,
 	);
 	enhancer.start(() => undefined);
 	const harness = { root, store, stores: store === globalStore ? [store] : [store, globalStore], enhancer };

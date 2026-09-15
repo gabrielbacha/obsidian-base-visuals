@@ -1,6 +1,7 @@
 import type { App, WorkspaceLeaf } from 'obsidian';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ColumnAppearancePopover } from '../src/ui/column-appearance-popover';
+import type { BaseVisualStoreRepository } from '../src/core/base-visual-store';
 
 afterEach(() => document.body.replaceChildren());
 
@@ -58,6 +59,46 @@ describe('ColumnAppearancePopover', () => {
 		findButton('Reset appearance')?.click();
 		expect(values.get('basesVisualsColumnAppearance')).toBeNull();
 		expect(document.querySelector('.bpc-column-appearance-popover')).toBeNull();
+	});
+
+	it('defaults new formatting to every Base view and cleanly converts it to a view override', () => {
+		const root = document.body.createDiv('workspace-leaf-content');
+		const anchor = root.createEl('button');
+		const table = root.createDiv('bases-table-container');
+		const values = new Map<string, unknown>();
+		const nativeTable = {
+			type: 'table', containerEl: table,
+			config: {
+				get: (key: string) => values.get(key),
+				set: (key: string, value: unknown) => values.set(key, value),
+			},
+		};
+		const leaf = { view: { containerEl: root, nativeTable } } as unknown as WorkspaceLeaf;
+		const app = {
+			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
+		} as unknown as App;
+		const setBaseColumnAppearance = vi.fn(() => true);
+		const baseStores = {
+			getBaseColumnAppearances: () => ({}),
+			setBaseColumnAppearance,
+		} as unknown as BaseVisualStoreRepository;
+		const popover = new ColumnAppearancePopover(app, baseStores);
+
+		popover.open(anchor, root, 'note.status', vi.fn());
+		const scope = document.querySelector<HTMLInputElement>(
+			'input[aria-label="Apply column appearance to all views in this base"]',
+		);
+		expect(scope?.checked).toBe(true);
+		findButton('Faint')?.click();
+		expect(setBaseColumnAppearance).toHaveBeenLastCalledWith(
+			root, 'note.status', { tone: 'faint', bold: false },
+		);
+		expect(values.get('basesVisualsColumnAppearance')).toBeNull();
+
+		if (scope) scope.checked = false;
+		scope?.dispatchEvent(new Event('change', { bubbles: true }));
+		expect(setBaseColumnAppearance).toHaveBeenLastCalledWith(root, 'note.status', null);
+		expect(storedAppearance(values)).toEqual({ tone: 'faint', bold: false });
 	});
 });
 

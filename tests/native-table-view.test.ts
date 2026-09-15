@@ -2,6 +2,8 @@ import type { App, WorkspaceLeaf } from 'obsidian';
 import { describe, expect, it, vi } from 'vitest';
 import {
 	applyNativeColumnWidthPreset,
+	canCreateNativeFileForGroup,
+	createNativeFileForGroup,
 	getNativeColumnAppearance,
 	getNativeGroupProperty,
 	getNativePropertyKind,
@@ -188,6 +190,65 @@ describe('native table view bridge', () => {
 		expect(columnInfo['note.status'].customWidth).toBe(0);
 		expect(set).toHaveBeenLastCalledWith('columnSize', null);
 	});
+	it('creates a new view file with the clicked list group while preserving Base defaults', async () => {
+		const root = document.body.createDiv('workspace-leaf-content');
+		const table = root.createDiv('bases-table-container');
+		const frontmatter: Record<string, unknown> = { tags: ['todo'], owner: 'Gabriel' };
+		const createFileForView = vi.fn(async (
+			_name?: string,
+			processor?: (value: Record<string, unknown>) => void,
+		) => processor?.(frontmatter));
+		const listValue = { length: () => 1, get: () => 'Baby home preparation' };
+		const nativeTable = {
+			type: 'table',
+			containerEl: table,
+			config: { get: vi.fn(), set: vi.fn() },
+			data: {
+				properties: ['note.subcategory'],
+				data: [{ getValue: (propertyId: string) => propertyId === 'note.subcategory' ? listValue : null }],
+			},
+			createFileForView,
+		};
+		const leaf = { view: { containerEl: root, nativeTable } };
+		const app = appWithLeaves([leaf as unknown as WorkspaceLeaf]);
+
+		expect(canCreateNativeFileForGroup(app, root, 'note.subcategory')).toBe(true);
+		await expect(createNativeFileForGroup(
+			app, root, 'note.subcategory', 'Baby home preparation',
+		)).resolves.toBe(true);
+		expect(createFileForView).toHaveBeenCalledOnce();
+		expect(createFileForView.mock.calls[0]?.[0]).toBe('New todo');
+		expect(frontmatter).toEqual({
+			tags: ['todo'],
+			owner: 'Gabriel',
+			subcategory: ['Baby home preparation'],
+		});
+	});
+
+	it('rejects non-note, scalar, malformed, and unsupported group creation', async () => {
+		const root = document.body.createDiv('workspace-leaf-content');
+		const table = root.createDiv('bases-table-container');
+		const createFileForView = vi.fn(async () => undefined);
+		const nativeTable = {
+			type: 'table',
+			containerEl: table,
+			config: { get: vi.fn(), set: vi.fn() },
+			data: {
+				properties: ['note.subcategory'],
+				data: [{ getValue: () => 'General' }],
+			},
+			createFileForView,
+		};
+		const leaf = { view: { containerEl: root, nativeTable } };
+		const app = appWithLeaves([leaf as unknown as WorkspaceLeaf]);
+
+		expect(canCreateNativeFileForGroup(app, root, 'note.subcategory')).toBe(false);
+		expect(canCreateNativeFileForGroup(app, root, 'formula.subcategory')).toBe(false);
+		expect(canCreateNativeFileForGroup(app, root, 'file.name')).toBe(false);
+		await expect(createNativeFileForGroup(app, root, 'bad-id', 'General')).resolves.toBe(false);
+		expect(createFileForView).not.toHaveBeenCalled();
+	});
+
 });
 
 function appWithLeaves(leaves: WorkspaceLeaf[]): App {

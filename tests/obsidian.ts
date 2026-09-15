@@ -17,7 +17,11 @@ export class Modal {
 }
 
 export class Notice {
-	constructor(public readonly message: string) {}
+	static readonly messages: string[] = [];
+
+	constructor(public readonly message: string) {
+		Notice.messages.push(message);
+	}
 }
 
 export abstract class AbstractInputSuggest<T> {
@@ -85,6 +89,12 @@ export function setIcon(element: HTMLElement, icon: string): void {
 	const svg = element.createSvg('svg');
 	svg.setAttribute('data-icon', icon);
 	svg.setAttribute('aria-hidden', 'true');
+}
+
+export function parsePropertyId(propertyId: string): { type: string; name: string } {
+	const separator = propertyId.indexOf('.');
+	if (separator <= 0 || separator === propertyId.length - 1) throw new Error('Invalid property ID');
+	return { type: propertyId.slice(0, separator), name: propertyId.slice(separator + 1) };
 }
 
 export function parseYaml(source: string): unknown {

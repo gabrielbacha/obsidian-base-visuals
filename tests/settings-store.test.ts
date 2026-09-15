@@ -123,6 +123,25 @@ describe('SettingsStore', () => {
 		store.dispose();
 	});
 
+	it('stores pill wrapping independently and preserves it across strategy changes', () => {
+		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+		store.setWrapPills('note.status', true);
+		expect(store.getWrapPills('note.status')).toBe(true);
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'smart', wrapPills: true });
+
+		store.setPropertyStrategy('note.status', { mode: 'priority' });
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'priority', wrapPills: true });
+		store.setPropertyStyle('note.status', 'solid');
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({
+			mode: 'priority', style: 'solid', wrapPills: true,
+		});
+
+		store.setWrapPills('note.status', false);
+		expect(store.getWrapPills('note.status')).toBe(false);
+		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'priority', style: 'solid' });
+		store.dispose();
+	});
+
 	it('creates visually empty rules and removes background-only settings together', () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		const rule = store.addRule('note.status');
@@ -143,17 +162,19 @@ describe('SettingsStore', () => {
 		store.dispose();
 	});
 
-	it('preserves non-default pill styles attached to Smart during normalization', () => {
+	it('preserves non-default pill appearance attached to Smart during normalization', () => {
 		const settings = SettingsStore.normalize({
 			propertyStrategies: {
 				'note.priority_todo': { mode: 'smart', style: 'solid' },
 				'note.workstream_todo': { mode: 'smart', style: 'outline' },
+				'note.wrapped': { mode: 'smart', wrapPills: true },
 				'note.default': { mode: 'smart' },
 			},
 		});
 		expect(settings.propertyStrategies).toEqual({
 			'note.priority_todo': { mode: 'smart', style: 'solid' },
 			'note.workstream_todo': { mode: 'smart', style: 'outline' },
+			'note.wrapped': { mode: 'smart', wrapPills: true },
 		});
 	});
 

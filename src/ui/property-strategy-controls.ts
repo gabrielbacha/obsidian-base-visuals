@@ -71,7 +71,25 @@ export function renderPropertyStrategyControls(
 		},
 	});
 
-	// Row 2: Color strategy
+	// Row 2: Pill wrapping
+	const wrapRow = wrapper.createEl('label', { cls: 'bpc-property-strategy__row bpc-property-strategy__toggle' });
+	const wrapText = wrapRow.createDiv('bpc-property-strategy__text');
+	wrapText.createEl('strong', { text: 'Wrap pills' });
+	wrapText.createSpan({
+		text: 'Flow multiple pills onto additional lines',
+		cls: 'setting-item-description',
+	});
+	const wrapInput = wrapRow.createEl('input', {
+		type: 'checkbox',
+		attr: { 'aria-label': `Wrap pills for ${displayName}` },
+	});
+	wrapInput.checked = store.getWrapPills(propertyId);
+	wrapInput.addEventListener('change', () => {
+		store.setWrapPills(propertyId, wrapInput.checked);
+		commitExplicitChange(store, onChange);
+	});
+
+	// Row 3: Color strategy
 	const strategyRow = wrapper.createDiv('bpc-property-strategy__row');
 	const strategyText = strategyRow.createDiv('bpc-property-strategy__text');
 	strategyText.createEl('strong', { text: 'Color strategy' });
