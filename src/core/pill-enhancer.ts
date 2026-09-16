@@ -22,6 +22,7 @@ import { ColumnPillAppearancePopover } from '../ui/column-pill-appearance-popove
 import { compareNaturalValues } from './value-order';
 import { strategyLabel } from './property-strategies';
 import { NativePillRemovalService, type PillRemovalCapability } from './native-pill-removal';
+import { renameFileBasename, resolveFileFromNameCell } from './file-rename';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
@@ -29,6 +30,7 @@ const CELL_SELECTOR = '.bases-td[data-property], .bases-table-cell[data-property
 const ROW_SELECTOR = '.bases-tr';
 const GROUP_HEADING_SELECTOR = '.bases-group-heading';
 const GROUP_ADD_BUTTON_SELECTOR = '.bpc-group-add-button';
+const FILE_RENAME_INPUT_SELECTOR = '.bpc-file-rename-input';
 const TOOLBAR_SELECTOR = '.bases-toolbar, .query-toolbar';
 const TABLE_SELECTOR = '.bases-table-container';
 const TOOLBAR_CONTROL_SELECTOR = [
@@ -96,6 +98,7 @@ export class PillEnhancer {
 	private readonly pendingMenuObservers = new Set<MutationObserver>();
 	private readonly scopedStoreUnsubscribers = new Map<SettingsStore, () => void>();
 	private readonly mainPropertyByTable = new WeakMap<HTMLElement, string>();
+	private readonly activeFileRenames = new WeakMap<HTMLElement, () => void>();
 	private readonly tableLayoutPopover: TableLayoutPopover;
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
 	private readonly columnPillAppearancePopover: ColumnPillAppearancePopover;
@@ -360,6 +363,7 @@ export class PillEnhancer {
 		} else this.applyColumnAppearance(cell, scope, propertyId);
 		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
 		if (table) this.applyMainColumn(table, cell);
+		this.updateFileRenameCapability(cell, scope, propertyId);
 	}
 
 	private processRow(row: HTMLElement): void {
@@ -584,6 +588,25 @@ export class PillEnhancer {
 
 	private handleClick(event: MouseEvent): void {
 		const target = asElement(event.target);
+		if (target?.closest(FILE_RENAME_INPUT_SELECTOR)) {
+			event.stopPropagation();
+			return;
+		}
+		const renameCell = target?.closest<HTMLElement>(CELL_SELECTOR);
+		const renameScope = renameCell ? findBaseTableHost(renameCell) : null;
+		const clickedInteractive = target?.closest('a, button, input, textarea, select, [contenteditable]');
+		if (
+			renameCell &&
+			renameScope &&
+			!clickedInteractive &&
+			!renameCell.closest('.bases-thead') &&
+			this.propertyIdFor(renameScope, renameCell) === 'file.name'
+		) {
+			event.preventDefault();
+			event.stopPropagation();
+			this.startFileRename(renameCell, renameScope);
+			return;
+		}
 		const button = target?.closest<HTMLButtonElement>(GROUP_ADD_BUTTON_SELECTOR);
 		const heading = button?.closest<HTMLElement>(GROUP_HEADING_SELECTOR);
 		const metadata = heading ? this.trackedGroups.get(heading) : undefined;
@@ -604,6 +627,82 @@ export class PillEnhancer {
 			return;
 		}
 		this.handleNativeRemoveClick(event);
+	}
+
+	private updateFileRenameCapability(
+		cell: HTMLElement,
+		scope: HTMLElement,
+		propertyId: string,
+	): void {
+		cell.classList.toggle(
+			'bpc-file-renamable',
+			propertyId === 'file.name' &&
+			!cell.closest('.bases-thead') &&
+			Boolean(resolveFileFromNameCell(this.app, scope, cell)),
+		);
+	}
+
+	private startFileRename(cell: HTMLElement, scope: HTMLElement): void {
+		if (cell.querySelector(FILE_RENAME_INPUT_SELECTOR)) return;
+		const file = resolveFileFromNameCell(this.app, scope, cell);
+		if (!file) {
+			new Notice('Could not identify the file for this row.');
+			return;
+		}
+
+		cell.classList.add('bpc-file-renaming');
+		const input = cell.createEl('input', {
+			cls: 'bpc-file-rename-input',
+			type: 'text',
+			attr: {
+				value: file.basename,
+				'aria-label': `Rename ${file.basename}`,
+				spellcheck: 'false',
+			},
+		});
+		input.value = file.basename;
+		let closed = false;
+		let committing = false;
+		const close = () => {
+			if (closed) return;
+			closed = true;
+			this.activeFileRenames.delete(cell);
+			input.remove();
+			cell.classList.remove('bpc-file-renaming');
+			if (cell.isConnected) this.processCell(cell);
+		};
+		this.activeFileRenames.set(cell, close);
+		const commit = async () => {
+			if (closed || committing) return;
+			committing = true;
+			input.disabled = true;
+			try {
+				await renameFileBasename(this.app, file, input.value);
+				close();
+			} catch (error) {
+				if (closed) return;
+				committing = false;
+				input.disabled = false;
+				new Notice(error instanceof Error ? error.message : 'Could not rename this file.');
+				input.focus();
+				input.select();
+			}
+		};
+		input.addEventListener('keydown', (event) => {
+			event.stopPropagation();
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close();
+			} else if (event.key === 'Enter') {
+				event.preventDefault();
+				void commit();
+			}
+		});
+		input.addEventListener('pointerdown', (event) => event.stopPropagation());
+		input.addEventListener('dblclick', (event) => event.stopPropagation());
+		input.addEventListener('blur', () => void commit());
+		input.focus();
+		input.select();
 	}
 
 	private ensureGroupAddButton(
@@ -985,8 +1084,9 @@ export class PillEnhancer {
 	}
 
 	private untrackCell(cell: HTMLElement): void {
+		this.activeFileRenames.get(cell)?.();
 		this.visibleCells.delete(cell);
-		cell.classList.remove('bpc-main-column', 'bpc-wrap-pills');
+		cell.classList.remove('bpc-main-column', 'bpc-wrap-pills', 'bpc-file-renaming', 'bpc-file-renamable');
 		clearRuleAppearance(cell, 'bpc-rule-cell');
 		clearColumnAppearance(cell);
 		this.columnAppearanceElements.delete(cell);

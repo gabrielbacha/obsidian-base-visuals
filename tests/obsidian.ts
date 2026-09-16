@@ -24,6 +24,14 @@ export class Notice {
 	}
 }
 
+export class TFile {
+	path = '';
+	name = '';
+	basename = '';
+	extension = '';
+	parent: { path: string } | null = null;
+}
+
 export abstract class AbstractInputSuggest<T> {
 	limit = 100;
 	private container: HTMLElement | null = null;
@@ -95,6 +103,10 @@ export function parsePropertyId(propertyId: string): { type: string; name: strin
 	const separator = propertyId.indexOf('.');
 	if (separator <= 0 || separator === propertyId.length - 1) throw new Error('Invalid property ID');
 	return { type: propertyId.slice(0, separator), name: propertyId.slice(separator + 1) };
+}
+
+export function normalizePath(path: string): string {
+	return path.replaceAll('\\', '/').replaceAll(/\/{2,}/gu, '/').replace(/^\.\//u, '');
 }
 
 export function parseYaml(source: string): unknown {

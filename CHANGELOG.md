@@ -2,6 +2,12 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.16.0 — 2026-09-16
+
+- Add direct in-cell filename editing to Base table rows without interfering with the filename link.
+- Preserve the file's folder and extension, reject invalid or duplicate names, and report failures through Obsidian notices.
+- Resolve each row through its native Bases entry so renaming remains reliable in grouped and virtualized tables.
+
 ## 0.15.0 — 2026-09-15
 
 - Add an accessible **+** button to writable list-property group headings.

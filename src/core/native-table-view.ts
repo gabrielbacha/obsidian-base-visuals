@@ -50,7 +50,11 @@ interface NativeTableView {
 		baseFileName?: string,
 		frontmatterProcessor?: (frontmatter: Record<string, unknown>) => void,
 	) => Promise<void>;
-	data?: { properties?: unknown[]; data?: unknown[] };
+	data?: {
+		properties?: unknown[];
+		data?: unknown[];
+		groupedData?: unknown[];
+	};
 	columnInfo?: Record<string, NativeColumnInfo>;
 	minColWidth?: number;
 	maxColWidth?: number;
@@ -78,7 +82,12 @@ interface NativeColumnInfo {
 }
 
 interface NativeResultEntry {
+	file?: TFile;
 	getValue(propertyId: string): unknown;
+}
+
+interface NativeResultGroup {
+	entries?: unknown[];
 }
 
 interface ListLikeValue {
@@ -350,6 +359,32 @@ export function getNativeResultPropertyValues(
 		values.set(propertyId, propertyValues);
 	}
 	return { available: true, properties, values };
+}
+
+/**
+ * Return the files represented by the current native result in rendered order.
+ * Grouped results are preferred because the table renders those groups rather
+ * than the ungrouped `data` array.
+ */
+export function getNativeResultFiles(app: App, scope: HTMLElement): TFile[] {
+	const result = findNativeTableView(app, scope)?.data;
+	if (!result) return [];
+	let entries: unknown[] = Array.isArray(result.data) ? result.data : [];
+	try {
+		if (Array.isArray(result.groupedData)) {
+			const groupedEntries = result.groupedData.flatMap((group) =>
+				isNativeResultGroup(group) && Array.isArray(group.entries) ? group.entries : []);
+			if (groupedEntries.length > 0) entries = groupedEntries;
+		}
+	} catch {
+		// Some Obsidian builds expose groupedData through a getter. The plain
+		// result remains a safe fallback if that getter is temporarily unavailable.
+	}
+	const files = entries.flatMap((entry) => {
+		if (!isNativeResultEntry(entry) || !isTFileLike(entry.file)) return [];
+		return [entry.file];
+	});
+	return [...new Map(files.map((file) => [file.path, file])).values()];
 }
 
 export function getNativeColumnAppearance(
@@ -636,6 +671,15 @@ function valueTexts(value: unknown): string[] {
 
 function isNativeResultEntry(value: unknown): value is NativeResultEntry {
 	return isObject(value) && typeof value.getValue === 'function';
+}
+
+function isNativeResultGroup(value: unknown): value is NativeResultGroup {
+	return isObject(value);
+}
+
+function isTFileLike(value: unknown): value is TFile {
+	return isObject(value) && typeof value.path === 'string' &&
+		typeof value.name === 'string' && typeof value.basename === 'string';
 }
 
 function isListLikeValue(value: unknown): value is ListLikeValue {

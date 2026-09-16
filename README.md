@@ -38,6 +38,7 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
 - Subtle table-header tinting and emphasis for the first visible column
 - Grouped row headings that automatically mirror the grouped value's pill color
 - A compact group-heading button that creates a new note with the clicked list value already assigned
+- Inline filename editing from Base tables without opening or context-clicking the note
 - View-specific column appearance with muted, faint, custom-color, and bold treatments
 - Keyboard-accessible layout, width-scope, and column-tone controls
 - Guarded native pill removal that never lets Delete or Backspace clear the whole cell
@@ -53,6 +54,7 @@ Open a Base table containing a list property. Values receive stable automatic co
 - Click **Layout** to adjust row height, test column-width presets, reset widths, or save the current combination as a reusable layout.
 - Use **Unset only** to preserve unrelated manual widths. Header indicators show which columns will change. **All columns** always asks for confirmation.
 - Group a table by a colored list property to carry each value's pill color into its group heading. Use the **+** button beside a group to open Obsidian's new-note prompt with that list value already assigned.
+- In a `file.name` column, click the empty area of a filename cell to rename that file in place; the filename link itself still opens the note. Press **Enter** or leave the field to save, or press **Escape** to cancel. The file stays in its current folder with its original extension, and duplicate or invalid names are rejected safely.
 - Right-click a column header and choose **Column appearance** to de-emphasize, recolor, or bold that field in the current view or every view in the Base.
 - For list columns, right-click the header and choose **Pill appearance** to change its color strategy and Soft, Solid, or Outline style without opening the full manager.
 - Enable **Wrap pills** there to flow multiple list pills onto additional lines within the column.
@@ -80,7 +82,7 @@ Bases Visuals is being prepared for the Obsidian Community Plugins directory. On
 
 - Bases Visuals works entirely offline and makes no network requests.
 - It observes rendered Base tables and stores only explicit visual preferences in sparse, namespaced Base configuration.
-- Visual settings do not modify note Markdown or frontmatter. The group **+** action explicitly creates a new note with the selected list value, and **Remove from row** invokes Obsidian's native list-value removal control. Base-wide choices are saved once at the top level of the `.base` file; view-specific choices remain with that view.
+- Visual settings do not modify note Markdown or frontmatter. The group **+** action explicitly creates a new note with the selected list value, inline filename editing renames the selected file through Obsidian, and **Remove from row** invokes Obsidian's native list-value removal control. Base-wide choices are saved once at the top level of the `.base` file; view-specific choices remain with that view.
 - It includes no telemetry or analytics.
 
 ## Development

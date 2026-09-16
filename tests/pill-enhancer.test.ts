@@ -1,4 +1,4 @@
-import { Notice, type App, type EventRef } from 'obsidian';
+import { Notice, TFile, type App, type EventRef } from 'obsidian';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ColumnMenuRequest, PillEnhancer } from '../src/core/pill-enhancer';
 import { SettingsStore } from '../src/core/settings-store';
@@ -30,6 +30,9 @@ interface NativeFixtureOptions {
 		baseFileName?: string,
 		frontmatterProcessor?: (frontmatter: Record<string, unknown>) => void,
 	) => Promise<void>;
+	file?: TFile;
+	renameFile?: (file: TFile, path: string) => Promise<void>;
+	getAbstractFileByPath?: (path: string) => unknown;
 }
 
 const activeHarnesses: Harness[] = [];
@@ -191,6 +194,92 @@ describe('PillEnhancer', () => {
 
 		harness.enhancer.stop();
 		expect(heading?.querySelector('.bpc-group-add-button')).toBeNull();
+	});
+
+	it('renames file names inline without triggering the native cell click', async () => {
+		const file = Object.assign(new TFile(), {
+			path: 'Projects/Old name.md',
+			name: 'Old name.md',
+			basename: 'Old name',
+			extension: 'md',
+			parent: { path: 'Projects' },
+		});
+		const renameFile = vi.fn(async () => undefined);
+		const cellClick = vi.fn();
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const body = table.createDiv('bases-tbody');
+			const row = body.createDiv('bases-tr');
+			const cell = row.createDiv('bases-td');
+			cell.dataset.property = 'file.name';
+			const link = cell.createEl('a', { text: 'Old name' });
+			link.dataset.href = 'Projects/Old name';
+			cell.addEventListener('click', cellClick);
+		}, undefined, undefined, {
+			order: ['file.name'],
+			dataProperties: ['file.name'],
+			file,
+			renameFile,
+		});
+		const fileNameCell = harness.root.querySelector<HTMLElement>('.bases-td[data-property="file.name"]');
+		expect(fileNameCell?.classList.contains('bpc-file-renamable')).toBe(true);
+		harness.root.querySelector<HTMLAnchorElement>('a[data-href]')?.dispatchEvent(
+			new MouseEvent('click', { bubbles: true, cancelable: true }),
+		);
+		expect(cellClick).toHaveBeenCalledOnce();
+		cellClick.mockClear();
+
+		fileNameCell?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+		expect(cellClick).not.toHaveBeenCalled();
+		const input = harness.root.querySelector<HTMLInputElement>('.bpc-file-rename-input');
+		expect(input?.value).toBe('Old name');
+		if (input) input.value = 'New name';
+		input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+		await mutationCycle();
+		expect(renameFile).toHaveBeenCalledWith(file, 'Projects/New name.md');
+		expect(harness.root.querySelector('.bpc-file-rename-input')).toBeNull();
+
+		fileNameCell?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+		const blurInput = harness.root.querySelector<HTMLInputElement>('.bpc-file-rename-input');
+		if (blurInput) blurInput.value = 'Blurred name';
+		blurInput?.blur();
+		await mutationCycle();
+		expect(renameFile).toHaveBeenLastCalledWith(file, 'Projects/Blurred name.md');
+	});
+
+	it('cancels inline file rename with Escape and keeps failed edits active', async () => {
+		const file = Object.assign(new TFile(), {
+			path: 'Old name.md', name: 'Old name.md', basename: 'Old name', extension: 'md', parent: { path: '' },
+		});
+		const renameFile = vi.fn(async () => undefined);
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const body = table.createDiv('bases-tbody');
+			const cell = body.createDiv('bases-td');
+			cell.dataset.property = 'file.name';
+			const link = cell.createEl('a', { cls: 'internal-link', text: 'Old name' });
+			link.dataset.href = 'Old name';
+		}, undefined, undefined, {
+			order: ['file.name'], dataProperties: ['file.name'], file, renameFile,
+			getAbstractFileByPath: (path) => path === 'Existing.md' ? { path } : null,
+		});
+
+		const fileNameCell = harness.root.querySelector<HTMLElement>('.bases-td[data-property="file.name"]');
+		fileNameCell?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+		let input = harness.root.querySelector<HTMLInputElement>('.bpc-file-rename-input');
+		input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+		expect(renameFile).not.toHaveBeenCalled();
+		expect(harness.root.querySelector('.bpc-file-rename-input')).toBeNull();
+
+		fileNameCell?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+		input = harness.root.querySelector<HTMLInputElement>('.bpc-file-rename-input');
+		if (input) input.value = 'Existing';
+		input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+		await mutationCycle();
+		expect(harness.root.querySelector('.bpc-file-rename-input')).not.toBeNull();
+		expect((Notice as unknown as { messages: string[] }).messages).toContain(
+			'A file named “Existing.md” already exists in this folder.',
+		);
 	});
 
 	it('omits group creation for unsupported properties and reports native failures', async () => {
@@ -881,8 +970,20 @@ function createHarness(
 			type === 'bases' ? [{ view }] : [],
 		on: () => ({}) as EventRef,
 	};
+	const app = {
+		workspace,
+		metadataCache: {
+			getFirstLinkpathDest: () => nativeOptions?.file ?? null,
+		},
+		vault: {
+			getAbstractFileByPath: (path: string) => nativeOptions?.getAbstractFileByPath?.(path) ?? null,
+		},
+		fileManager: {
+			renameFile: (file: TFile, path: string) => nativeOptions?.renameFile?.(file, path) ?? Promise.resolve(),
+		},
+	} as unknown as App;
 	const enhancer = new PillEnhancer(
-		{ workspace } as unknown as App,
+		app,
 		globalStore,
 		openRuleManager,
 		openColumnManager,

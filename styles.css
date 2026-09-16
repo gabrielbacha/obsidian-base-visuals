@@ -583,6 +583,33 @@
 	text-decoration-color: currentColor;
 }
 
+.bases-table :is(.bases-td, .bases-table-cell).bpc-file-renamable {
+	cursor: text;
+}
+
+.bases-table :is(.bases-td, .bases-table-cell).bpc-file-renamable a {
+	cursor: pointer;
+}
+
+.bases-table :is(.bases-td, .bases-table-cell).bpc-file-renaming > :not(.bpc-file-rename-input) {
+	display: none !important;
+}
+
+.bases-table :is(.bases-td, .bases-table-cell) .bpc-file-rename-input {
+	box-sizing: border-box;
+	flex: 1 1 auto;
+	min-width: 0;
+	height: calc(100% - 4px);
+	margin: 2px 0;
+	padding: 2px 6px;
+	border: 1px solid var(--interactive-accent);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	box-shadow: 0 0 0 1px var(--interactive-accent);
+	color: var(--text-normal);
+	font: inherit;
+}
+
 .bases-table .bases-group-heading.bpc-group-heading--colored {
 	--bases-group-heading-value-color: var(--bpc-fg-light);
 	background-color: var(--background-secondary);
