@@ -2,6 +2,17 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.17.0 — 2026-09-22
+
+- Preserve unknown `basesVisuals` and `basesVisualsView` fields, nested fields, malformed entries, and newer schema versions when saving recognized settings.
+- Rebase compatible writes onto the latest `.base` contents and report same-setting conflicts instead of overwriting another editor's changes.
+- Stop pruning configuration merely because a property is temporarily absent; cleanup remains an explicit, confirmed action.
+- Show Obsidian notices when `.base` persistence fails instead of silently continuing with only in-memory state.
+- Patch YAML/JSON extension records through source ranges so comments, quoted keys, formatting, and unrelated Base data survive saves.
+- Store view-scoped column appearance in `basesVisualsView` schema 2 and migrate the legacy view key only after an intentional edit.
+- Merge concurrent changes at field granularity, detect duplicate rule identities, and keep future option and strategy variants opaque.
+- Keep opening and hydrating a Base read-only; alias normalization and legacy migration become durable only with a user edit.
+
 ## 0.16.0 — 2026-09-16
 
 - Add direct in-cell filename editing to Base table rows without interfering with the filename link.

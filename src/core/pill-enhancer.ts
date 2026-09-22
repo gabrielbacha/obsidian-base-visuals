@@ -922,6 +922,7 @@ export class PillEnhancer {
 			scope,
 			propertyId,
 			this.baseStores?.getBaseColumnAppearances(scope),
+			this.baseStores?.getViewColumnAppearances?.(scope),
 		);
 		const content = menu.querySelector<HTMLElement>(':scope > .menu-scroll') ?? menu;
 		const item = content.createDiv('menu-item tappable bpc-column-appearance-menu-item');
@@ -1030,6 +1031,7 @@ export class PillEnhancer {
 			scope,
 			propertyId,
 			this.baseStores?.getBaseColumnAppearances(scope),
+			this.baseStores?.getViewColumnAppearances?.(scope),
 		);
 		clearColumnAppearance(element);
 		if (appearance.tone === 'default' && !appearance.bold) {

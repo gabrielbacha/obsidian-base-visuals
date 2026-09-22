@@ -46,16 +46,22 @@ export class ColumnAppearancePopover {
 		close.addEventListener('click', () => this.close());
 
 		const baseAppearances = this.baseStores?.getBaseColumnAppearances(scope) ?? {};
+		const viewAppearances = this.baseStores?.getViewColumnAppearances?.(scope);
 		// New formatting is Base-wide by default. An existing view override keeps
 		// its narrower scope until the user explicitly promotes it.
-		let applyToAllViews = !hasNativeColumnAppearance(this.app, scope, propertyId);
-		let appearance = getNativeColumnAppearance(this.app, scope, propertyId, baseAppearances);
+		let applyToAllViews = !hasNativeColumnAppearance(this.app, scope, propertyId, viewAppearances);
+		let appearance = getNativeColumnAppearance(this.app, scope, propertyId, baseAppearances, viewAppearances);
 		const commit = (next: NativeColumnAppearance) => {
 			appearance = next;
 			if (applyToAllViews && this.baseStores) {
-				setNativeColumnAppearance(this.app, scope, propertyId, DEFAULT_COLUMN_APPEARANCE);
+				if (this.baseStores.setViewColumnAppearance) {
+					this.baseStores.setViewColumnAppearance(scope, propertyId, null);
+				} else setNativeColumnAppearance(this.app, scope, propertyId, DEFAULT_COLUMN_APPEARANCE);
 				this.baseStores.setBaseColumnAppearance(scope, propertyId, next);
-			} else setNativeColumnAppearance(this.app, scope, propertyId, next);
+			} else if (this.baseStores?.setViewColumnAppearance) {
+				this.baseStores.setViewColumnAppearance(scope, propertyId, next);
+			}
+			else setNativeColumnAppearance(this.app, scope, propertyId, next);
 			onChange();
 		};
 
@@ -72,11 +78,16 @@ export class ColumnAppearancePopover {
 		scopeInput.addEventListener('change', () => {
 			applyToAllViews = scopeInput.checked;
 			if (applyToAllViews && this.baseStores) {
-				setNativeColumnAppearance(this.app, scope, propertyId, DEFAULT_COLUMN_APPEARANCE);
+				if (this.baseStores.setViewColumnAppearance) {
+					this.baseStores.setViewColumnAppearance(scope, propertyId, null);
+				} else setNativeColumnAppearance(this.app, scope, propertyId, DEFAULT_COLUMN_APPEARANCE);
 				this.baseStores.setBaseColumnAppearance(scope, propertyId, appearance);
 			} else {
 				this.baseStores?.setBaseColumnAppearance(scope, propertyId, null);
-				setNativeColumnAppearance(this.app, scope, propertyId, appearance);
+				if (this.baseStores?.setViewColumnAppearance) {
+					this.baseStores.setViewColumnAppearance(scope, propertyId, appearance);
+				}
+				else setNativeColumnAppearance(this.app, scope, propertyId, appearance);
 			}
 			onChange();
 		});

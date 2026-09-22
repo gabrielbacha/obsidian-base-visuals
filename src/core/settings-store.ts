@@ -269,7 +269,7 @@ export class SettingsStore {
 		return removed;
 	}
 
-	rekeyProperties(resolve: (propertyId: string) => string): boolean {
+	rekeyProperties(resolve: (propertyId: string) => string, persist = true): boolean {
 		let changed = false;
 		const options: typeof this.settings.options = {};
 		const orderedOptions = Object.values(this.settings.options).sort((first, second) =>
@@ -318,7 +318,8 @@ export class SettingsStore {
 		this.settings.propertyStrategies = propertyStrategies;
 		this.settings.rules = rules;
 		this.settings.collapsedPropertyGroups = collapsedPropertyGroups;
-		this.changed();
+		if (persist) this.changed();
+		else this.emit();
 		return true;
 	}
 

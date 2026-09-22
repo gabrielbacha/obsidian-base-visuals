@@ -392,17 +392,32 @@ export function getNativeColumnAppearance(
 	scope: HTMLElement,
 	propertyId: string,
 	baseAppearances?: Record<string, unknown>,
+	viewAppearances?: Record<string, unknown>,
 ): NativeColumnAppearance {
 	const view = findNativeTableView(app, scope);
-	const stored = view?.config.get(COLUMN_APPEARANCE_CONFIG_KEY);
+	const viewVisuals = view?.config.get('basesVisualsView');
+	const stored = viewAppearances
+		?? (isObject(viewVisuals) && isObject(viewVisuals.columnAppearances)
+			? viewVisuals.columnAppearances
+			: view?.config.get(COLUMN_APPEARANCE_CONFIG_KEY));
 	if (isObject(stored) && Object.prototype.hasOwnProperty.call(stored, propertyId)) {
 		return normalizeColumnAppearance(stored[propertyId]);
 	}
 	return normalizeColumnAppearance(baseAppearances?.[propertyId]);
 }
 
-export function hasNativeColumnAppearance(app: App, scope: HTMLElement, propertyId: string): boolean {
-	const stored = findNativeTableView(app, scope)?.config.get(COLUMN_APPEARANCE_CONFIG_KEY);
+export function hasNativeColumnAppearance(
+	app: App,
+	scope: HTMLElement,
+	propertyId: string,
+	viewAppearances?: Record<string, unknown>,
+): boolean {
+	const config = findNativeTableView(app, scope)?.config;
+	const viewVisuals = config?.get('basesVisualsView');
+	const stored = viewAppearances
+		?? (isObject(viewVisuals) && isObject(viewVisuals.columnAppearances)
+			? viewVisuals.columnAppearances
+			: config?.get(COLUMN_APPEARANCE_CONFIG_KEY));
 	return isObject(stored) && Object.prototype.hasOwnProperty.call(stored, propertyId);
 }
 

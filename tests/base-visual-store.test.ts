@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { App, WorkspaceLeaf } from 'obsidian';
+import { Notice, type App, type WorkspaceLeaf } from 'obsidian';
 import {
 	BASE_VISUALS_KEY,
 	LEGACY_BASE_VISUALS_KEY,
@@ -10,6 +10,7 @@ import {
 import { SettingsStore } from '../src/core/settings-store';
 import { DEFAULT_SETTINGS } from '../src/core/types';
 import { encodeOptionKey } from '../src/core/colors';
+import { COLUMN_APPEARANCE_CONFIG_KEY } from '../src/core/native-table-view';
 
 describe('BaseVisualStoreRepository', () => {
 	it('migrates legacy visuals and separates Base-wide and view rules', async () => {
@@ -363,8 +364,446 @@ describe('BaseVisualStoreRepository', () => {
 			propertyStrategies: { 'note.status': { mode: 'status' } },
 		});
 		expect(next).toContain('# human comment\nfilters:\n  and:\n    - file.ext == "md"\n');
-		expect(next).toContain('"basesVisuals": {\n    "schemaVersion": 7,\n    "propertyStrategies":');
+		expect(next).toContain('basesVisuals:\n  schemaVersion: 7\n  propertyStrategies:');
 		expect(next).not.toContain(LEGACY_BASE_VISUALS_KEY);
 		expect(next).toContain('    order:\n      - file.name\n');
+	});
+
+	it('preserves unknown top-level and nested data from newer schemas', () => {
+		const identity = { propertyId: 'note.status', value: 'Done' };
+		const optionKey = encodeOptionKey(identity);
+		const source = JSON.stringify({
+			basesVisuals: {
+				schemaVersion: 99,
+				futureTopLevel: { desktopOnly: true },
+				options: {
+					[optionKey]: {
+						...identity,
+						override: { kind: 'preset', name: 'green-sea' },
+						futureOptionField: 'keep me',
+					},
+					futureMalformedOption: { future: true },
+				},
+				rules: [{
+					id: 'shared-rule', name: 'Shared', enabled: true, propertyId: 'note.status',
+					operator: 'equals', operand: 'Done', target: 'cell', scope: 'base',
+					futureRuleField: { renderer: 'detail' },
+				}],
+				propertyStrategies: {
+					'note.status': { mode: 'status', style: 'soft', futureStrategyField: 42 },
+				},
+			},
+			views: [],
+		});
+		const next = updateBaseVisualsSource(source, {
+			schemaVersion: 7,
+			options: {
+				[optionKey]: {
+					...identity,
+					override: { kind: 'preset', name: 'peter-river' },
+				},
+			},
+			knownProperties: {},
+			rules: [{
+				id: 'shared-rule', name: 'Shared', enabled: true, propertyId: 'note.status',
+				operator: 'equals', operand: 'Done', target: 'cell', scope: 'base',
+			}],
+			propertyStrategies: { 'note.status': { mode: 'status', style: 'solid' } },
+		});
+		const persisted = (JSON.parse(next) as {
+			basesVisuals: {
+				schemaVersion: number;
+				futureTopLevel: unknown;
+				options: Record<string, Record<string, unknown>>;
+				rules: Array<Record<string, unknown>>;
+				propertyStrategies: Record<string, Record<string, unknown>>;
+			};
+		}).basesVisuals;
+
+		expect(persisted.schemaVersion).toBe(99);
+		expect(persisted.futureTopLevel).toEqual({ desktopOnly: true });
+		expect(persisted.options[optionKey]?.futureOptionField).toBe('keep me');
+		expect(persisted.options.futureMalformedOption).toEqual({ future: true });
+		expect(persisted.rules[0]?.futureRuleField).toEqual({ renderer: 'detail' });
+		expect(persisted.propertyStrategies['note.status']?.futureStrategyField).toBe(42);
+		expect(persisted.propertyStrategies['note.status']?.style).toBe('solid');
+	});
+
+	it('preserves future option and strategy variants with recognizable identities', () => {
+		const source = JSON.stringify({
+			basesVisuals: {
+				schemaVersion: 99,
+				options: {
+					future: {
+						propertyId: 'note.status', value: 'Done',
+						override: { kind: 'gradient', from: '#000000', to: '#FFFFFF' },
+					},
+				},
+				propertyStrategies: {
+					'note.status': { mode: 'gradient', direction: 45 },
+				},
+			},
+			views: [],
+		});
+		const next = updateBaseVisualsSource(source, {
+			schemaVersion: 7, options: {}, knownProperties: {}, rules: [], propertyStrategies: {},
+			rawSource: (JSON.parse(source) as { basesVisuals: Record<string, unknown> }).basesVisuals,
+		});
+		const persisted = (JSON.parse(next) as { basesVisuals: Record<string, unknown> }).basesVisuals;
+		expect(persisted.options).toEqual({
+			future: {
+				propertyId: 'note.status', value: 'Done',
+				override: { kind: 'gradient', from: '#000000', to: '#FFFFFF' },
+			},
+		});
+		expect(persisted.propertyStrategies).toEqual({
+			'note.status': { mode: 'gradient', direction: 45 },
+		});
+	});
+
+	it('merges concurrent edits to different fields of the same strategy', () => {
+		const baseline = {
+			schemaVersion: 7,
+			propertyStrategies: { 'note.status': { mode: 'status', style: 'soft' } },
+		};
+		const source = JSON.stringify({
+			basesVisuals: {
+				...baseline,
+				propertyStrategies: { 'note.status': { mode: 'status', style: 'solid' } },
+			},
+			views: [],
+		});
+		const next = updateBaseVisualsSource(source, {
+			schemaVersion: 7, options: {}, knownProperties: {}, rules: [],
+			propertyStrategies: { 'note.status': { mode: 'priority', style: 'soft' } },
+			rawSource: baseline,
+		});
+		expect((JSON.parse(next) as {
+			basesVisuals: { propertyStrategies: Record<string, unknown> };
+		}).basesVisuals.propertyStrategies['note.status']).toEqual({ mode: 'priority', style: 'solid' });
+	});
+
+	it('does not migrate legacy data merely by opening a Base', async () => {
+		const root = document.body.createDiv();
+		const scope = root.createDiv('bases-view');
+		const values = new Map<string, unknown>();
+		values.set(LEGACY_BASE_VISUALS_KEY, {
+			schemaVersion: 6, propertyStrategies: { 'note.status': { mode: 'status' } },
+		});
+		const config = { get: (key: string) => values.get(key), set: vi.fn() };
+		const baseFile = { path: 'passive.base', extension: 'base' };
+		const leaf = { view: { containerEl: root, nativeTable: {
+			type: 'table', containerEl: scope, config, path: baseFile.path,
+		} } } as unknown as WorkspaceLeaf;
+		const process = vi.fn();
+		const app = {
+			workspace: { getLeavesOfType: () => [leaf] },
+			vault: {
+				getFileByPath: () => baseFile,
+				cachedRead: async () => JSON.stringify({
+					views: [{ type: 'table', basesVisualsBase: values.get(LEGACY_BASE_VISUALS_KEY) }],
+				}),
+				process,
+			},
+		} as unknown as App;
+		const repository = new BaseVisualStoreRepository(
+			app,
+			new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined),
+		);
+		repository.forScope(scope);
+		await vi.waitFor(() => {
+			expect(repository.resolvePropertyId(scope, 'note.status')).toBe('note.status');
+		});
+		expect(process).not.toHaveBeenCalled();
+		await repository.dispose();
+		root.remove();
+	});
+
+	it('rebases edits onto independent changes made by another editor', () => {
+		const baseline = {
+			schemaVersion: 7,
+			propertyStrategies: {
+				'note.status': { mode: 'status' },
+				'note.priority': { mode: 'priority' },
+			},
+		};
+		const source = JSON.stringify({
+			basesVisuals: {
+				...baseline,
+				propertyStrategies: {
+					...baseline.propertyStrategies,
+					'note.status': { mode: 'status', style: 'solid' },
+				},
+			},
+			views: [],
+		});
+		const next = updateBaseVisualsSource(source, {
+			schemaVersion: 7,
+			options: {}, knownProperties: {}, rules: [],
+			propertyStrategies: {
+				'note.status': { mode: 'status' },
+				'note.priority': { mode: 'priority', style: 'outline' },
+			},
+			rawSource: baseline,
+		});
+		const strategies = (JSON.parse(next) as {
+			basesVisuals: { propertyStrategies: Record<string, unknown> };
+		}).basesVisuals.propertyStrategies;
+
+		expect(strategies).toEqual({
+			'note.status': { mode: 'status', style: 'solid' },
+			'note.priority': { mode: 'priority', style: 'outline' },
+		});
+	});
+
+	it('leaves malformed extension data untouched instead of destructively replacing it', () => {
+		const source = JSON.stringify({ basesVisuals: ['future', 'shape'], views: [] });
+		const next = updateBaseVisualsSource(source, {
+			schemaVersion: 7,
+			options: {}, knownProperties: {}, rules: [],
+			propertyStrategies: { 'note.status': { mode: 'status' } },
+		});
+
+		expect(next).toBe(source);
+	});
+
+	it('preserves unknown view data when saving recognized view rules', async () => {
+		const root = document.body.createDiv();
+		const scope = root.createDiv('bases-view');
+		const values = new Map<string, unknown>();
+		values.set(VIEW_VISUALS_KEY, {
+			schemaVersion: 8,
+			futureViewField: { layout: 'detail' },
+			rules: [{
+				id: 'view-rule', name: 'View rule', enabled: true, propertyId: 'note.status',
+				operator: 'equals', operand: 'Done', target: 'cell', scope: 'view',
+				futureRuleField: 'keep',
+			}],
+		});
+		const config = {
+			get: (key: string) => values.get(key),
+			set: (key: string, value: unknown) => values.set(key, value),
+		};
+		const leaf = { view: { containerEl: root, nativeTable: { type: 'table', containerEl: scope, config } } } as unknown as WorkspaceLeaf;
+		const app = {
+			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
+			vault: { getFileByPath: () => null },
+		} as unknown as App;
+		const repository = new BaseVisualStoreRepository(
+			app,
+			new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined),
+		);
+		const store = repository.forScope(scope);
+
+		store.setPropertyStyle('note.status', 'solid');
+		await store.flush();
+		const persisted = values.get(VIEW_VISUALS_KEY) as {
+			schemaVersion: number;
+			futureViewField: unknown;
+			rules: Array<Record<string, unknown>>;
+		};
+		expect(persisted.schemaVersion).toBe(8);
+		expect(persisted.futureViewField).toEqual({ layout: 'detail' });
+		expect(persisted.rules[0]?.futureRuleField).toBe('keep');
+
+		await repository.dispose();
+		root.remove();
+	});
+
+	it('migrates a legacy view appearance to basesVisualsView v2 on an intentional edit', async () => {
+		const root = document.body.createDiv();
+		const scope = root.createDiv('bases-view');
+		const values = new Map<string, unknown>();
+		values.set(COLUMN_APPEARANCE_CONFIG_KEY, {
+			'note.status': { tone: 'muted', bold: false },
+		});
+		const config = {
+			get: (key: string) => values.get(key),
+			set: (key: string, value: unknown) => values.set(key, value),
+		};
+		const baseFile = { path: 'view-v2.base', extension: 'base' };
+		const leaf = { view: { containerEl: root, nativeTable: {
+			type: 'table', containerEl: scope, config, path: baseFile.path,
+		} } } as unknown as WorkspaceLeaf;
+		let source = JSON.stringify({
+			views: [{
+				type: 'table',
+				[COLUMN_APPEARANCE_CONFIG_KEY]: values.get(COLUMN_APPEARANCE_CONFIG_KEY),
+			}],
+		});
+		const app = {
+			workspace: { getLeavesOfType: () => [leaf] },
+			vault: {
+				getFileByPath: () => baseFile,
+				cachedRead: async () => source,
+				process: async (_file: unknown, update: (current: string) => string) => {
+					source = update(source);
+				},
+			},
+		} as unknown as App;
+		const repository = new BaseVisualStoreRepository(
+			app,
+			new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined),
+		);
+		repository.forScope(scope);
+		repository.setViewColumnAppearance(scope, 'note.status', { tone: 'faint', bold: true });
+		await vi.waitFor(() => {
+			const parsed = JSON.parse(source) as { views: Array<Record<string, unknown>> };
+			expect(parsed.views[0]?.[VIEW_VISUALS_KEY]).toEqual({
+				schemaVersion: 2,
+				columnAppearances: { 'note.status': { tone: 'faint', bold: true } },
+			});
+			expect(parsed.views[0]).not.toHaveProperty(COLUMN_APPEARANCE_CONFIG_KEY);
+		});
+		await repository.dispose();
+		root.remove();
+	});
+
+	it('does not prune temporarily missing properties during passive loading or later saves', async () => {
+		const root = document.body.createDiv();
+		const scope = root.createDiv('bases-view');
+		const values = new Map<string, unknown>();
+		const config = {
+			get: (key: string) => values.get(key),
+			set: (key: string, value: unknown) => values.set(key, value),
+			getOrder: () => ['note.current'],
+		};
+		const baseFile = { path: 'missing-property.base', extension: 'base' };
+		const nativeTable = {
+			type: 'table', containerEl: scope, config, path: baseFile.path,
+			data: { properties: ['note.current'], data: [] },
+		};
+		const leaf = { view: { containerEl: root, nativeTable } } as unknown as WorkspaceLeaf;
+		let source = JSON.stringify({
+			properties: { current: { type: 'select' } },
+			basesVisuals: {
+				schemaVersion: 7,
+				propertyStrategies: { 'note.temporarily_missing': { mode: 'status', style: 'outline' } },
+			},
+			views: [],
+		});
+		const app = {
+			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
+			vault: {
+				getFileByPath: (path: string) => path === baseFile.path ? baseFile : null,
+				cachedRead: async () => source,
+				process: async (_file: unknown, update: (current: string) => string) => {
+					source = update(source);
+				},
+			},
+		} as unknown as App;
+		const repository = new BaseVisualStoreRepository(
+			app,
+			new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined),
+		);
+		const store = repository.forScope(scope);
+		await vi.waitFor(() => {
+			expect(store.getPropertyStyle('note.temporarily_missing')).toBe('outline');
+		});
+
+		store.setPropertyStyle('note.current', 'solid');
+		await store.flush();
+		const strategies = (JSON.parse(source) as {
+			basesVisuals: { propertyStrategies: Record<string, unknown> };
+		}).basesVisuals.propertyStrategies;
+		expect(strategies['note.temporarily_missing']).toEqual({ mode: 'status', style: 'outline' });
+		expect(strategies['note.current']).toEqual({ mode: 'smart', style: 'solid' });
+
+		await repository.dispose();
+		root.remove();
+	});
+
+	it('refuses and reports incompatible edits to the same setting', async () => {
+		const noticeMessages = (Notice as unknown as { messages: string[] }).messages;
+		noticeMessages.length = 0;
+		const root = document.body.createDiv();
+		const scope = root.createDiv('bases-view');
+		const values = new Map<string, unknown>();
+		const config = {
+			get: (key: string) => values.get(key),
+			set: (key: string, value: unknown) => values.set(key, value),
+		};
+		const baseFile = { path: 'conflict.base', extension: 'base' };
+		const nativeTable = { type: 'table', containerEl: scope, config, path: baseFile.path };
+		const leaf = { view: { containerEl: root, nativeTable } } as unknown as WorkspaceLeaf;
+		let source = JSON.stringify({
+			basesVisuals: {
+				schemaVersion: 7,
+				propertyStrategies: { 'note.status': { mode: 'status' } },
+			},
+			views: [],
+		});
+		const app = {
+			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
+			vault: {
+				getFileByPath: (path: string) => path === baseFile.path ? baseFile : null,
+				cachedRead: async () => source,
+				process: async (_file: unknown, update: (current: string) => string) => {
+					source = update(source);
+				},
+			},
+		} as unknown as App;
+		const repository = new BaseVisualStoreRepository(
+			app,
+			new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined),
+		);
+		const store = repository.forScope(scope);
+		await vi.waitFor(() => {
+			expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'status' });
+		});
+		const externallyEdited = JSON.parse(source) as {
+			basesVisuals: {
+				propertyStrategies: Record<string, { mode: string; style?: string }>;
+			};
+		};
+		const externalStatus = externallyEdited.basesVisuals.propertyStrategies['note.status'];
+		if (externalStatus) externalStatus.style = 'solid';
+		source = JSON.stringify(externallyEdited);
+
+		store.setPropertyStyle('note.status', 'outline');
+		await store.flush();
+		const persisted = JSON.parse(source) as {
+			basesVisuals: { propertyStrategies: Record<string, { style?: string }> };
+		};
+		expect(persisted.basesVisuals.propertyStrategies['note.status']?.style).toBe('solid');
+		expect(noticeMessages.at(-1)).toContain('conflicting changes in propertyStrategies.note.status');
+
+		await repository.dispose();
+		root.remove();
+	});
+
+	it('shows persistence failures instead of silently implying a save succeeded', async () => {
+		const noticeMessages = (Notice as unknown as { messages: string[] }).messages;
+		noticeMessages.length = 0;
+		const root = document.body.createDiv();
+		const scope = root.createDiv('bases-view');
+		const values = new Map<string, unknown>();
+		const config = {
+			get: (key: string) => values.get(key),
+			set: (key: string, value: unknown) => values.set(key, value),
+		};
+		const baseFile = { path: 'read-only.base', extension: 'base' };
+		const nativeTable = { type: 'table', containerEl: scope, config, path: baseFile.path };
+		const leaf = { view: { containerEl: root, nativeTable } } as unknown as WorkspaceLeaf;
+		const app = {
+			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
+			vault: {
+				getFileByPath: (path: string) => path === baseFile.path ? baseFile : null,
+				cachedRead: async () => JSON.stringify({ views: [] }),
+				process: async () => { throw new Error('read only'); },
+			},
+		} as unknown as App;
+		const repository = new BaseVisualStoreRepository(
+			app,
+			new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined),
+		);
+		const store = repository.forScope(scope);
+
+		store.setPropertyStyle('note.status', 'solid');
+		await store.flush();
+		expect(noticeMessages.at(-1)).toContain('could not save read-only.base: read only');
+
+		await repository.dispose();
+		root.remove();
 	});
 });
