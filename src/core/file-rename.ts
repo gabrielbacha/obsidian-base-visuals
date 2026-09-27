@@ -1,3 +1,4 @@
+import { noteNameFrom, uniqueName } from '@gabrielbacha/bases-contract';
 import { normalizePath, type App, type TFile } from 'obsidian';
 import { getNativeBaseFile, getNativeResultFiles } from './native-table-view';
 
@@ -38,36 +39,38 @@ export function resolveFileFromNameCell(
 	return null;
 }
 
+/**
+ * Renames a file in place, keeping its folder and extension. What was typed is made into a valid
+ * name the way BaseStudio does (the shared `noteNameFrom`), and a name already used in the folder
+ * gets " 2", " 3"… (`uniqueName`), in place of refusing the rename.
+ */
 export async function renameFileBasename(
 	app: App,
 	file: TFile,
 	requestedName: string,
 ): Promise<'renamed' | 'unchanged'> {
-	const basename = normalizeRequestedBasename(requestedName, file.extension);
-	if (!basename) throw new Error('File name cannot be empty.');
-	if (basename === '.' || basename === '..' || /[/\\]/u.test(basename)) {
-		throw new Error('File names cannot contain path separators.');
-	}
-
+	const typed = stripExtension(requestedName.trim(), file.extension);
+	if (!typed) throw new Error('File name cannot be empty.');
 	const extension = file.extension ? `.${file.extension}` : '';
 	const parentPath = file.parent?.path ?? '';
-	const targetPath = normalizePath(`${parentPath ? `${parentPath}/` : ''}${basename}${extension}`);
+	const pathOf = (basename: string) => normalizePath(`${parentPath ? `${parentPath}/` : ''}${basename}${extension}`);
+	const wanted = noteNameFrom(typed);
+	if (pathOf(wanted) === file.path) return 'unchanged';
+	const basename = uniqueName(wanted, (candidate) => {
+		const existing = app.vault.getAbstractFileByPath(pathOf(candidate));
+		return Boolean(existing) && existing !== file;
+	});
+	const targetPath = pathOf(basename);
 	if (targetPath === file.path) return 'unchanged';
-	const existing = app.vault.getAbstractFileByPath(targetPath);
-	if (existing && existing !== file) {
-		throw new Error(`A file named “${basename}${extension}” already exists in this folder.`);
-	}
-
 	await app.fileManager.renameFile(file, targetPath);
 	return 'renamed';
 }
 
-function normalizeRequestedBasename(requestedName: string, extension: string): string {
-	const trimmed = requestedName.trim();
+function stripExtension(name: string, extension: string): string {
 	const suffix = extension ? `.${extension}` : '';
-	return suffix && trimmed.toLocaleLowerCase().endsWith(suffix.toLocaleLowerCase())
-		? trimmed.slice(0, -suffix.length).trim()
-		: trimmed;
+	return suffix && name.toLocaleLowerCase().endsWith(suffix.toLocaleLowerCase())
+		? name.slice(0, -suffix.length).trim()
+		: name;
 }
 
 function decodeLinkTarget(target: string): string {

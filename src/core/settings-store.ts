@@ -1,5 +1,21 @@
-import { encodeOptionKey, normalizeHex, normalizePaletteTemplateId, normalizePresetName } from './colors';
-import { effectivePropertyStrategy, inferPropertyStrategy } from './property-strategies';
+import {
+	defaultRuleBackgroundOpacity,
+	effectivePropertyStrategy,
+	encodeOptionKey,
+	inferPropertyStrategy,
+	normalizePaletteTemplateId,
+	normalizePropertyStrategies,
+	normalizePropertyStrategy,
+	normalizeRule,
+	normalizeRuleOpacity,
+	normalizeStoredOptions,
+	pillColor,
+	resolvePreset,
+	ROW_HEIGHTS,
+	type DeclaredOption,
+	type RowHeight,
+	type ResolvedColor,
+} from '@gabrielbacha/bases-contract';
 import {
 	BasesPillColorsSettings,
 	LayoutPreset,
@@ -10,18 +26,20 @@ import {
 	SCHEMA_VERSION,
 	StoredOption,
 	PropertyColorStrategy,
-	PROPERTY_STRATEGY_MODES,
 	PILL_STYLES,
 	PillStyle,
 	PaletteTemplateId,
 } from './types';
-import { isRuleOperator, normalizeRuleColor } from './rules';
 
 type SaveSettings = (settings: BasesPillColorsSettings) => Promise<void>;
+/** Saves the colour of a declared option in the Base file (`null` removes it). */
+export type DeclaredColorWriter = (identity: OptionIdentity, hex: string | null) => void;
 type Listener = () => void;
 
 export class SettingsStore {
 	private readonly listeners = new Set<Listener>();
+	private declaredOptions: Readonly<Record<string, readonly DeclaredOption[]>> = {};
+	private declaredColorWriter: DeclaredColorWriter | null = null;
 	private saveTimer: number | null = null;
 
 	constructor(
@@ -32,21 +50,7 @@ export class SettingsStore {
 	static normalize(raw: unknown): BasesPillColorsSettings {
 		if (!isRecord(raw)) return structuredClone(DEFAULT_SETTINGS);
 
-		const options: Record<string, StoredOption> = {};
-		const rawOptions = isRecord(raw.options) ? raw.options : {};
-		for (const candidate of Object.values(rawOptions)) {
-			if (!isRecord(candidate)) continue;
-			if (typeof candidate.propertyId !== 'string') continue;
-			if (typeof candidate.value !== 'string') continue;
-			const propertyId = candidate.propertyId.trim();
-			const value = candidate.value.trim();
-			if (!propertyId || !value) continue;
-
-			const option: StoredOption = { propertyId, value };
-			const override = normalizeOverride(candidate.override);
-			if (override) option.override = override;
-			options[encodeOptionKey(option)] = option;
-		}
+		const options = normalizeStoredOptions(raw.options);
 
 		const knownProperties: BasesPillColorsSettings['knownProperties'] = {};
 		if (isRecord(raw.knownProperties)) {
@@ -62,7 +66,11 @@ export class SettingsStore {
 
 		const rules = Array.isArray(raw.rules)
 			? raw.rules.flatMap((candidate, index) => {
-				const rule = normalizeRule(candidate, index);
+				const rule = normalizeRule(candidate, index, {
+					scope: isRecord(candidate) && candidate.scope === 'view' ? 'view' : 'base',
+					// Rules saved before the opacity contract meant a 12% tint when they had no opacity.
+					legacy: !(typeof raw.schemaVersion === 'number' && raw.schemaVersion >= SCHEMA_VERSION),
+				});
 				if (rule) knownProperties[rule.propertyId] = { propertyId: rule.propertyId };
 				return rule ? [rule] : [];
 			})
@@ -136,11 +144,86 @@ export class SettingsStore {
 	}
 
 	setOverride(identity: OptionIdentity, override?: ColorOverride): void {
+		if (this.setDeclaredColor(identity, override)) return;
 		const option = this.ensure(identity);
 		if (override) option.override = override;
 		else delete option.override;
 		this.scheduleSave();
 		this.emit();
+	}
+
+	/**
+	 * The options the Base declares for its typed columns (BaseStudio's select columns), and how to
+	 * save a colour on one. A declared option's colour is the single source for that value's colour.
+	 */
+	setDeclaredOptions(
+		declared: Readonly<Record<string, readonly DeclaredOption[]>>,
+		writer?: DeclaredColorWriter,
+	): void {
+		this.declaredOptions = declared;
+		if (writer) this.declaredColorWriter = writer;
+		this.emit();
+	}
+
+	getDeclaredOption(identity: OptionIdentity): DeclaredOption | undefined {
+		return this.declaredOptions[identity.propertyId]?.find((option) => option.value === identity.value);
+	}
+
+	getDeclaredOptions(propertyId: string): readonly DeclaredOption[] {
+		return this.declaredOptions[propertyId] ?? [];
+	}
+
+	/** The colour a value shows, decided by the shared contract (declared option, override, strategy). */
+	colorFor(identity: OptionIdentity, displayName?: string): ResolvedColor {
+		return pillColor(
+			{
+				paletteTemplateId: this.settings.paletteTemplateId,
+				strategies: this.settings.propertyStrategies,
+				overrides: this.settings.options,
+				declared: this.declaredOptions,
+				displayName: () => displayName,
+			},
+			identity.propertyId,
+			identity.value,
+		);
+	}
+
+	/**
+	 * Saves a colour choice on a declared option in the Base's declaration, not in `basesVisuals`, so
+	 * the value keeps one colour in both apps. Returns false when the value is not a declared option.
+	 */
+	private setDeclaredColor(identity: OptionIdentity, override?: ColorOverride): boolean {
+		const declared = this.getDeclaredOption(identity);
+		if (!declared || !this.declaredColorWriter) return false;
+		const hex = override?.kind === 'custom'
+			? override.hex
+			: override?.kind === 'preset' && override.name !== 'default'
+				? resolvePreset(override.name, this.settings.paletteTemplateId).dot
+				: null;
+		// Only a colour fits in a declaration; "Off" and "Default" stay Bases Visuals choices.
+		if (override && !hex) {
+			if (declared.color) this.writeDeclaredColor(identity, null);
+			return false;
+		}
+		this.writeDeclaredColor(identity, hex);
+		const option = this.settings.options[encodeOptionKey(identity)];
+		if (option?.override) {
+			delete option.override;
+			this.scheduleSave();
+		}
+		this.emit();
+		return true;
+	}
+
+	private writeDeclaredColor(identity: OptionIdentity, hex: string | null): void {
+		const options = this.getDeclaredOptions(identity.propertyId).map((option) => {
+			if (option.value !== identity.value) return option;
+			const next: DeclaredOption = { value: option.value, ...(option.label ? { label: option.label } : {}) };
+			if (hex) next.color = hex;
+			return next;
+		});
+		this.declaredOptions = { ...this.declaredOptions, [identity.propertyId]: options };
+		this.declaredColorWriter?.(identity, hex);
 	}
 
 	getExplicitPropertyStrategy(propertyId: string): PropertyColorStrategy | undefined {
@@ -394,6 +477,9 @@ export class SettingsStore {
 		if (!rule.color) {
 			delete rule.backgroundOpacity;
 			delete rule.overridePillColors;
+		} else if (rule.backgroundOpacity === undefined) {
+			// A saved background always carries its tint: without one, the shared contract means 100%.
+			rule.backgroundOpacity = defaultRuleBackgroundOpacity(rule.color);
 		}
 		if (patch.propertyId) this.discoverProperty(patch.propertyId);
 		this.changed();
@@ -584,94 +670,12 @@ function sameStrings(first: readonly string[], second: readonly string[]): boole
 }
 
 function isStoredRowHeight(value: unknown): value is LayoutPreset['rowHeight'] {
-	return value === '' || value === 'medium' || value === 'tall' || value === 'extra';
+	return value === '' || (value !== 'short' && ROW_HEIGHTS.includes(value as RowHeight));
 }
 
 function normalizeColumnWidth(value: unknown): number | null {
 	if (typeof value !== 'number' || !Number.isFinite(value)) return null;
 	return Math.round(Math.min(300, Math.max(40, value)));
-}
-
-function normalizeRule(value: unknown, index: number): ConditionalRule | null {
-	if (!isRecord(value)) return null;
-	if (typeof value.propertyId !== 'string' || !value.propertyId.trim()) return null;
-	if (!isRuleOperator(value.operator)) return null;
-	if (value.target !== 'cell' && value.target !== 'row') return null;
-	const color = normalizeRuleColor(value.color);
-	if (value.color !== undefined && !color) return null;
-	const fontColor = normalizeRuleColor(value.fontColor);
-	const backgroundOpacity = normalizeRuleOpacity(value.backgroundOpacity);
-	return {
-		id: typeof value.id === 'string' && value.id.trim() ? value.id : `migrated-rule-${index}`,
-		name: typeof value.name === 'string' && value.name.trim() ? value.name.trim() : 'Formatting rule',
-		enabled: value.enabled !== false,
-		propertyId: value.propertyId.trim(),
-		operator: value.operator,
-		...(typeof value.operand === 'string' ? { operand: value.operand } : {}),
-		target: value.target,
-		scope: value.scope === 'view' ? 'view' : 'base',
-		...(color ? { color } : {}),
-		...(color && backgroundOpacity !== undefined ? { backgroundOpacity } : {}),
-		...(fontColor ? { fontColor } : {}),
-		...(value.bold === true ? { bold: true } : {}),
-		...(value.strikethrough === true ? { strikethrough: true } : {}),
-		...(color && value.overridePillColors === true ? { overridePillColors: true } : {}),
-	};
-}
-
-function normalizeRuleOpacity(value: unknown): number | undefined {
-	return typeof value === 'number' && Number.isFinite(value)
-		? Math.max(0, Math.min(100, Math.round(value)))
-		: undefined;
-}
-
-function normalizeOverride(value: unknown): ColorOverride | undefined {
-	if (!isRecord(value) || typeof value.kind !== 'string') return undefined;
-	if (value.kind === 'disabled') return { kind: 'disabled' };
-	if (value.kind === 'preset') {
-		const name = normalizePresetName(value.name);
-		if (name) return { kind: 'preset', name };
-	}
-	if (value.kind === 'custom' && typeof value.hex === 'string') {
-		const hex = normalizeHex(value.hex);
-		if (hex) return { kind: 'custom', hex };
-	}
-	return undefined;
-}
-
-function normalizePropertyStrategies(value: unknown): Record<string, PropertyColorStrategy> {
-	if (!isRecord(value)) return {};
-	const strategies: Record<string, PropertyColorStrategy> = {};
-	for (const [rawPropertyId, candidate] of Object.entries(value)) {
-		const propertyId = rawPropertyId.trim();
-		const strategy = normalizePropertyStrategy(candidate);
-		if (propertyId && strategy && (strategy.mode !== 'smart' || strategy.style || strategy.wrapPills)) {
-			strategies[propertyId] = strategy;
-		}
-	}
-	return strategies;
-}
-
-function normalizePropertyStrategy(value: unknown): PropertyColorStrategy | undefined {
-	if (!isRecord(value) || !PROPERTY_STRATEGY_MODES.includes(value.mode as never)) return undefined;
-	const style = PILL_STYLES.includes(value.style as PillStyle) && value.style !== 'soft'
-		? value.style as PillStyle
-		: undefined;
-	const wrapPills = value.wrapPills === true;
-	if (value.mode === 'single') {
-		const preset = normalizePresetName(value.preset);
-		return {
-			mode: 'single',
-			preset: preset && preset !== 'default' ? preset : 'peter-river',
-			...(style ? { style } : {}),
-			...(wrapPills ? { wrapPills: true } : {}),
-		};
-	}
-	return {
-		mode: value.mode as PropertyColorStrategy['mode'],
-		...(style ? { style } : {}),
-		...(wrapPills ? { wrapPills: true } : {}),
-	};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

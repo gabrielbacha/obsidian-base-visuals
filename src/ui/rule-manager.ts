@@ -1,6 +1,6 @@
 import { AbstractInputSuggest, App, Modal, setIcon } from 'obsidian';
-import { normalizeHex, palettePresetName, paletteTemplate, resolvePreset, resolveRuleColor } from '../core/colors';
-import { effectiveRuleBackgroundOpacity, OPERATOR_LABELS, operatorNeedsOperand } from '../core/rules';
+import { normalizeHex, palettePresetName, paletteTemplate, resolvePreset, resolveRuleColor } from '@gabrielbacha/bases-contract';
+import { defaultRuleBackgroundOpacity, effectiveRuleBackgroundOpacity, OPERATOR_LABELS, operatorNeedsOperand } from '@gabrielbacha/bases-contract';
 import { SettingsStore } from '../core/settings-store';
 import {
 	ConditionalRule,
@@ -663,20 +663,21 @@ class RuleColorPopover {
 					reset.disabled = true;
 					return;
 				}
-				const effective = effectiveRuleBackgroundOpacity(selectedColor, storedOpacity);
+				const defaultValue = defaultRuleBackgroundOpacity(selectedColor);
+				const effective = storedOpacity ?? defaultValue;
 				range.value = String(effective);
 				number.value = String(effective);
-				const defaultValue = effectiveRuleBackgroundOpacity(selectedColor);
-				description.textContent = storedOpacity === undefined
+				description.textContent = effective === defaultValue
 					? `Using the ${defaultValue}% default for this color.`
 					: `Hover uses ${Math.min(100, effective + 6)}%.`;
-				reset.disabled = storedOpacity === undefined;
+				reset.disabled = effective === defaultValue;
 			};
 			range.addEventListener('input', () => setOpacity(Number(range.value)));
 			number.addEventListener('change', () => setOpacity(Number(number.value)));
 			reset.addEventListener('click', () => {
-				storedOpacity = undefined;
-				this.opacity?.onChange(undefined);
+				if (!selectedColor) return;
+				storedOpacity = defaultRuleBackgroundOpacity(selectedColor);
+				this.opacity?.onChange(storedOpacity);
 				refreshOpacity();
 			});
 			refreshOpacity();

@@ -8,11 +8,16 @@ export interface UnusedOptionsPlan {
 	verifiedProperties: number;
 }
 
+/**
+ * The saved pill settings that no longer do anything: values no row of the Base holds, and values
+ * whose colour the Base now declares on the option itself (`superseded`), which takes precedence.
+ */
 export function findUnusedOptions(
 	app: App,
 	scope: HTMLElement,
 	options: readonly OptionIdentity[],
 	knownPropertyIds: readonly string[] = [],
+	superseded: (option: OptionIdentity) => boolean = () => false,
 ): UnusedOptionsPlan {
 	const propertyIds = [...new Set([...options.map((option) => option.propertyId), ...knownPropertyIds])];
 	const used = new Map<string, Set<string>>();
@@ -29,8 +34,8 @@ export function findUnusedOptions(
 	}
 
 	return {
-		options: options.filter((option) =>
-			verified.has(option.propertyId) && !used.get(option.propertyId)?.has(option.value)),
+		options: options.filter((option) => superseded(option) ||
+			(verified.has(option.propertyId) && !used.get(option.propertyId)?.has(option.value))),
 		removedProperties: [...verified].filter((propertyId) => !existing.has(propertyId)),
 		verifiedProperties: verified.size,
 	};

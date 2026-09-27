@@ -1,5 +1,4 @@
-import { Notice, parseYaml, type App } from 'obsidian';
-import { parse as parseDocumentYaml } from 'yaml';
+import { Notice, parseYaml, type App, type EventRef } from 'obsidian';
 import {
 	getNativeBaseFile,
 	COLUMN_APPEARANCE_CONFIG_KEY,
@@ -11,40 +10,36 @@ import {
 	type NativeViewConfig,
 } from './native-table-view';
 import { SettingsStore } from './settings-store';
-import { patchYamlMap, readYamlMap } from './yaml-patch';
 import {
-	DEFAULT_SETTINGS,
-	PILL_STYLES,
-	PROPERTY_STRATEGY_MODES,
-	type BasesPillColorsSettings,
-	type ConditionalRule,
-	type StoredOption,
-} from './types';
+	BASE_VISUALS_KEY,
+	BASE_VISUALS_SCHEMA_VERSION,
+	canonicalPropertyId,
+	compactViewData,
+	emptyBaseData,
+	equalValues,
+	hasExtensionChoices,
+	isNewerVisualSchema,
+	LEGACY_BASE_VISUALS_KEY,
+	mergeBaseChanges,
+	mergeViewChanges,
+	normalizeBaseData,
+	normalizeViewData,
+	readYamlMap,
+	VIEW_VISUALS_KEY,
+	VIEW_VISUALS_SCHEMA_VERSION,
+	writeBaseVisuals,
+	writeViewVisuals,
+	declaredPropertyTypes,
+	setDeclaredOptionColor,
+	type BaseVisualData,
+	type DeclaredOption,
+	type OptionIdentity,
+	type BlockWriteResult,
+	type ViewVisualData,
+} from '@gabrielbacha/bases-contract';
+import { DEFAULT_SETTINGS, type BasesPillColorsSettings } from './types';
 
-/** One portable, Base-wide record stored at the root of the .base file. */
-export const BASE_VISUALS_KEY = 'basesVisuals';
-/** Legacy Base-wide record that older releases copied into every view. */
-export const LEGACY_BASE_VISUALS_KEY = 'basesVisualsBase';
-export const VIEW_VISUALS_KEY = 'basesVisualsView';
-
-interface BaseVisualData {
-	schemaVersion: 7;
-	paletteTemplateId?: BasesPillColorsSettings['paletteTemplateId'];
-	options: Record<string, StoredOption>;
-	knownProperties: Record<string, { propertyId: string }>;
-	rules: ConditionalRule[];
-	propertyStrategies: BasesPillColorsSettings['propertyStrategies'];
-	columnAppearances?: Record<string, unknown>;
-	/** Latest on-disk block used as the three-way merge baseline. Never serialized directly. */
-	rawSource?: Record<string, unknown>;
-}
-
-interface ViewVisualData {
-	schemaVersion: 2;
-	rules: ConditionalRule[];
-	columnAppearances: Record<string, unknown>;
-	rawSource?: Record<string, unknown>;
-}
+export { BASE_VISUALS_KEY, LEGACY_BASE_VISUALS_KEY, VIEW_VISUALS_KEY };
 
 export type VisualPersistenceState =
 	| { status: 'saved' }
@@ -267,6 +262,9 @@ export class BaseVisualStoreRepository {
 		fallback: BaseVisualData,
 	): Promise<void> {
 		const stored = await this.readBaseData(scope);
+		record.store.setDeclaredOptions(stored.declared, (identity, hex) => {
+			void this.writeDeclaredColor(record.scope, identity, hex);
+		});
 		const group = record.group;
 		const local = baseDataFromSettings(
 			record.store.settings,
@@ -371,24 +369,63 @@ export class BaseVisualStoreRepository {
 		return pending;
 	}
 
-	private async readBaseData(scope: HTMLElement): Promise<{ data: BaseVisualData | null; legacy: boolean }> {
+	private async readBaseData(scope: HTMLElement): Promise<{
+		data: BaseVisualData | null;
+		legacy: boolean;
+		declared: Record<string, DeclaredOption[]>;
+	}> {
+		const none = { data: null, legacy: false, declared: {} };
 		const file = getNativeBaseFile(this.app, scope);
-		if (!file || !this.app.vault?.cachedRead) return { data: null, legacy: false };
+		if (!file || !this.app.vault?.cachedRead) return none;
 		try {
 			const parsed = parseYaml(await this.app.vault.cachedRead(file)) as Record<string, unknown> | null;
-			if (!parsed) return { data: null, legacy: false };
+			if (!parsed) return none;
+			const declared = Object.fromEntries(
+				Object.entries(declaredPropertyTypes(parsed)).map(([propertyId, type]) => [propertyId, type.options]),
+			);
 			const current = normalizeBaseData(parsed[BASE_VISUALS_KEY]);
-			if (current) return { data: current, legacy: false };
-			if (!Array.isArray(parsed.views)) return { data: null, legacy: false };
-			for (const candidate of parsed.views) {
-				if (!isRecord(candidate)) continue;
-				const data = normalizeBaseData(candidate[LEGACY_BASE_VISUALS_KEY]);
-				if (data) return { data, legacy: true };
+			if (current) return { data: current, legacy: false, declared };
+			if (Array.isArray(parsed.views)) {
+				for (const candidate of parsed.views) {
+					if (!isRecord(candidate)) continue;
+					const data = normalizeBaseData(candidate[LEGACY_BASE_VISUALS_KEY]);
+					if (data) return { data, legacy: true, declared };
+				}
 			}
+			return { ...none, declared };
 		} catch {
-			return { data: null, legacy: false };
+			return none;
 		}
-		return { data: null, legacy: false };
+	}
+
+	/** Saves a declared option's colour in the Base's `basesEditor` block, through the shared contract. */
+	private async writeDeclaredColor(scope: HTMLElement, identity: OptionIdentity, hex: string | null): Promise<void> {
+		const file = getNativeBaseFile(this.app, scope);
+		if (!file || !this.app.vault?.process) return;
+		try {
+			let reason = '';
+			await this.app.vault.process(file, (source) => {
+				const result = setDeclaredOptionColor(source, identity.propertyId, identity.value, hex);
+				if (result.status === 'read-only') reason = result.reason;
+				return result.source;
+			});
+			if (reason) new Notice(`Bases Visuals did not save the colour of “${identity.value}”: ${reason}`);
+		} catch (error) {
+			new Notice(`Bases Visuals could not save ${file.path}: ${errorMessage(error)}`);
+		}
+	}
+
+	/**
+	 * Follows edits to open Bases made elsewhere (BaseStudio, sync, another window): each open view
+	 * rebases its unsaved choices onto the file and reloads the declared options.
+	 */
+	watch(registerEvent: (eventRef: EventRef) => void): void {
+		if (!this.app.vault?.on) return;
+		registerEvent(this.app.vault.on('modify', (file) => {
+			const group = this.groups.get(`file:${file.path}`);
+			if (!group) return;
+			for (const record of group.records) void this.hydrateOrMigrate(record.scope, record, group.base);
+		}));
 	}
 
 	private async syncBaseViews(scope: HTMLElement, data: BaseVisualData): Promise<BaseVisualData | null> {
@@ -396,44 +433,41 @@ export class BaseVisualStoreRepository {
 		if (!file || !this.app.vault?.process) return null;
 		this.persistenceStates.set(scope, { status: 'pending' });
 		try {
-			let persisted: BaseVisualData | null = null;
-			let conflicts: string[] = [];
-			let readOnlyReason = '';
+			let result: BlockWriteResult<BaseVisualData> | null = null;
 			await this.app.vault.process(file, (source) => {
-				const read = readYamlMap(source, [BASE_VISUALS_KEY]);
-				if (read.status === 'document-invalid' || read.status === 'block-invalid') {
-					readOnlyReason = read.status === 'document-invalid'
-						? read.reason
-						: 'basesVisuals is not a mapping';
-					return source;
-				}
-				const latest = read.status === 'present' ? read.value : undefined;
-				conflicts = findBaseConflicts(data.rawSource, data, latest);
-				if (conflicts.length) return source;
-				const next = updateBaseVisualsSource(source, data);
-				persisted = normalizeBaseData(readBaseVisualBlock(next));
-				return next;
+				result = writeBaseVisuals(source, data);
+				return result.source;
 			});
-			if (readOnlyReason) {
-				this.persistenceStates.set(scope, { status: 'read-only', reason: readOnlyReason });
-				new Notice(`Bases Visuals did not save ${file.path}: ${readOnlyReason}.`);
-				return null;
-			}
-			if (conflicts.length) {
-				this.persistenceStates.set(scope, { status: 'conflict', paths: conflicts });
-				new Notice(
-					`Bases Visuals did not save ${file.path}: conflicting changes in ${conflicts.join(', ')}. Reopen the Base and try again.`,
-				);
-				return null;
-			}
-			this.persistenceStates.set(scope, { status: 'saved' });
-			return persisted;
+			return this.settle(scope, file.path, result, 'Reopen the Base and try again.');
 		} catch (error) {
 			const reason = errorMessage(error);
 			this.persistenceStates.set(scope, { status: 'failed', reason });
 			new Notice(`Bases Visuals could not save ${file.path}: ${reason}`);
 			return null;
 		}
+	}
+	/** Records how a write ended and tells the user when it did not save. */
+	private settle<T>(
+		scope: HTMLElement,
+		path: string,
+		result: BlockWriteResult<T> | null,
+		conflictAdvice = '',
+	): T | null {
+		if (!result) return null;
+		if (result.status === 'read-only') {
+			this.persistenceStates.set(scope, { status: 'read-only', reason: result.reason });
+			new Notice(`Bases Visuals did not save ${path}: ${result.reason}.`);
+			return null;
+		}
+		if (result.status === 'conflict') {
+			this.persistenceStates.set(scope, { status: 'conflict', paths: result.paths });
+			new Notice(
+				`Bases Visuals did not save ${path}: conflicting changes in ${result.paths.join(', ')}.${conflictAdvice ? ` ${conflictAdvice}` : ''}`,
+			);
+			return null;
+		}
+		this.persistenceStates.set(scope, { status: 'saved' });
+		return result.persisted;
 	}
 
 	private async syncView(
@@ -443,6 +477,13 @@ export class BaseVisualStoreRepository {
 	): Promise<ViewVisualData | null> {
 		const file = getNativeBaseFile(this.app, record.scope);
 		if (!file || !this.app.vault?.process) {
+			if (isNewerVisualSchema(record.config.get(VIEW_VISUALS_KEY), 'view')) {
+				return this.settle(record.scope, 'this view', {
+					status: 'read-only',
+					source: '',
+					reason: 'basesVisualsView was saved by a newer version',
+				});
+			}
 			const compact = compactViewData(data, data.rawSource);
 			record.config.set(VIEW_VISUALS_KEY, hasExtensionChoices(compact) ? compact : null);
 			record.config.set(COLUMN_APPEARANCE_CONFIG_KEY, null);
@@ -450,63 +491,22 @@ export class BaseVisualStoreRepository {
 		}
 		this.persistenceStates.set(record.scope, { status: 'pending' });
 		try {
-			let persisted: ViewVisualData | null = null;
-			let conflicts: string[] = [];
-			let readOnlyReason = '';
+			let result: BlockWriteResult<ViewVisualData> | null = null;
 			await this.app.vault.process(file, (source) => {
 				const parsed = safeParseRecord(source);
 				if (!parsed) {
-					readOnlyReason = 'the Base document is malformed';
+					result = { status: 'read-only', source, reason: 'the Base document is malformed' };
 					return source;
 				}
 				const viewIndex = findViewIndex(parsed.views, record);
 				if (viewIndex < 0) {
-					readOnlyReason = 'the active native view could not be identified uniquely';
+					result = { status: 'read-only', source, reason: 'the active native view could not be identified uniquely' };
 					return source;
 				}
-				const path = ['views', viewIndex, VIEW_VISUALS_KEY] as const;
-				const read = readYamlMap(source, path);
-				if (read.status === 'document-invalid' || read.status === 'block-invalid') {
-					readOnlyReason = read.status === 'document-invalid' ? read.reason : 'basesVisualsView is not a mapping';
-					return source;
-				}
-				const latestRaw = read.status === 'present' ? read.value : undefined;
-				const latest = normalizeViewData(latestRaw, viewRecordAt(parsed.views, viewIndex)?.[COLUMN_APPEARANCE_CONFIG_KEY]);
-				conflicts = findViewConflicts(baseline, data, latest);
-				if (conflicts.length) return source;
-				const rebased = mergeViewChanges(baseline, data, latest);
-				const compact = compactViewData(rebased, latestRaw);
-				const patched = patchYamlMap(source, path, hasExtensionChoices(compact) ? compact : null);
-				if (patched.status === 'read-only') {
-					readOnlyReason = patched.reason;
-					return source;
-				}
-				const withoutLegacy = patchYamlMap(
-					patched.source,
-					['views', viewIndex, COLUMN_APPEARANCE_CONFIG_KEY],
-					null,
-				);
-				if (withoutLegacy.status === 'read-only') {
-					readOnlyReason = withoutLegacy.reason;
-					return source;
-				}
-				const nextSource = withoutLegacy.source;
-				const nextRead = readYamlMap(nextSource, path);
-				persisted = normalizeViewData(nextRead.status === 'present' ? nextRead.value : undefined);
-				return nextSource;
+				result = writeViewVisuals(source, viewIndex, baseline, data);
+				return result.source;
 			});
-			if (readOnlyReason) {
-				this.persistenceStates.set(record.scope, { status: 'read-only', reason: readOnlyReason });
-				new Notice(`Bases Visuals did not save ${file.path}: ${readOnlyReason}.`);
-				return null;
-			}
-			if (conflicts.length) {
-				this.persistenceStates.set(record.scope, { status: 'conflict', paths: conflicts });
-				new Notice(`Bases Visuals did not save ${file.path}: conflicting changes in ${conflicts.join(', ')}.`);
-				return null;
-			}
-			this.persistenceStates.set(record.scope, { status: 'saved' });
-			return persisted;
+			return this.settle(record.scope, file.path, result);
 		} catch (error) {
 			const reason = errorMessage(error);
 			this.persistenceStates.set(record.scope, { status: 'failed', reason });
@@ -536,16 +536,6 @@ function scopedSettings(
 	};
 }
 
-function emptyBaseData(): BaseVisualData {
-	return {
-		schemaVersion: 7,
-		options: {},
-		knownProperties: {},
-		rules: [],
-		propertyStrategies: {},
-		rawSource: {},
-	};
-}
 
 function baseDataFromSettings(
 	settings: BasesPillColorsSettings,
@@ -557,7 +547,7 @@ function baseDataFromSettings(
 		Object.entries(settings.options).filter(([, option]) => option.override !== undefined),
 	);
 	return {
-		schemaVersion: 7,
+		schemaVersion: BASE_VISUALS_SCHEMA_VERSION,
 		...(settings.paletteTemplateId !== globalPaletteTemplateId
 			? { paletteTemplateId: settings.paletteTemplateId }
 			: {}),
@@ -570,104 +560,9 @@ function baseDataFromSettings(
 	};
 }
 
-function mergeBaseChanges(
-	previous: BaseVisualData,
-	next: BaseVisualData,
-	current: BaseVisualData,
-): BaseVisualData {
-	const merged: BaseVisualData = {
-		...structuredClone(current),
-		paletteTemplateId: deepEqual(previous.paletteTemplateId, next.paletteTemplateId)
-			? current.paletteTemplateId
-			: next.paletteTemplateId,
-		options: mergeRecordChanges(previous.options, next.options, current.options),
-		knownProperties: mergeRecordChanges(
-			previous.knownProperties,
-			next.knownProperties,
-			current.knownProperties,
-		),
-		rules: mergeRuleChanges(previous.rules, next.rules, current.rules),
-		propertyStrategies: mergeRecordChanges(
-			previous.propertyStrategies,
-			next.propertyStrategies,
-			current.propertyStrategies,
-		),
-	};
-	const appearances = mergeRecordChanges(
-		previous.columnAppearances ?? {},
-		next.columnAppearances ?? {},
-		current.columnAppearances ?? {},
-	);
-	if (Object.keys(appearances).length) merged.columnAppearances = appearances;
-	else delete merged.columnAppearances;
-	return merged;
-}
 
-function mergeRecordChanges<T>(
-	previous: Record<string, T>,
-	next: Record<string, T>,
-	current: Record<string, T>,
-): Record<string, T> {
-	const merged = structuredClone(current);
-	for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
-		if (deepEqual(previous[key], next[key])) continue;
-		if (key in next) {
-			merged[key] = mergeChangedValue(previous[key], next[key], current[key]) as T;
-		}
-		else delete merged[key];
-	}
-	return merged;
-}
 
-function mergeRuleChanges(
-	previous: ConditionalRule[],
-	next: ConditionalRule[],
-	current: ConditionalRule[],
-): ConditionalRule[] {
-	if (deepEqual(previous, next)) return structuredClone(current);
-	const previousById = new Map(previous.map((rule) => [rule.id, rule]));
-	const nextById = new Map(next.map((rule) => [rule.id, rule]));
-	const mergedById = new Map(current.map((rule) => [rule.id, structuredClone(rule)]));
-	for (const id of previousById.keys()) {
-		if (!nextById.has(id)) mergedById.delete(id);
-	}
-	for (const rule of next) {
-		if (!deepEqual(previousById.get(rule.id), rule)) {
-			mergedById.set(
-				rule.id,
-				mergeChangedValue(previousById.get(rule.id), rule, mergedById.get(rule.id)) as ConditionalRule,
-			);
-		}
-	}
-	const orderChanged = !deepEqual(
-		previous.map((rule) => rule.id),
-		next.map((rule) => rule.id),
-	);
-	const order = orderChanged
-		? [...next.map((rule) => rule.id), ...current.map((rule) => rule.id)]
-		: current.map((rule) => rule.id);
-	return [...new Set(order)].flatMap((id) => {
-		const rule = mergedById.get(id);
-		return rule ? [rule] : [];
-	});
-}
 
-function mergeViewChanges(
-	previous: ViewVisualData,
-	next: ViewVisualData,
-	current: ViewVisualData,
-): ViewVisualData {
-	return {
-		schemaVersion: 2,
-		rules: mergeRuleChanges(previous.rules, next.rules, current.rules),
-		columnAppearances: mergeRecordChanges(
-			previous.columnAppearances,
-			next.columnAppearances,
-			current.columnAppearances,
-		),
-		...(current.rawSource ? { rawSource: structuredClone(current.rawSource) } : {}),
-	};
-}
 
 function applyBaseToSettings(
 	settings: BasesPillColorsSettings,
@@ -684,67 +579,20 @@ function applyBaseToSettings(
 	settings.rules = [...structuredClone(base.rules), ...viewRules];
 }
 
-function deepEqual(first: unknown, second: unknown): boolean {
-	return JSON.stringify(first) === JSON.stringify(second);
-}
 
 function viewDataFromSettings(
 	settings: BasesPillColorsSettings,
 	current: ViewVisualData,
 ): ViewVisualData {
 	return {
-		schemaVersion: 2,
+		schemaVersion: VIEW_VISUALS_SCHEMA_VERSION,
 		rules: settings.rules.filter((rule) => rule.scope === 'view').map((rule) => structuredClone(rule)),
 		columnAppearances: structuredClone(current.columnAppearances),
 		...(current.rawSource ? { rawSource: structuredClone(current.rawSource) } : {}),
 	};
 }
 
-function mergeChangedValue(previous: unknown, next: unknown, current: unknown): unknown {
-	if (!isRecord(next) || !isRecord(current)) return structuredClone(next);
-	const baseline = isRecord(previous) ? previous : {};
-	const merged = structuredClone(current);
-	for (const key of new Set([...Object.keys(baseline), ...Object.keys(next)])) {
-		if (deepEqual(baseline[key], next[key])) continue;
-		if (key in next) merged[key] = mergeChangedValue(baseline[key], next[key], current[key]);
-		else delete merged[key];
-	}
-	return merged;
-}
 
-function normalizeBaseData(value: unknown): BaseVisualData | null {
-	if (!isRecord(value)) return null;
-	const normalized = SettingsStore.normalize({
-		paletteTemplateId: value.paletteTemplateId,
-		options: value.options,
-		knownProperties: value.knownProperties,
-		rules: value.rules,
-		propertyStrategies: value.propertyStrategies,
-	});
-	const propertyStrategies = structuredClone(normalized.propertyStrategies);
-	if (isRecord(value.propertyStrategies)) {
-		for (const [propertyId, raw] of Object.entries(value.propertyStrategies)) {
-			const strategy = propertyStrategies[propertyId];
-			if (!strategy || !isRecord(raw)) continue;
-			if (raw.style === 'soft' && strategy.style === undefined) strategy.style = 'soft';
-			if (raw.wrapPills === false && strategy.wrapPills === undefined) strategy.wrapPills = false;
-		}
-	}
-	return {
-		schemaVersion: 7,
-		...(typeof value.paletteTemplateId === 'string'
-			? { paletteTemplateId: normalized.paletteTemplateId }
-			: {}),
-		options: Object.fromEntries(
-			Object.entries(normalized.options).filter(([, option]) => option.override !== undefined),
-		),
-		knownProperties: {},
-		rules: normalized.rules.map((rule) => ({ ...rule, scope: 'base' })),
-		propertyStrategies,
-		...(isRecord(value.columnAppearances) ? { columnAppearances: structuredClone(value.columnAppearances) } : {}),
-		rawSource: structuredClone(value),
-	};
-}
 
 interface BasePropertyContext {
 	aliases: Map<string, string>;
@@ -776,7 +624,7 @@ async function loadBasePropertyContext(app: App, scope: HTMLElement): Promise<Ba
 		const definitions = isRecord(parsed.properties) ? parsed.properties : {};
 		const lowerAliases = new Map<string, string | null>();
 		for (const [name, definition] of Object.entries(definitions)) {
-			const canonical = canonicalDefinitionId(name);
+			const canonical = canonicalPropertyId(name);
 			definedPropertyIds.add(canonical);
 			registerAlias(aliases, lowerAliases, name, canonical);
 			registerAlias(aliases, lowerAliases, canonical, canonical);
@@ -798,7 +646,7 @@ async function loadBasePropertyContext(app: App, scope: HTMLElement): Promise<Ba
 		}
 		const referencedPropertyIds = new Set(
 			collectViewPropertyReferences(parsed.views).map((propertyId) =>
-				resolveWithAliases(aliases, canonicalDefinitionId(propertyId))),
+				resolveWithAliases(aliases, canonicalPropertyId(propertyId))),
 		);
 		return { aliases, definedPropertyIds, listPropertyIds, nonListPropertyIds, referencedPropertyIds };
 	} catch {
@@ -806,10 +654,6 @@ async function loadBasePropertyContext(app: App, scope: HTMLElement): Promise<Ba
 	}
 }
 
-function canonicalDefinitionId(name: string): string {
-	const trimmed = name.trim();
-	return /^(?:note|file|formula)\./.test(trimmed) ? trimmed : `note.${trimmed}`;
-}
 
 function isListDefinition(value: unknown): boolean {
 	if (!isRecord(value)) return false;
@@ -873,326 +717,31 @@ function resolveWithAliases(aliases: Map<string, string>, propertyId: string): s
 		?? trimmed;
 }
 
-/**
- * Replace only this plugin's YAML blocks. Unrelated Base source, comments, and
- * formatting remain byte-for-byte unchanged.
- */
-export function updateBaseVisualsSource(source: string, data: BaseVisualData): string {
-	const read = readYamlMap(source, [BASE_VISUALS_KEY]);
-	if (read.status === 'document-invalid' || read.status === 'block-invalid') return source;
-	const existing = read.status === 'present' ? read.value : undefined;
-	const rebased = rebaseBaseData(data, existing);
-	const compact = compactBaseData(rebased, existing);
-	const patched = patchYamlMap(
-		source,
-		[BASE_VISUALS_KEY],
-		hasExtensionChoices(compact) ? compact : null,
-	);
-	if (patched.status === 'read-only') return source;
-	let next = patched.source;
-	const parsed = safeParseRecord(next);
-	if (!Array.isArray(parsed?.views)) return next;
-	for (let index = parsed.views.length - 1; index >= 0; index -= 1) {
-		const migrated = patchYamlMap(next, ['views', index, LEGACY_BASE_VISUALS_KEY], null);
-		if (migrated.status !== 'read-only') next = migrated.source;
-	}
-	return next;
-}
 
-function compactBaseData(data: BaseVisualData, existing?: unknown): Record<string, unknown> {
-	const result = isRecord(existing) ? structuredClone(existing) : {};
-	for (const key of BASE_VISUAL_KNOWN_KEYS) delete result[key];
-	result.schemaVersion = preservedSchemaVersion(existing, 7);
-	if (data.paletteTemplateId) result.paletteTemplateId = data.paletteTemplateId;
-	const options = mergeObjectRecords(
-		isRecord(existing) ? existing.options : undefined,
-		data.options,
-		isStoredOptionData,
-		['propertyId', 'value', 'override'],
-	);
-	if (Object.keys(options).length) result.options = options;
-	const rules = mergeRuleRecords(isRecord(existing) ? existing.rules : undefined, data.rules);
-	if (rules.length) result.rules = rules;
-	const strategies = mergeObjectRecords(
-		isRecord(existing) ? existing.propertyStrategies : undefined,
-		data.propertyStrategies,
-		isPropertyStrategyData,
-		['mode', 'preset', 'style', 'wrapPills'],
-	);
-	if (Object.keys(strategies).length) result.propertyStrategies = strategies;
-	if (Object.keys(data.columnAppearances ?? {}).length) {
-		result.columnAppearances = mergeOpaqueRecord(
-			isRecord(existing) ? existing.columnAppearances : undefined,
-			data.columnAppearances ?? {},
-		);
-	}
-	return result;
-}
 
-function normalizeViewData(value: unknown, legacyAppearances?: unknown): ViewVisualData {
-	if (!isRecord(value)) {
-		return {
-			schemaVersion: 2,
-			rules: [],
-			columnAppearances: isRecord(legacyAppearances) ? structuredClone(legacyAppearances) : {},
-		};
-	}
-	const normalized = SettingsStore.normalize({ rules: value.rules });
-	return {
-		schemaVersion: 2,
-		rules: normalized.rules.map((rule) => ({ ...rule, scope: 'view' })),
-		columnAppearances: isRecord(value.columnAppearances)
-			? structuredClone(value.columnAppearances)
-			: isRecord(legacyAppearances) ? structuredClone(legacyAppearances) : {},
-		rawSource: structuredClone(value),
-	};
-}
 
-const BASE_VISUAL_KNOWN_KEYS = [
-	'schemaVersion', 'paletteTemplateId', 'options', 'knownProperties',
-	'rules', 'propertyStrategies', 'columnAppearances',
-] as const;
 
-const RULE_KNOWN_KEYS = [
-	'id', 'name', 'enabled', 'propertyId', 'operator', 'operand', 'target', 'scope',
-	'color', 'backgroundOpacity', 'fontColor', 'bold', 'strikethrough', 'overridePillColors',
-] as const;
 
-function compactViewData(data: ViewVisualData, existing?: unknown): Record<string, unknown> {
-	const result = isRecord(existing) ? structuredClone(existing) : {};
-	delete result.schemaVersion;
-	delete result.rules;
-	delete result.columnAppearances;
-	result.schemaVersion = preservedSchemaVersion(existing, 2);
-	const rules = mergeRuleRecords(isRecord(existing) ? existing.rules : undefined, data.rules);
-	if (rules.length) result.rules = rules;
-	if (Object.keys(data.columnAppearances).length) {
-		result.columnAppearances = mergeOpaqueRecord(
-			isRecord(existing) ? existing.columnAppearances : undefined,
-			data.columnAppearances,
-		);
-	}
-	return result;
-}
 
-function preservedSchemaVersion(existing: unknown, current: number): number {
-	if (!isRecord(existing) || !Number.isInteger(existing.schemaVersion)) return current;
-	return Math.max(current, existing.schemaVersion as number);
-}
 
-function hasExtensionChoices(value: Record<string, unknown>): boolean {
-	return Object.keys(value).some((key) => key !== 'schemaVersion');
-}
 
-function mergeObjectRecords<T>(
-	existing: unknown,
-	desired: Record<string, T>,
-	isRecognized: (value: unknown) => boolean,
-	knownKeys: readonly string[],
-): Record<string, unknown> {
-	const raw = isRecord(existing) ? existing : {};
-	const result: Record<string, unknown> = {};
-	for (const [key, value] of Object.entries(raw)) {
-		if (!isRecognized(value)) result[key] = structuredClone(value);
-	}
-	for (const [key, value] of Object.entries(desired)) {
-		const item = isRecord(raw[key]) ? structuredClone(raw[key]) : {};
-		for (const knownKey of knownKeys) delete item[knownKey];
-		Object.assign(item, structuredClone(value));
-		result[key] = item;
-	}
-	return result;
-}
 
-function mergeRuleRecords(existing: unknown, desired: ConditionalRule[]): unknown[] {
-	const raw = Array.isArray(existing) ? existing : [];
-	const recognizedById = new Map<string, Record<string, unknown>>();
-	const unrecognized: unknown[] = [];
-	for (const candidate of raw) {
-		if (isRecognizedRule(candidate) && isRecord(candidate) && typeof candidate.id === 'string') {
-			recognizedById.set(candidate.id, candidate);
-		} else {
-			unrecognized.push(structuredClone(candidate));
-		}
-	}
-	const rules = desired.map((rule) => {
-		const item = structuredClone(recognizedById.get(rule.id) ?? {});
-		for (const key of RULE_KNOWN_KEYS) delete item[key];
-		Object.assign(item, structuredClone(rule));
-		return item;
-	});
-	return [...rules, ...unrecognized];
-}
 
-function mergeOpaqueRecord(existing: unknown, desired: Record<string, unknown>): Record<string, unknown> {
-	const raw = isRecord(existing) ? existing : {};
-	return Object.fromEntries(Object.entries(desired).map(([key, value]) => [
-		key,
-		isRecord(raw[key]) && isRecord(value)
-			? { ...structuredClone(raw[key]), ...structuredClone(value) }
-			: structuredClone(value),
-	]));
-}
 
-function isStoredOptionData(value: unknown): boolean {
-	if (!isRecord(value) || typeof value.propertyId !== 'string' || typeof value.value !== 'string') return false;
-	const normalized = Object.values(SettingsStore.normalize({ options: { candidate: value } }).options)[0];
-	return normalized?.override !== undefined && deepEqual(normalized.override, value.override);
-}
 
-function isPropertyStrategyData(value: unknown): boolean {
-	if (!isRecord(value) || !PROPERTY_STRATEGY_MODES.includes(value.mode as never)) return false;
-	if (value.style !== undefined && !PILL_STYLES.includes(value.style as never)) return false;
-	const normalized = SettingsStore.normalize({ propertyStrategies: { candidate: value } })
-		.propertyStrategies.candidate;
-	if (!normalized) return false;
-	const known = Object.fromEntries(
-		['mode', 'preset', 'style', 'wrapPills']
-			.filter((key) => value[key] !== undefined)
-			.map((key) => [key, value[key]]),
-	);
-	return deepEqual(normalized, known);
-}
 
-function isRecognizedRule(value: unknown): boolean {
-	return SettingsStore.normalize({ rules: [value] }).rules.length > 0;
-}
 
-function rebaseBaseData(data: BaseVisualData, latest: unknown): BaseVisualData {
-	if (!data.rawSource) return data;
-	const previous = normalizeBaseData(data.rawSource) ?? emptyBaseData();
-	const current = normalizeBaseData(latest) ?? emptyBaseData();
-	return mergeBaseChanges(previous, data, current);
-}
 
-function readBaseVisualBlock(source: string): unknown {
-	const read = readYamlMap(source, [BASE_VISUALS_KEY]);
-	return read.status === 'present' ? read.value : undefined;
-}
 
-function findBaseConflicts(
-	baseline: Record<string, unknown> | undefined,
-	next: BaseVisualData,
-	latest: unknown,
-): string[] {
-	if (!baseline) return [];
-	if (latest !== undefined && !isRecord(latest)) return ['malformed basesVisuals block'];
-	const previous = normalizeBaseData(baseline) ?? emptyBaseData();
-	const current = normalizeBaseData(latest) ?? emptyBaseData();
-	const conflicts: string[] = [];
-	if (changedBoth(previous.paletteTemplateId, next.paletteTemplateId, current.paletteTemplateId)) {
-		conflicts.push('paletteTemplateId');
-	}
-	collectRecordConflicts('options', previous.options, next.options, current.options, conflicts);
-	collectRecordConflicts(
-		'propertyStrategies', previous.propertyStrategies, next.propertyStrategies,
-		current.propertyStrategies, conflicts,
-	);
-	collectRecordConflicts(
-		'columnAppearances', previous.columnAppearances ?? {}, next.columnAppearances ?? {},
-		current.columnAppearances ?? {}, conflicts,
-	);
-	const previousRules = Object.fromEntries(previous.rules.map((rule) => [rule.id, rule]));
-	const nextRules = Object.fromEntries(next.rules.map((rule) => [rule.id, rule]));
-	const currentRules = Object.fromEntries(current.rules.map((rule) => [rule.id, rule]));
-	collectRecordConflicts('rules', previousRules, nextRules, currentRules, conflicts);
-	collectDuplicateRuleConflicts('rules', previous.rules, next.rules, current.rules, conflicts);
-	const previousOrder = previous.rules.map((rule) => rule.id);
-	const nextOrder = next.rules.map((rule) => rule.id);
-	const currentOrder = current.rules.map((rule) => rule.id);
-	if (changedBoth(previousOrder, nextOrder, currentOrder)) conflicts.push('rule order');
-	return conflicts;
-}
 
-function collectRecordConflicts(
-	label: string,
-	previous: Record<string, unknown>,
-	next: Record<string, unknown>,
-	current: Record<string, unknown>,
-	conflicts: string[],
-): void {
-	for (const key of new Set([...Object.keys(previous), ...Object.keys(next), ...Object.keys(current)])) {
-		collectValueConflicts(`${label}.${key}`, previous[key], next[key], current[key], conflicts);
-	}
-}
 
-function collectValueConflicts(
-	label: string,
-	previous: unknown,
-	next: unknown,
-	current: unknown,
-	conflicts: string[],
-): void {
-	if (!changedBoth(previous, next, current)) return;
-	if (isRecord(previous) && isRecord(next) && isRecord(current)) {
-		for (const key of new Set([...Object.keys(previous), ...Object.keys(next), ...Object.keys(current)])) {
-			collectValueConflicts(`${label}.${key}`, previous[key], next[key], current[key], conflicts);
-		}
-		return;
-	}
-	conflicts.push(label);
-}
 
-function findViewConflicts(
-	previous: ViewVisualData,
-	next: ViewVisualData,
-	current: ViewVisualData,
-): string[] {
-	const conflicts: string[] = [];
-	const previousRules = Object.fromEntries(previous.rules.map((rule) => [rule.id, rule]));
-	const nextRules = Object.fromEntries(next.rules.map((rule) => [rule.id, rule]));
-	const currentRules = Object.fromEntries(current.rules.map((rule) => [rule.id, rule]));
-	collectRecordConflicts('view.rules', previousRules, nextRules, currentRules, conflicts);
-	collectRecordConflicts(
-		'view.columnAppearances',
-		previous.columnAppearances,
-		next.columnAppearances,
-		current.columnAppearances,
-		conflicts,
-	);
-	collectDuplicateRuleConflicts('view.rules', previous.rules, next.rules, current.rules, conflicts);
-	const previousOrder = previous.rules.map((rule) => rule.id);
-	const nextOrder = next.rules.map((rule) => rule.id);
-	const currentOrder = current.rules.map((rule) => rule.id);
-	if (changedBoth(previousOrder, nextOrder, currentOrder)) conflicts.push('view.rule order');
-	return conflicts;
-}
-
-function collectDuplicateRuleConflicts(
-	label: string,
-	previous: ConditionalRule[],
-	next: ConditionalRule[],
-	current: ConditionalRule[],
-	conflicts: string[],
-): void {
-	for (const rules of [previous, next, current]) {
-		const seen = new Set<string>();
-		for (const rule of rules) {
-			if (seen.has(rule.id)) conflicts.push(`${label}.duplicate.${rule.id}`);
-			seen.add(rule.id);
-		}
-	}
-}
-
-function changedBoth(previous: unknown, next: unknown, current: unknown): boolean {
-	return !deepEqual(previous, next) && !deepEqual(previous, current) && !deepEqual(next, current);
-}
 
 function safeParseRecord(source: string): Record<string, unknown> | null {
-	try {
-		const parsed: unknown = parseDocumentYaml(source);
-		return isRecord(parsed) ? parsed : null;
-	} catch {
-		return null;
-	}
+	const read = readYamlMap(source, []);
+	return read.status === 'present' ? read.value : null;
 }
 
-function viewRecordAt(views: unknown, index: number): Record<string, unknown> | undefined {
-	if (!Array.isArray(views)) return undefined;
-	const candidates = views as unknown[];
-	const view = candidates[index];
-	return isRecord(view) ? view : undefined;
-}
 
 function findViewIndex(views: unknown, record: StoreRecord): number {
 	if (!Array.isArray(views)) return -1;
@@ -1201,7 +750,7 @@ function findViewIndex(views: unknown, record: StoreRecord): number {
 		.filter((entry): entry is { view: Record<string, unknown>; index: number } => isRecord(entry.view));
 	const baseline = record.viewSnapshot.rawSource;
 	if (baseline) {
-		const byBlock = records.filter(({ view }) => deepEqual(view[VIEW_VISUALS_KEY], baseline));
+		const byBlock = records.filter(({ view }) => equalValues(view[VIEW_VISUALS_KEY], baseline));
 		if (byBlock.length === 1) return byBlock[0]?.index ?? -1;
 	}
 	const name = record.config.get('name');

@@ -1,4 +1,4 @@
-import { normalizeHex, palettePresetName, paletteTemplate, resolvePreset } from '../core/colors';
+import { normalizeHex, palettePresetName, paletteTemplate, resolvePreset } from '@gabrielbacha/bases-contract';
 import { SettingsStore } from '../core/settings-store';
 import { OptionIdentity, PresetName } from '../core/types';
 

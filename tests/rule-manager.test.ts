@@ -131,6 +131,8 @@ describe('RuleManagerView', () => {
 		const range = panel?.querySelector<HTMLInputElement>('input[type="range"]');
 		const number = panel?.querySelector<HTMLInputElement>('.bpc-rule-opacity__number');
 		expect(range?.value).toBe('12');
+		// The chosen colour's default tint is saved with it (a missing opacity means 100%).
+		expect(store.settings.rules[0]?.backgroundOpacity).toBe(12);
 		if (range) range.value = '42';
 		range?.dispatchEvent(new Event('input', { bubbles: true }));
 		expect(store.settings.rules[0]?.backgroundOpacity).toBe(42);
@@ -141,7 +143,7 @@ describe('RuleManagerView', () => {
 		expect(store.settings.rules[0]?.color).toEqual({ kind: 'preset', name: 'default' });
 		expect(range?.value).toBe('42');
 		panel?.querySelector<HTMLButtonElement>('.bpc-rule-opacity__reset')?.click();
-		expect(store.settings.rules[0]?.backgroundOpacity).toBeUndefined();
+		expect(store.settings.rules[0]?.backgroundOpacity).toBe(3);
 		expect(range?.value).toBe('3');
 	});
 

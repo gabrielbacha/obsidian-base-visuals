@@ -1,11 +1,10 @@
 import { App, Modal, Notice, setIcon } from 'obsidian';
-import { resolveColor } from '../core/colors';
 import { SettingsStore } from '../core/settings-store';
 import { PALETTE_TEMPLATE_IDS, StoredOption } from '../core/types';
-import { PALETTE_TEMPLATES } from '../core/colors';
+import { PALETTE_TEMPLATES } from '@gabrielbacha/bases-contract';
 import { ColorPopover, displayPropertyName } from './color-popover';
 import { renderPropertyStrategyControls } from './property-strategy-controls';
-import { compareNaturalValues } from '../core/value-order';
+import { compareNaturalValues } from '@gabrielbacha/bases-contract';
 import type { UnusedOptionsPlan } from '../core/unused-options';
 
 export class PillColorManagerView {
@@ -54,12 +53,7 @@ export class PillColorManagerView {
 				const opt: StoredOption = this.store.get(identity) ?? identity;
 				applyPreviewColor(preview, opt, this.store, this.propertyNameFor(propertyId));
 				if (state) {
-					state.textContent = resolveColor(
-						opt,
-						opt.override,
-						this.store.getPropertyStrategy(propertyId, this.propertyNameFor(propertyId)),
-						this.store.getPaletteTemplateId(),
-					).label;
+					state.textContent = this.store.colorFor(opt, this.propertyNameFor(propertyId)).label;
 				}
 			}
 		}
@@ -351,7 +345,7 @@ export class PillColorManagerView {
 		applyPreviewColor(preview, option, this.store, this.propertyNameFor(option.propertyId));
 
 		row.createSpan({
-			text: resolveColor(option, option.override, this.store.getPropertyStrategy(option.propertyId, this.propertyNameFor(option.propertyId)), this.store.getPaletteTemplateId()).label,
+			text: this.store.colorFor(option, this.propertyNameFor(option.propertyId)).label,
 			cls: 'bpc-option-row__state',
 		});
 
@@ -443,9 +437,9 @@ function renderPaletteStrip(container: HTMLElement, colors: readonly string[], m
 	return strip;
 }
 
-export function applyPreviewColor(element: HTMLElement, option: StoredOption, store?: SettingsStore, propertyName?: string): void {
-	const color = resolveColor(option, option.override, store?.getPropertyStrategy(option.propertyId, propertyName), store?.getPaletteTemplateId());
-	const style = store?.getPropertyStyle(option.propertyId) ?? 'soft';
+export function applyPreviewColor(element: HTMLElement, option: StoredOption, store: SettingsStore, propertyName?: string): void {
+	const color = store.colorFor(option, propertyName);
+	const style = store.getPropertyStyle(option.propertyId);
 	if (color.kind === 'disabled') {
 		element.classList.remove('bpc-pill--colored', 'bpc-pill--neutral');
 		element.classList.remove('bpc-pill-style-soft', 'bpc-pill-style-solid', 'bpc-pill-style-outline');

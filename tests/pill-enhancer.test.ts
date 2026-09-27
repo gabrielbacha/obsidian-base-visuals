@@ -251,7 +251,9 @@ describe('PillEnhancer', () => {
 		const file = Object.assign(new TFile(), {
 			path: 'Old name.md', name: 'Old name.md', basename: 'Old name', extension: 'md', parent: { path: '' },
 		});
-		const renameFile = vi.fn(async () => undefined);
+		const renameFile = vi.fn(async () => {
+			throw new Error('The file is locked.');
+		});
 		const harness = createHarness([], (baseView) => {
 			const table = baseView.createDiv('bases-table-container');
 			const body = table.createDiv('bases-tbody');
@@ -276,10 +278,10 @@ describe('PillEnhancer', () => {
 		if (input) input.value = 'Existing';
 		input?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
 		await mutationCycle();
+		// A used name is numbered, as BaseStudio does; a rename Obsidian refuses keeps the field open.
+		expect(renameFile).toHaveBeenCalledWith(file, 'Existing 2.md');
 		expect(harness.root.querySelector('.bpc-file-rename-input')).not.toBeNull();
-		expect((Notice as unknown as { messages: string[] }).messages).toContain(
-			'A file named “Existing.md” already exists in this folder.',
-		);
+		expect((Notice as unknown as { messages: string[] }).messages.join('\n')).toContain('The file is locked.');
 	});
 
 	it('omits group creation for unsupported properties and reports native failures', async () => {
@@ -348,6 +350,29 @@ describe('PillEnhancer', () => {
 		harness.store.setPropertyStyle('note.status', 'outline');
 		expect(pill?.classList.contains('bpc-pill-style-outline')).toBe(true);
 		expect(pill?.classList.contains('bpc-pill-style-solid')).toBe(false);
+	});
+
+	it('shows a BaseStudio select value as a pill in its declared colour', () => {
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			const row = table.createDiv('bases-tbody').createDiv('bases-tr');
+			const cell = row.createDiv('bases-td');
+			cell.dataset.property = 'note.seat';
+			cell.createDiv({ cls: 'metadata-input-longtext', text: 'World-facing only' });
+		}, undefined, undefined, { useScopedStore: true });
+		const cell = harness.root.querySelector<HTMLElement>('.bases-td[data-property="note.seat"]');
+		expect(cell?.classList.contains('bpc-select-cell')).toBe(false);
+
+		harness.store.setDeclaredOptions({
+			'note.seat': [{ value: 'World-facing only', label: 'World-facing', color: '#16A085' }],
+		});
+		expect(cell?.classList.contains('bpc-select-cell')).toBe(true);
+		expect(cell?.style.getPropertyValue('--bpc-accent')).toBe('#16A085');
+		expect(cell?.title).toBe('World-facing');
+
+		harness.store.setDeclaredOptions({});
+		expect(cell?.classList.contains('bpc-select-cell')).toBe(false);
+		expect(cell?.style.getPropertyValue('--bpc-accent')).toBe('');
 	});
 
 	it('restores Outline styling after Obsidian rewrites a pill class in place', async () => {

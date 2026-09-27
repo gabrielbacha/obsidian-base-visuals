@@ -1,5 +1,5 @@
 import { Notice, setIcon, type App, type EventRef, type WorkspaceLeaf } from 'obsidian';
-import { encodeOptionKey, resolveColor } from './colors';
+import { encodeOptionKey, type ResolvedColor } from '@gabrielbacha/bases-contract';
 import {
 	getNativeColumnAppearance,
 	canCreateNativeFileForGroup,
@@ -12,21 +12,23 @@ import {
 	resolveNativePropertyId,
 	type NativeColumnAppearance,
 } from './native-table-view';
-import { evaluateRule, ruleColorVariables, ruleHasFormatting } from './rules';
+import { evaluateRule, ruleColorVariables, ruleHasFormatting } from '@gabrielbacha/bases-contract';
 import { SettingsStore } from './settings-store';
 import { BaseVisualStoreRepository } from './base-visual-store';
 import { ConditionalRule, OptionIdentity, type PaletteTemplateId } from './types';
 import { TableLayoutPopover } from '../ui/table-layout-popover';
 import { ColumnAppearancePopover } from '../ui/column-appearance-popover';
 import { ColumnPillAppearancePopover } from '../ui/column-pill-appearance-popover';
-import { compareNaturalValues } from './value-order';
-import { strategyLabel } from './property-strategies';
+import { compareNaturalValues } from '@gabrielbacha/bases-contract';
+import { strategyLabel } from '@gabrielbacha/bases-contract';
 import { NativePillRemovalService, type PillRemovalCapability } from './native-pill-removal';
 import { renameFileBasename, resolveFileFromNameCell } from './file-rename';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
 const CELL_SELECTOR = '.bases-td[data-property], .bases-table-cell[data-property]';
+/** Where Obsidian shows a text property's value in a Base cell. */
+const SELECT_TEXT_SELECTOR = '.metadata-input-longtext';
 const ROW_SELECTOR = '.bases-tr';
 const GROUP_HEADING_SELECTOR = '.bases-group-heading';
 const GROUP_ADD_BUTTON_SELECTOR = '.bpc-group-add-button';
@@ -357,6 +359,7 @@ export class PillEnhancer {
 		store.discoverProperty(propertyId);
 		cell.classList.toggle('bpc-wrap-pills', !cell.closest('.bases-thead') && store.getWrapPills(propertyId));
 		this.applyCellRule(cell, propertyId);
+		this.applySelectCell(cell, scope, propertyId, store);
 		if (cell.closest('.bases-thead')) {
 			clearColumnAppearance(cell);
 			this.columnAppearanceElements.delete(cell);
@@ -364,6 +367,35 @@ export class PillEnhancer {
 		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
 		if (table) this.applyMainColumn(table, cell);
 		this.updateFileRenameCapability(cell, scope, propertyId);
+	}
+
+	/**
+	 * A column BaseStudio declares options for (a select column) holds one text value, which Obsidian
+	 * shows as plain text. It is shown as a pill in its declared colour, as BaseStudio shows it.
+	 */
+	private applySelectCell(cell: HTMLElement, scope: HTMLElement, propertyId: string, store: SettingsStore): void {
+		const text = cell.closest('.bases-thead') || cell.querySelector(PILL_SELECTOR)
+			? null
+			: cell.querySelector<HTMLElement>(SELECT_TEXT_SELECTOR);
+		const value = text?.textContent?.trim() ?? '';
+		const declared = value ? store.getDeclaredOptions(propertyId) : [];
+		if (!declared.length) {
+			clearSelectCell(cell);
+			return;
+		}
+		const identity = { propertyId, value };
+		const resolved = store.colorFor(identity, getNativePropertyDisplayName(this.app, scope, propertyId));
+		if (resolved.kind === 'disabled') {
+			clearSelectCell(cell);
+			return;
+		}
+		setClass(cell, 'bpc-select-cell', true);
+		setClass(cell, 'bpc-select-cell--neutral', resolved.kind === 'neutral');
+		applyPillStyle(cell, store.getPropertyStyle(propertyId));
+		applyOptionColorVariables(cell, resolved);
+		cell.dataset.bpcKey = encodeOptionKey(identity);
+		const label = declared.find((option) => option.value === value)?.label;
+		if (label && label !== value) cell.title = label;
 	}
 
 	private processRow(row: HTMLElement): void {
@@ -971,7 +1003,7 @@ export class PillEnhancer {
 		const host = scope ?? findBaseTableHost(pill);
 		const store = host ? this.scopedStore(host) : this.store;
 		const displayName = host ? getNativePropertyDisplayName(this.app, host, identity.propertyId) : undefined;
-		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName), store.getPaletteTemplateId());
+		const resolved = store.colorFor(identity, displayName);
 		const style = store.getPropertyStyle(identity.propertyId);
 		setClass(pill, 'bpc-pill', true);
 		pill.dataset.bpcKey = encodeOptionKey(identity);
@@ -1004,7 +1036,7 @@ export class PillEnhancer {
 		const host = scope ?? findBaseTableHost(heading);
 		const store = host ? this.scopedStore(host) : this.store;
 		const displayName = host ? getNativePropertyDisplayName(this.app, host, identity.propertyId) : undefined;
-		const resolved = resolveColor(identity, store.get(identity)?.override, store.getPropertyStrategy(identity.propertyId, displayName), store.getPaletteTemplateId());
+		const resolved = store.colorFor(identity, displayName);
 		const style = store.getPropertyStyle(identity.propertyId);
 		setClass(heading, 'bpc-group-heading', true);
 		heading.dataset.bpcKey = encodeOptionKey(identity);
@@ -1086,6 +1118,7 @@ export class PillEnhancer {
 	}
 
 	private untrackCell(cell: HTMLElement): void {
+		clearSelectCell(cell);
 		this.activeFileRenames.get(cell)?.();
 		this.visibleCells.delete(cell);
 		cell.classList.remove('bpc-main-column', 'bpc-wrap-pills', 'bpc-file-renaming', 'bpc-file-renamable');
@@ -1283,7 +1316,7 @@ function clearPillVariables(element: HTMLElement): void {
 
 function applyOptionColorVariables(
 	element: HTMLElement,
-	color: Exclude<ReturnType<typeof resolveColor>, { kind: 'disabled' }>,
+	color: Exclude<ResolvedColor, { kind: 'disabled' }>,
 ): void {
 	element.style.setProperty('--bpc-bg', color.background);
 	element.style.setProperty('--bpc-bg-hover', color.hoverBackground);
@@ -1294,6 +1327,14 @@ function applyOptionColorVariables(
 	element.style.setProperty('--bpc-solid-bg', color.solidBackground);
 	element.style.setProperty('--bpc-solid-fg', color.solidForeground);
 	element.style.setProperty('--bpc-solid-bg-hover', color.solidHoverBackground);
+}
+
+function clearSelectCell(cell: HTMLElement): void {
+	if (!cell.classList.contains('bpc-select-cell')) return;
+	cell.classList.remove('bpc-select-cell', 'bpc-select-cell--neutral');
+	clearPillStyle(cell);
+	clearOptionColorVariables(cell);
+	delete cell.dataset.bpcKey;
 }
 
 function clearOptionColorVariables(element: HTMLElement): void {

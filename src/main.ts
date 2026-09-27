@@ -25,6 +25,7 @@ export default class BasesPillColorsPlugin extends Plugin {
 			this.saveData(SettingsStore.compactForPersistence(nextSettings)),
 		);
 		this.baseStores = new BaseVisualStoreRepository(this.app, this.store);
+		this.baseStores.watch((eventRef) => this.registerEvent(eventRef));
 		this.popover = new ColorPopover(this.store);
 		this.columnPopover = new ColumnPillPopover(this.app, this.store);
 		this.enhancer = new PillEnhancer(

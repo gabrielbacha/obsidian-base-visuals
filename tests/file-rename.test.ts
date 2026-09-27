@@ -54,17 +54,22 @@ describe('inline file rename', () => {
 		expect(renameFile).toHaveBeenCalledWith(file, 'Projects/New name.md');
 	});
 
-	it('rejects empty, path-changing, and duplicate names', async () => {
+	it('repairs names as BaseStudio does, and numbers a name already used', async () => {
 		const file = createFile('Projects/Old name.md');
 		const duplicate = createFile('Projects/Existing.md');
+		const renameFile = vi.fn(async () => undefined);
 		const app = {
-			vault: { getAbstractFileByPath: (path: string) => path.endsWith('Existing.md') ? duplicate : null },
-			fileManager: { renameFile: vi.fn() },
+			vault: { getAbstractFileByPath: (path: string) => path === 'Projects/Existing.md' ? duplicate : null },
+			fileManager: { renameFile },
 		} as unknown as App;
 
 		await expect(renameFileBasename(app, file, ' ')).rejects.toThrow('cannot be empty');
-		await expect(renameFileBasename(app, file, '../Moved')).rejects.toThrow('path separators');
-		await expect(renameFileBasename(app, file, 'Existing')).rejects.toThrow('already exists');
+		await renameFileBasename(app, file, 'a:b/c');
+		expect(renameFile).toHaveBeenLastCalledWith(file, 'Projects/a - b-c.md');
+		await renameFileBasename(app, file, '../Moved');
+		expect(renameFile).toHaveBeenLastCalledWith(file, 'Projects/-Moved.md');
+		await renameFileBasename(app, file, 'Existing');
+		expect(renameFile).toHaveBeenLastCalledWith(file, 'Projects/Existing 2.md');
 	});
 
 	it('does not invoke Obsidian for an unchanged name', async () => {

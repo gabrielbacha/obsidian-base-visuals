@@ -31,6 +31,12 @@ describe('unused option cleanup', () => {
 		const plan = findUnusedOptions(app, scope, options);
 		expect(plan.options).toEqual([{ propertyId: 'note.capabilities', value: 'Deleted category' }]);
 		expect(plan.removedProperties).toEqual([]);
+
+		const superseded = findUnusedOptions(app, scope, options, [], (option) => option.value === 'Done');
+		expect(superseded.options).toEqual([
+			{ propertyId: 'note.capabilities', value: 'Deleted category' },
+			{ propertyId: 'note.status', value: 'Done' },
+		]);
 	});
 
 	it('does not claim anything is unused when native Base results are unavailable', () => {

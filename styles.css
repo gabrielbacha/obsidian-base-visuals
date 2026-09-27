@@ -2852,3 +2852,34 @@
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 }
+
+/* Select columns declared by BaseStudio: the single text value shows as a pill in its declared colour. */
+.bases-td.bpc-select-cell .metadata-input-longtext:not(:empty) {
+	display: inline-block;
+	width: fit-content;
+	max-width: 100%;
+	box-sizing: border-box;
+	padding: 0 var(--size-2-3);
+	border: 1px solid transparent;
+	border-radius: 4px;
+	background-color: var(--bpc-bg);
+	color: var(--bpc-fg-light);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	vertical-align: middle;
+}
+
+.theme-dark .bases-td.bpc-select-cell .metadata-input-longtext:not(:empty) {
+	color: var(--bpc-fg-dark);
+}
+
+.bases-td.bpc-select-cell.bpc-pill-style-solid .metadata-input-longtext:not(:empty) {
+	background-color: var(--bpc-solid-bg);
+	color: var(--bpc-solid-fg);
+}
+
+.bases-td.bpc-select-cell.bpc-pill-style-outline .metadata-input-longtext:not(:empty) {
+	border-color: var(--bpc-border);
+	background-color: transparent;
+}

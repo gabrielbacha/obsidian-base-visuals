@@ -1,14 +1,19 @@
 import { parsePropertyId, type App, type BasesPropertyId, type TFile, type WorkspaceLeaf } from 'obsidian';
-import { normalizeHex } from './colors';
+import {
+	LEGACY_VIEW_COLUMN_APPEARANCE_KEY,
+	normalizeHex,
+	readRowHeight,
+	ROW_HEIGHT_LABELS,
+	ROW_HEIGHTS as CONTRACT_ROW_HEIGHTS,
+	storedRowHeight,
+} from '@gabrielbacha/bases-contract';
+import type { StoredRowHeight } from './types';
 
-export const ROW_HEIGHTS = [
-	{ value: '', label: 'Short' },
-	{ value: 'medium', label: 'Medium' },
-	{ value: 'tall', label: 'Tall' },
-	{ value: 'extra', label: 'Extra tall' },
-] as const;
-
-export type NativeRowHeight = (typeof ROW_HEIGHTS)[number]['value'];
+/** Row heights from the shared contract; short, the native default, is stored as absent (''). */
+export type NativeRowHeight = StoredRowHeight;
+export const ROW_HEIGHTS: ReadonlyArray<{ value: NativeRowHeight; label: string }> = CONTRACT_ROW_HEIGHTS.map(
+	(height) => ({ value: storedRowHeight(height) ?? '', label: ROW_HEIGHT_LABELS[height] }),
+);
 
 export const COLUMN_WIDTH_PRESETS = [
 	{ width: 100, label: 'Compact' },
@@ -32,7 +37,8 @@ export const DEFAULT_COLUMN_APPEARANCE: NativeColumnAppearance = {
 	bold: false,
 };
 
-export const COLUMN_APPEARANCE_CONFIG_KEY = 'basesVisualsColumnAppearance';
+/** Where older releases kept view column appearance; the shared contract owns the key. */
+export const COLUMN_APPEARANCE_CONFIG_KEY = LEGACY_VIEW_COLUMN_APPEARANCE_KEY;
 
 export interface NativeViewConfig {
 	groupBy?: { property?: unknown };
@@ -102,8 +108,7 @@ interface TextLikeValue {
 const VIEW_CACHE = new WeakMap<HTMLElement, NativeTableView>();
 
 export function getNativeRowHeight(app: App, scope: HTMLElement): NativeRowHeight {
-	const value = findNativeTableView(app, scope)?.config.get('rowHeight');
-	return ROW_HEIGHTS.some((option) => option.value === value) ? value as NativeRowHeight : '';
+	return storedRowHeight(readRowHeight(findNativeTableView(app, scope)?.config.get('rowHeight'))) ?? '';
 }
 
 export function setNativeRowHeight(

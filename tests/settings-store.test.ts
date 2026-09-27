@@ -20,7 +20,7 @@ describe('SettingsStore', () => {
 			},
 		});
 
-		expect(settings.schemaVersion).toBe(10);
+		expect(settings.schemaVersion).toBe(11);
 		expect(Object.values(settings.options)).toEqual([
 			{
 				propertyId: 'note.status',
@@ -98,7 +98,7 @@ describe('SettingsStore', () => {
 			],
 		});
 
-		expect(settings.schemaVersion).toBe(10);
+		expect(settings.schemaVersion).toBe(11);
 		expect(settings.rules).toHaveLength(1);
 		expect(settings.rules[0]?.color).toEqual({ kind: 'custom', hex: '#AABBCC' });
 		expect(settings.rules[0]?.fontColor).toEqual({ kind: 'preset', name: 'pomegranate' });
@@ -300,4 +300,27 @@ describe('SettingsStore', () => {
 		expect(store.settings.lastColumnWidthPreset).toBe(185);
 		store.dispose();
 	});
+
+	it('takes a declared option colour first and saves colour choices on the declaration', () => {
+		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+		const writer = vi.fn();
+		const declared = { propertyId: 'note.status', value: 'Done' };
+		const undeclared = { propertyId: 'note.status', value: 'Later' };
+		store.setDeclaredOptions({ 'note.status': [{ value: 'Done', label: 'Done', color: '#16A085' }] }, writer);
+
+		expect(store.colorFor(declared).dot).toBe('#16A085');
+
+		store.setOverride(declared, { kind: 'custom', hex: '#C0392B' });
+		expect(writer).toHaveBeenLastCalledWith(declared, '#C0392B');
+		expect(store.get(declared)?.override).toBeUndefined();
+		expect(store.colorFor(declared).dot).toBe('#C0392B');
+
+		store.setOverride(declared, undefined);
+		expect(writer).toHaveBeenLastCalledWith(declared, null);
+
+		store.setOverride(undeclared, { kind: 'custom', hex: '#8E44AD' });
+		expect(writer).toHaveBeenCalledTimes(2);
+		expect(store.get(undeclared)?.override).toEqual({ kind: 'custom', hex: '#8E44AD' });
+	});
 });
+

@@ -2,6 +2,16 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## Unreleased
+
+- Share one contract with BaseStudio (`@gabrielbacha/bases-contract`): YAML patching, rule matching, colours, strategies, the block merge, names and row heights are no longer kept as a separate copy in the plugin.
+- A rule's background opacity now means the same in both apps: 0–100, where a missing value means 100. Choosing a background saves its default tint explicitly. Older blocks keep the tint they showed (12%, or 3% for Muted) and are upgraded (`basesVisuals` 8, `basesVisualsView` 3) only on an intentional edit.
+- Colours declared on BaseStudio select options take precedence. A colour chosen in the plugin on a declared option is saved on that option. **Clean unused** also removes overrides that a declared colour has replaced.
+- Single-value select columns declared by BaseStudio show as pills in Obsidian.
+- Edits made to an open Base in another app are picked up without reopening it.
+- Inline rename repairs the typed name the way BaseStudio does, and numbers a name already used (“Existing 2”), in place of refusing it.
+- A block saved by a newer version is read but never rewritten.
+
 ## 0.17.0 — 2026-09-22
 
 - Preserve unknown `basesVisuals` and `basesVisualsView` fields, nested fields, malformed entries, and newer schema versions when saving recognized settings.

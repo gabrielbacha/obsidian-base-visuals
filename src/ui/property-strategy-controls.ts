@@ -1,6 +1,6 @@
 import { setIcon } from 'obsidian';
-import { palettePresetName, paletteTemplate, resolvePreset } from '../core/colors';
-import { strategyLabel } from '../core/property-strategies';
+import { palettePresetName, paletteTemplate, resolvePreset } from '@gabrielbacha/bases-contract';
+import { strategyLabel } from '@gabrielbacha/bases-contract';
 import { SettingsStore } from '../core/settings-store';
 import { type PropertyStrategyMode } from '../core/types';
 import type { PillStyle } from '../core/types';

@@ -1,5 +1,5 @@
 import { setIcon, type App } from 'obsidian';
-import { normalizeHex } from '../core/colors';
+import { normalizeHex } from '@gabrielbacha/bases-contract';
 import { bindRadioGroup } from './radio-group';
 import {
 	DEFAULT_COLUMN_APPEARANCE,
