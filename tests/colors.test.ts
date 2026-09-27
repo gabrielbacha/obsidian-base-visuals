@@ -108,6 +108,11 @@ describe('color utilities', () => {
 		expect(resolveColor({ propertyId: 'note.status', value: 'Done' }, undefined, { mode: 'status' }, 'ocean-depth').dot).toBe('#00B4D8');
 	});
 
+	it('meets AA contrast on medium gray when white is not readable enough', () => {
+		const adjusted = adjustForContrast('#FFFFFF', '#808080');
+		expect(contrastRatio(adjusted, '#808080')).toBeGreaterThanOrEqual(4.5);
+	});
+
 	it('adjusts custom foregrounds to WCAG AA contrast', () => {
 		const onLight = adjustForContrast('#F5C2D8', '#FFFFFF');
 		const onDark = adjustForContrast('#172033', '#1E1E1E');
