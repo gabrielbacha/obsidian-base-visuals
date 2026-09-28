@@ -60,6 +60,14 @@ describe('ColumnAppearancePopover', () => {
 		document.querySelector<HTMLButtonElement>('.bpc-column-swatch[aria-label="Red"]')?.click();
 		expect(base.get('note.status')).toMatchObject({ tone: 'custom', color: '#C62828' });
 
+		// Alignment: set with the style, kept when the tone changes, and cleared by Auto.
+		findButton('Center')?.click();
+		expect(base.get('note.status')).toMatchObject({ align: 'center' });
+		findButton('Muted')?.click();
+		expect(base.get('note.status')).toMatchObject({ tone: 'muted', align: 'center' });
+		findButton('Auto')?.click();
+		expect(base.get('note.status')).not.toHaveProperty('align');
+
 		findButton('Reset appearance')?.click();
 		expect(base.has('note.status')).toBe(false);
 		// The older per-view key is never written.

@@ -1,5 +1,5 @@
 import { setIcon, type App } from 'obsidian';
-import { normalizeHex, RULE_TEXT_SWATCHES } from '@gabrielbacha/bases-contract';
+import { normalizeHex, RULE_TEXT_SWATCHES, type ColumnAlignment } from '@gabrielbacha/bases-contract';
 import { bindRadioGroup } from './radio-group';
 import {
 	DEFAULT_COLUMN_APPEARANCE,
@@ -105,9 +105,10 @@ export class ColumnAppearancePopover {
 			copy.createEl('strong', { text: label });
 			copy.createSpan({ text: detail });
 			button.addEventListener('click', () => {
+				const align = appearance.align ? { align: appearance.align } : {};
 				const next = tone === 'custom'
 					? { ...appearance, tone, color: appearance.color ?? '#787774' } as NativeColumnAppearance
-					: { tone, bold: appearance.bold } as NativeColumnAppearance;
+					: { tone, bold: appearance.bold, ...align } as NativeColumnAppearance;
 				commit(next);
 				for (const candidate of toneButtons) {
 					candidate.setAttribute('aria-checked', String(candidate === button));
@@ -155,10 +156,38 @@ export class ColumnAppearancePopover {
 			hexInput.removeAttribute('aria-invalid');
 			hexInput.value = color;
 			picker.value = color;
-			commit({ tone: 'custom', bold: appearance.bold, color });
+			commit({ tone: 'custom', bold: appearance.bold, color, ...(appearance.align ? { align: appearance.align } : {}) });
 		};
 		picker.addEventListener('input', () => applyCustom(picker.value));
 		hexInput.addEventListener('change', () => applyCustom(hexInput.value));
+
+		// Alignment: by the column's type (Auto), or left, center or right; shared with BaseStudio.
+		const alignSection = panel.createDiv('bpc-column-appearance__section');
+		alignSection.createDiv({ cls: 'bpc-column-appearance__label', text: 'Alignment' });
+		const alignGroup = alignSection.createDiv('bpc-column-align-options');
+		alignGroup.setAttribute('role', 'radiogroup');
+		alignGroup.setAttribute('aria-label', 'Column alignment');
+		const alignments: Array<{ align: ColumnAlignment | null; label: string }> = [
+			{ align: null, label: 'Auto' },
+			{ align: 'left', label: 'Left' },
+			{ align: 'center', label: 'Center' },
+			{ align: 'right', label: 'Right' },
+		];
+		const alignButtons = alignments.map(({ align, label }) => {
+			const button = alignGroup.createEl('button', {
+				cls: 'bpc-column-align-option',
+				text: label,
+				attr: { type: 'button', role: 'radio' },
+			});
+			button.setAttribute('aria-checked', String((appearance.align ?? null) === align));
+			button.addEventListener('click', () => {
+				const { align: _previous, ...rest } = appearance;
+				commit(align ? { ...rest, align } : rest);
+				for (const candidate of alignButtons) candidate.setAttribute('aria-checked', String(candidate === button));
+			});
+			return button;
+		});
+		bindRadioGroup(alignGroup, alignButtons);
 
 		const emphasisSection = panel.createDiv('bpc-column-appearance__section');
 		emphasisSection.createDiv({ cls: 'bpc-column-appearance__label', text: 'Emphasis' });

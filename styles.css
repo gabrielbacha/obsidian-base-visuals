@@ -2910,3 +2910,49 @@
 	border-color: var(--bpc-border);
 	background-color: transparent;
 }
+
+/* A column's alignment (shared with BaseStudio): its values and its header. */
+.bases-view .bpc-column-align-left,
+.bases-embed .bpc-column-align-left {
+	justify-content: flex-start;
+	text-align: left;
+}
+
+.bases-view .bpc-column-align-center,
+.bases-embed .bpc-column-align-center {
+	justify-content: center;
+	text-align: center;
+}
+
+.bases-view .bpc-column-align-right,
+.bases-embed .bpc-column-align-right {
+	justify-content: flex-end;
+	text-align: right;
+}
+
+.bases-view :is(.bpc-column-align-left, .bpc-column-align-center, .bpc-column-align-right) :is(.bases-rendered-value, .metadata-property-value, .bases-table-header-name),
+.bases-embed :is(.bpc-column-align-left, .bpc-column-align-center, .bpc-column-align-right) :is(.bases-rendered-value, .metadata-property-value, .bases-table-header-name) {
+	justify-content: inherit;
+	text-align: inherit;
+}
+
+.bpc-column-align-options {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 2px;
+	padding: 2px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+}
+
+.bpc-column-align-option {
+	height: 26px;
+	box-shadow: none;
+	background: transparent;
+	font-size: var(--font-ui-smaller);
+}
+
+.bpc-column-align-option[aria-checked="true"] {
+	background: var(--background-modifier-active-hover);
+	font-weight: var(--font-semibold, 600);
+}

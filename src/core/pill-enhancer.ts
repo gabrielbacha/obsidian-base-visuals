@@ -365,10 +365,7 @@ export class PillEnhancer {
 		cell.classList.toggle('bpc-wrap-pills', !cell.closest('.bases-thead') && store.getWrapPills(propertyId));
 		this.applyCellRule(cell, propertyId);
 		this.applySelectCell(cell, scope, propertyId, store);
-		if (cell.closest('.bases-thead')) {
-			clearColumnAppearance(cell);
-			this.columnAppearanceElements.delete(cell);
-		} else this.applyColumnAppearance(cell, scope, propertyId);
+		this.applyColumnAppearance(cell, scope, propertyId, Boolean(cell.closest('.bases-thead')));
 		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
 		if (table) this.applyMainColumn(table, cell);
 		this.updateFileRenameCapability(cell, scope, propertyId);
@@ -1058,10 +1055,15 @@ export class PillEnhancer {
 		applyOptionColorVariables(heading, resolved);
 	}
 
+	/**
+	 * A column's style on one of its cells: tone, colour and bold on its values; its alignment on
+	 * its values and its header, so the header lines up with them.
+	 */
 	private applyColumnAppearance(
 		element: HTMLElement,
 		scope: HTMLElement,
 		propertyId: string,
+		header = false,
 	): void {
 		const appearance = getNativeColumnAppearance(
 			this.app,
@@ -1071,8 +1073,10 @@ export class PillEnhancer {
 			this.baseStores?.getViewColumnAppearances?.(scope),
 		);
 		clearColumnAppearance(element);
-		if (appearance.tone === 'default' && !appearance.bold) {
-			this.columnAppearanceElements.delete(element);
+		if (appearance.align) element.classList.add(`bpc-column-align-${appearance.align}`);
+		if (header || (appearance.tone === 'default' && !appearance.bold)) {
+			if (appearance.align) this.columnAppearanceElements.add(element);
+			else this.columnAppearanceElements.delete(element);
 			return;
 		}
 		element.classList.add('bpc-column-appearance', `bpc-column-tone-${appearance.tone}`);
@@ -1094,10 +1098,7 @@ export class PillEnhancer {
 		for (const cell of scope.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
 			const propertyId = this.propertyIdFor(scope, cell);
 			if (!propertyId || (onlyPropertyId && propertyId !== onlyPropertyId)) continue;
-			if (cell.closest('.bases-thead')) {
-				clearColumnAppearance(cell);
-				this.columnAppearanceElements.delete(cell);
-			} else this.applyColumnAppearance(cell, scope, propertyId);
+			this.applyColumnAppearance(cell, scope, propertyId, Boolean(cell.closest('.bases-thead')));
 		}
 	}
 
@@ -1390,6 +1391,9 @@ function clearColumnAppearance(element: HTMLElement): void {
 		'bpc-column-tone-faint',
 		'bpc-column-tone-custom',
 		'bpc-column-emphasized',
+		'bpc-column-align-left',
+		'bpc-column-align-center',
+		'bpc-column-align-right',
 	);
 	element.style.removeProperty('--bpc-column-color-light');
 	element.style.removeProperty('--bpc-column-color-dark');
