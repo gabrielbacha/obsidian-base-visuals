@@ -1,8 +1,12 @@
 import { parsePropertyId, type App, type BasesPropertyId, type TFile, type WorkspaceLeaf } from 'obsidian';
 import {
+	DEFAULT_COLUMN_APPEARANCE,
 	LEGACY_VIEW_COLUMN_APPEARANCE_KEY,
-	normalizeHex,
+	normalizeColumnAppearance,
 	readRowHeight,
+	resolveColumnAppearance,
+	type ColumnAppearance,
+	type ColumnTone,
 	ROW_HEIGHT_LABELS,
 	ROW_HEIGHTS as CONTRACT_ROW_HEIGHTS,
 	storedRowHeight,
@@ -24,18 +28,10 @@ export const COLUMN_WIDTH_PRESETS = [
 
 export type ColumnWidthScope = 'unset' | 'all';
 
-export type ColumnTextTone = 'default' | 'muted' | 'faint' | 'custom';
-
-export interface NativeColumnAppearance {
-	tone: ColumnTextTone;
-	bold: boolean;
-	color?: string;
-}
-
-export const DEFAULT_COLUMN_APPEARANCE: NativeColumnAppearance = {
-	tone: 'default',
-	bold: false,
-};
+/** A column's text style, read and resolved by the shared contract (as BaseStudio does). */
+export type ColumnTextTone = ColumnTone;
+export type NativeColumnAppearance = ColumnAppearance;
+export { DEFAULT_COLUMN_APPEARANCE, normalizeColumnAppearance };
 
 /** Where older releases kept view column appearance; the shared contract owns the key. */
 export const COLUMN_APPEARANCE_CONFIG_KEY = LEGACY_VIEW_COLUMN_APPEARANCE_KEY;
@@ -405,10 +401,7 @@ export function getNativeColumnAppearance(
 		?? (isObject(viewVisuals) && isObject(viewVisuals.columnAppearances)
 			? viewVisuals.columnAppearances
 			: view?.config.get(COLUMN_APPEARANCE_CONFIG_KEY));
-	if (isObject(stored) && Object.prototype.hasOwnProperty.call(stored, propertyId)) {
-		return normalizeColumnAppearance(stored[propertyId]);
-	}
-	return normalizeColumnAppearance(baseAppearances?.[propertyId]);
+	return resolveColumnAppearance(propertyId, baseAppearances, isObject(stored) ? stored : undefined).appearance;
 }
 
 export function hasNativeColumnAppearance(
@@ -424,26 +417,6 @@ export function hasNativeColumnAppearance(
 			? viewVisuals.columnAppearances
 			: config?.get(COLUMN_APPEARANCE_CONFIG_KEY));
 	return isObject(stored) && Object.prototype.hasOwnProperty.call(stored, propertyId);
-}
-
-export function setNativeColumnAppearance(
-	app: App,
-	scope: HTMLElement,
-	propertyId: string,
-	appearance: NativeColumnAppearance,
-): boolean {
-	const view = findNativeTableView(app, scope);
-	if (!view) return false;
-	const current = view.config.get(COLUMN_APPEARANCE_CONFIG_KEY);
-	const stored = isObject(current) ? { ...current } : {};
-	const normalized = normalizeColumnAppearance(appearance);
-	if (isDefaultColumnAppearance(normalized)) delete stored[propertyId];
-	else stored[propertyId] = normalized;
-	view.config.set(
-		COLUMN_APPEARANCE_CONFIG_KEY,
-		Object.keys(stored).length > 0 ? stored : null,
-	);
-	return true;
 }
 
 export function findNativeTableView(app: App, scope: HTMLElement): NativeTableView | null {
@@ -553,25 +526,6 @@ function writableNotePropertyName(propertyId: string): string | null {
 	} catch {
 		return null;
 	}
-}
-
-export function normalizeColumnAppearance(value: unknown): NativeColumnAppearance {
-	if (!isObject(value)) return { ...DEFAULT_COLUMN_APPEARANCE };
-	const tone = value.tone === 'muted' || value.tone === 'faint' || value.tone === 'custom'
-		? value.tone
-		: 'default';
-	const color = tone === 'custom' && typeof value.color === 'string'
-		? normalizeHex(value.color) ?? undefined
-		: undefined;
-	return {
-		tone: tone === 'custom' && !color ? 'default' : tone,
-		bold: value.bold === true,
-		...(color ? { color } : {}),
-	};
-}
-
-function isDefaultColumnAppearance(appearance: NativeColumnAppearance): boolean {
-	return appearance.tone === 'default' && !appearance.bold;
 }
 
 function isDomNode(value: object): boolean {

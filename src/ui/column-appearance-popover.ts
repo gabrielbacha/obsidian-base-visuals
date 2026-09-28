@@ -1,11 +1,10 @@
 import { setIcon, type App } from 'obsidian';
-import { normalizeHex } from '@gabrielbacha/bases-contract';
+import { normalizeHex, RULE_TEXT_SWATCHES } from '@gabrielbacha/bases-contract';
 import { bindRadioGroup } from './radio-group';
 import {
 	DEFAULT_COLUMN_APPEARANCE,
 	getNativeColumnAppearance,
 	hasNativeColumnAppearance,
-	setNativeColumnAppearance,
 	type ColumnTextTone,
 	type NativeColumnAppearance,
 } from '../core/native-table-view';
@@ -51,17 +50,14 @@ export class ColumnAppearancePopover {
 		// its narrower scope until the user explicitly promotes it.
 		let applyToAllViews = !hasNativeColumnAppearance(this.app, scope, propertyId, viewAppearances);
 		let appearance = getNativeColumnAppearance(this.app, scope, propertyId, baseAppearances, viewAppearances);
+		// Both scopes are written through the shared contract's blocks (`basesVisuals` for every view,
+		// `basesVisualsView` for one); the older per-view key is only read, never written.
 		const commit = (next: NativeColumnAppearance) => {
 			appearance = next;
-			if (applyToAllViews && this.baseStores) {
-				if (this.baseStores.setViewColumnAppearance) {
-					this.baseStores.setViewColumnAppearance(scope, propertyId, null);
-				} else setNativeColumnAppearance(this.app, scope, propertyId, DEFAULT_COLUMN_APPEARANCE);
-				this.baseStores.setBaseColumnAppearance(scope, propertyId, next);
-			} else if (this.baseStores?.setViewColumnAppearance) {
-				this.baseStores.setViewColumnAppearance(scope, propertyId, next);
-			}
-			else setNativeColumnAppearance(this.app, scope, propertyId, next);
+			if (applyToAllViews) {
+				this.baseStores?.setViewColumnAppearance?.(scope, propertyId, null);
+				this.baseStores?.setBaseColumnAppearance(scope, propertyId, next);
+			} else this.baseStores?.setViewColumnAppearance?.(scope, propertyId, next);
 			onChange();
 		};
 
@@ -77,17 +73,12 @@ export class ColumnAppearancePopover {
 		scopeCopy.createSpan({ text: 'Share this column appearance across views' });
 		scopeInput.addEventListener('change', () => {
 			applyToAllViews = scopeInput.checked;
-			if (applyToAllViews && this.baseStores) {
-				if (this.baseStores.setViewColumnAppearance) {
-					this.baseStores.setViewColumnAppearance(scope, propertyId, null);
-				} else setNativeColumnAppearance(this.app, scope, propertyId, DEFAULT_COLUMN_APPEARANCE);
-				this.baseStores.setBaseColumnAppearance(scope, propertyId, appearance);
+			if (applyToAllViews) {
+				this.baseStores?.setViewColumnAppearance?.(scope, propertyId, null);
+				this.baseStores?.setBaseColumnAppearance(scope, propertyId, appearance);
 			} else {
 				this.baseStores?.setBaseColumnAppearance(scope, propertyId, null);
-				if (this.baseStores?.setViewColumnAppearance) {
-					this.baseStores.setViewColumnAppearance(scope, propertyId, appearance);
-				}
-				else setNativeColumnAppearance(this.app, scope, propertyId, appearance);
+				this.baseStores?.setViewColumnAppearance?.(scope, propertyId, appearance);
 			}
 			onChange();
 		});
@@ -130,6 +121,17 @@ export class ColumnAppearancePopover {
 
 		const customRow = toneSection.createDiv('bpc-column-custom-color');
 		customRow.hidden = appearance.tone !== 'custom';
+		const swatches = customRow.createDiv('bpc-column-swatches');
+		swatches.setAttribute('role', 'group');
+		swatches.setAttribute('aria-label', 'Text colours');
+		for (const swatch of RULE_TEXT_SWATCHES) {
+			const button = swatches.createEl('button', {
+				cls: 'bpc-column-swatch',
+				attr: { type: 'button', 'aria-label': swatch.name, title: swatch.name },
+			});
+			button.style.setProperty('--bpc-swatch', swatch.hex);
+			button.addEventListener('click', () => applyCustom(swatch.hex));
+		}
 		const picker = customRow.createEl('input', {
 			type: 'color',
 			attr: { 'aria-label': 'Custom column text color' },

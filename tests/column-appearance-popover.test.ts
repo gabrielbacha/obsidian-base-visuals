@@ -24,7 +24,8 @@ describe('ColumnAppearancePopover', () => {
 			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
 		} as unknown as App;
 		const changed = vi.fn();
-		const popover = new ColumnAppearancePopover(app);
+		const { stores, base } = fakeStores();
+		const popover = new ColumnAppearancePopover(app, stores);
 
 		popover.open(anchor, root, 'note.status', changed);
 		expect(document.querySelector('.bpc-column-appearance-popover')?.textContent)
@@ -38,11 +39,11 @@ describe('ColumnAppearancePopover', () => {
 		expect(document.querySelector<HTMLElement>('.bpc-column-custom-color')?.hidden).toBe(false);
 		const faint = findButton('Faint');
 		faint?.click();
-		expect(storedAppearance(values)).toEqual({ tone: 'faint', bold: false });
+		expect(base.get('note.status')).toEqual({ tone: 'faint', bold: false });
 
 		const bold = document.querySelector<HTMLButtonElement>('.bpc-column-bold-toggle');
 		bold?.click();
-		expect(storedAppearance(values)).toEqual({ tone: 'faint', bold: true });
+		expect(base.get('note.status')).toEqual({ tone: 'faint', bold: true });
 		expect(bold?.getAttribute('aria-pressed')).toBe('true');
 
 		findButton('Custom')?.click();
@@ -51,13 +52,18 @@ describe('ColumnAppearancePopover', () => {
 		);
 		if (hex) hex.value = '#abc';
 		hex?.dispatchEvent(new Event('change', { bubbles: true }));
-		expect(storedAppearance(values)).toEqual({
+		expect(base.get('note.status')).toEqual({
 			tone: 'custom', bold: true, color: '#AABBCC',
 		});
 		expect(changed).toHaveBeenCalledTimes(5);
+		// A swatch picks one of the shared rule colours in one click.
+		document.querySelector<HTMLButtonElement>('.bpc-column-swatch[aria-label="Red"]')?.click();
+		expect(base.get('note.status')).toMatchObject({ tone: 'custom', color: '#C62828' });
 
 		findButton('Reset appearance')?.click();
-		expect(values.get('basesVisualsColumnAppearance')).toBeNull();
+		expect(base.has('note.status')).toBe(false);
+		// The older per-view key is never written.
+		expect(values.has('basesVisualsColumnAppearance')).toBe(false);
 		expect(document.querySelector('.bpc-column-appearance-popover')).toBeNull();
 	});
 
@@ -77,12 +83,8 @@ describe('ColumnAppearancePopover', () => {
 		const app = {
 			workspace: { getLeavesOfType: (type: string) => type === 'bases' ? [leaf] : [] },
 		} as unknown as App;
-		const setBaseColumnAppearance = vi.fn(() => true);
-		const baseStores = {
-			getBaseColumnAppearances: () => ({}),
-			setBaseColumnAppearance,
-		} as unknown as BaseVisualStoreRepository;
-		const popover = new ColumnAppearancePopover(app, baseStores);
+		const { stores, base, view } = fakeStores();
+		const popover = new ColumnAppearancePopover(app, stores);
 
 		popover.open(anchor, root, 'note.status', vi.fn());
 		const scope = document.querySelector<HTMLInputElement>(
@@ -90,15 +92,14 @@ describe('ColumnAppearancePopover', () => {
 		);
 		expect(scope?.checked).toBe(true);
 		findButton('Faint')?.click();
-		expect(setBaseColumnAppearance).toHaveBeenLastCalledWith(
-			root, 'note.status', { tone: 'faint', bold: false },
-		);
-		expect(values.get('basesVisualsColumnAppearance')).toBeNull();
+		expect(base.get('note.status')).toEqual({ tone: 'faint', bold: false });
+		expect(view.has('note.status')).toBe(false);
 
 		if (scope) scope.checked = false;
 		scope?.dispatchEvent(new Event('change', { bubbles: true }));
-		expect(setBaseColumnAppearance).toHaveBeenLastCalledWith(root, 'note.status', null);
-		expect(storedAppearance(values)).toEqual({ tone: 'faint', bold: false });
+		expect(base.has('note.status')).toBe(false);
+		expect(view.get('note.status')).toEqual({ tone: 'faint', bold: false });
+		expect(values.has('basesVisualsColumnAppearance')).toBe(false);
 	});
 });
 
@@ -107,6 +108,20 @@ function findButton(label: string): HTMLButtonElement | undefined {
 		.find((button) => button.textContent?.includes(label));
 }
 
-function storedAppearance(values: Map<string, unknown>): unknown {
-	return (values.get('basesVisualsColumnAppearance') as Record<string, unknown>)?.['note.status'];
+/** A Base and a view block kept in memory, as the plugin's store keeps them in the `.base` file. */
+function fakeStores(): { stores: BaseVisualStoreRepository; base: Map<string, unknown>; view: Map<string, unknown> } {
+	const base = new Map<string, unknown>();
+	const view = new Map<string, unknown>();
+	const write = (entries: Map<string, unknown>) => (_scope: HTMLElement, id: string, value: unknown) => {
+		if (value === null) entries.delete(id);
+		else entries.set(id, value);
+		return true;
+	};
+	const stores = {
+		getBaseColumnAppearances: () => Object.fromEntries(base),
+		setBaseColumnAppearance: write(base),
+		getViewColumnAppearances: () => Object.fromEntries(view),
+		setViewColumnAppearance: write(view),
+	} as unknown as BaseVisualStoreRepository;
+	return { stores, base, view };
 }

@@ -12,7 +12,6 @@ import {
 	getNativeRowHeight,
 	resolveNativePropertyId,
 	resetNativeColumnWidths,
-	setNativeColumnAppearance,
 	setNativeRowHeight,
 } from '../src/core/native-table-view';
 
@@ -68,16 +67,14 @@ describe('native table view bridge', () => {
 		expect(getNativeColumnAppearance(app, root, 'note.invalid')).toEqual({
 			tone: 'default', bold: false,
 		});
-		expect(setNativeColumnAppearance(app, root, 'note.status', {
-			tone: 'custom', bold: true, color: '#abc',
-		})).toBe(true);
-		expect(getNativeColumnAppearance(app, root, 'note.status')).toEqual({
+		// A view's own entry wins over the Base's; the Base's shows where the view has none.
+		const base = { 'note.status': { tone: 'faint' }, 'note.cost': { tone: 'custom', color: '#abc', bold: true } };
+		expect(getNativeColumnAppearance(app, root, 'note.status', base)).toEqual({ tone: 'muted', bold: true });
+		expect(getNativeColumnAppearance(app, root, 'note.cost', base)).toEqual({
 			tone: 'custom', bold: true, color: '#AABBCC',
 		});
-		setNativeColumnAppearance(app, root, 'note.status', { tone: 'default', bold: false });
-		expect(values.get('basesVisualsColumnAppearance')).toEqual({
-			'note.invalid': { tone: 'custom', color: 'not-a-color' },
-		});
+		// The older key is only read: nothing writes it back.
+		expect(set).not.toHaveBeenCalled();
 	});
 
 	it('resolves a displayed column alias to the evaluator property id', () => {

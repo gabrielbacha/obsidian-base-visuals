@@ -11,6 +11,7 @@ All notable changes to Bases Visuals are documented here.
 - Edits made to an open Base in another app are picked up without reopening it.
 - Inline rename repairs the typed name the way BaseStudio does, and numbers a name already used (“Existing 2”), in place of refusing it.
 - A block saved by a newer version is read but never rewritten.
+- Column appearance is read by the shared contract (`@gabrielbacha/bases-contract` 1.1.0), so BaseStudio shows the same tones, colours and bold. A custom colour is adjusted per theme so it stays readable in dark mode, and the rule colours are offered as one-click swatches. Both scopes are written to `basesVisuals` / `basesVisualsView`; the older per-view key is only read.
 
 ## 0.17.0 — 2026-09-22
 

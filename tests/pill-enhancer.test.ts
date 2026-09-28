@@ -769,8 +769,10 @@ describe('PillEnhancer', () => {
 			.find((button) => button.textContent?.includes('Custom'));
 		custom?.click();
 		expect(cell?.classList.contains('bpc-column-tone-custom')).toBe(true);
-		expect(cell?.style.getPropertyValue('--bpc-column-color')).toBe('#787774');
-		expect(header?.style.getPropertyValue('--bpc-column-color')).toBe('');
+		// A custom colour for each theme, made readable on its background by the shared contract.
+		expect(cell?.style.getPropertyValue('--bpc-column-color-light')).toMatch(/^#/);
+		expect(cell?.style.getPropertyValue('--bpc-column-color-dark')).toMatch(/^#/);
+		expect(header?.style.getPropertyValue('--bpc-column-color-light')).toBe('');
 
 		harness.enhancer.stop();
 		expect(cell?.classList.contains('bpc-column-appearance')).toBe(false);
@@ -1013,17 +1015,36 @@ function createHarness(
 		openRuleManager,
 		openColumnManager,
 		() => store,
-		nativeOptions?.baseColumnAppearances
-			? {
-				resolvePropertyId: (_scope: HTMLElement, propertyId: string) => propertyId,
-				getBaseColumnAppearances: () => nativeOptions.baseColumnAppearances ?? {},
-			} as unknown as BaseVisualStoreRepository
+		nativeOptions?.baseColumnAppearances || nativeOptions?.columnAppearances
+			? memoryStores(nativeOptions.baseColumnAppearances ?? {}, nativeOptions.columnAppearances ?? {})
 			: undefined,
 	);
 	enhancer.start(() => undefined);
 	const harness = { root, store, stores: store === globalStore ? [store] : [store, globalStore], enhancer };
 	activeHarnesses.push(harness);
 	return harness;
+}
+
+/** The plugin's store of the `.base` blocks, kept in memory: the Base's and the view's column styles. */
+function memoryStores(
+	baseEntries: Record<string, unknown>,
+	viewEntries: Record<string, unknown>,
+): BaseVisualStoreRepository {
+	const base = { ...baseEntries };
+	const view = { ...viewEntries };
+	const write = (entries: Record<string, unknown>) => (_scope: HTMLElement, id: string, value: unknown) => {
+		if (value === null) delete entries[id];
+		else entries[id] = value;
+		return true;
+	};
+	return {
+		resolvePropertyId: (_scope: HTMLElement, propertyId: string) => propertyId,
+		getBaseColumnAppearances: () => base,
+		setBaseColumnAppearance: write(base),
+		getViewColumnAppearances: () => view,
+		hasViewColumnAppearance: (_scope: HTMLElement, id: string) => Object.prototype.hasOwnProperty.call(view, id),
+		setViewColumnAppearance: write(view),
+	} as unknown as BaseVisualStoreRepository;
 }
 
 function appendTableRow(parent: Element, propertyId: string, value: string): void {

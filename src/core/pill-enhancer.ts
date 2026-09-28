@@ -1,5 +1,11 @@
 import { Notice, setIcon, type App, type EventRef, type WorkspaceLeaf } from 'obsidian';
-import { encodeOptionKey, type ResolvedColor } from '@gabrielbacha/bases-contract';
+import {
+	columnAppearanceColors,
+	COLUMN_TONE_OPACITY,
+	describeColumnAppearance,
+	encodeOptionKey,
+	type ResolvedColor,
+} from '@gabrielbacha/bases-contract';
 import {
 	getNativeColumnAppearance,
 	canCreateNativeFileForGroup,
@@ -10,7 +16,6 @@ import {
 	getNativePropertyKind,
 	getNativePropertyDisplayName,
 	resolveNativePropertyId,
-	type NativeColumnAppearance,
 } from './native-table-view';
 import { evaluateRule, ruleColorVariables, ruleHasFormatting } from '@gabrielbacha/bases-contract';
 import { SettingsStore } from './settings-store';
@@ -1072,8 +1077,15 @@ export class PillEnhancer {
 		}
 		element.classList.add('bpc-column-appearance', `bpc-column-tone-${appearance.tone}`);
 		element.classList.toggle('bpc-column-emphasized', appearance.bold);
-		if (appearance.tone === 'custom' && appearance.color) {
-			element.style.setProperty('--bpc-column-color', appearance.color);
+		// A custom colour for light and dark themes (made readable on each by the shared contract),
+		// and how much pills recede in a muted or faint column.
+		const colors = columnAppearanceColors(appearance);
+		if (colors) {
+			element.style.setProperty('--bpc-column-color-light', colors.light);
+			element.style.setProperty('--bpc-column-color-dark', colors.dark);
+		}
+		if (appearance.tone === 'muted' || appearance.tone === 'faint') {
+			element.style.setProperty('--bpc-column-pill-opacity', String(COLUMN_TONE_OPACITY[appearance.tone]));
 		}
 		this.columnAppearanceElements.add(element);
 	}
@@ -1379,16 +1391,9 @@ function clearColumnAppearance(element: HTMLElement): void {
 		'bpc-column-tone-custom',
 		'bpc-column-emphasized',
 	);
-	element.style.removeProperty('--bpc-column-color');
-}
-
-function describeColumnAppearance(appearance: NativeColumnAppearance): string {
-	const tone = appearance.tone === 'default'
-		? ''
-		: appearance.tone === 'custom'
-			? 'Custom'
-			: appearance.tone[0]?.toLocaleUpperCase() + appearance.tone.slice(1);
-	return [tone, appearance.bold ? 'Bold' : ''].filter(Boolean).join(' + ') || 'Default';
+	element.style.removeProperty('--bpc-column-color-light');
+	element.style.removeProperty('--bpc-column-color-dark');
+	element.style.removeProperty('--bpc-column-pill-opacity');
 }
 
 function describePillAppearance(store: SettingsStore, propertyId: string, displayName: string): string {
