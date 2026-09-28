@@ -1,45 +1,53 @@
 import { Notice, parseYaml, type App, type EventRef } from 'obsidian';
 import {
 	getNativeBaseFile,
-	COLUMN_APPEARANCE_CONFIG_KEY,
 	getNativePropertyDisplayName,
 	getNativePropertyIds,
 	getNativePropertyKind,
 	getNativeViewConfig,
+	nativeViewBlock,
 	resolveNativePropertyId,
 	type NativeViewConfig,
 } from './native-table-view';
 import { SettingsStore } from './settings-store';
 import {
-	BASE_VISUALS_KEY,
-	BASE_VISUALS_SCHEMA_VERSION,
 	canonicalPropertyId,
-	compactViewData,
-	emptyBaseData,
+	compactStudioView,
 	equalValues,
-	hasExtensionChoices,
-	isNewerVisualSchema,
+	isOptionType,
 	LEGACY_BASE_VISUALS_KEY,
-	mergeBaseChanges,
-	mergeViewChanges,
-	normalizeBaseData,
-	normalizeViewData,
+	LEGACY_ROOT_KEYS,
+	LEGACY_VIEW_KEYS,
+	mergeStudioBase,
+	mergeStudioView,
+	newerBlockReason,
+	normalizeColumnAppearance,
+	optionColorOverride,
+	overrideOptionColor,
+	pillsStrategy,
+	readStudioBase,
+	readStudioView,
 	readYamlMap,
-	VIEW_VISUALS_KEY,
-	VIEW_VISUALS_SCHEMA_VERSION,
-	writeBaseVisuals,
-	writeViewVisuals,
-	declaredPropertyTypes,
-	setDeclaredOptionColor,
-	type BaseVisualData,
-	type DeclaredOption,
-	type OptionIdentity,
+	storedColumnAppearance,
+	storedRules,
+	strategyPills,
+	STUDIO_KEY,
+	studioBaseAppearances,
+	studioOptions,
+	studioOverrides,
+	studioPalette,
+	studioRules,
+	studioStrategies,
+	studioViewAppearances,
+	writeStudioBase,
+	writeStudioView,
 	type BlockWriteResult,
-	type ViewVisualData,
+	type StudioBase,
+	type StudioOption,
+	type StudioProperty,
+	type StudioView,
 } from '@gabrielbacha/bases-contract';
 import { DEFAULT_SETTINGS, type BasesPillColorsSettings } from './types';
-
-export { BASE_VISUALS_KEY, LEGACY_BASE_VISUALS_KEY, VIEW_VISUALS_KEY };
 
 export type VisualPersistenceState =
 	| { status: 'saved' }
@@ -55,14 +63,30 @@ interface StoreRecord {
 	scope: HTMLElement;
 	config: NativeViewConfig;
 	group: BaseStoreGroup;
-	baseSnapshot: BaseVisualData;
-	viewSnapshot: ViewVisualData;
+	/** The Base's `basesStudio` block as this view last took it. */
+	baseSnapshot: StudioBase;
+	/** This view's `basesStudio` block as it was last read or saved. */
+	viewSnapshot: StudioView;
+}
+
+/**
+ * One change to the Base's block: the edits from `baseline` (the file's block that the change was
+ * made on) to `data`.
+ */
+interface BaseChange {
+	scope: HTMLElement;
+	baseline: StudioBase;
+	data: StudioBase;
 }
 
 interface BaseStoreGroup {
-	base: BaseVisualData;
+	/** The Base's block as the open views show it: the file's, with changes not saved yet. */
+	base: StudioBase;
+	/** The Base's block as last read from, or written to, the file. */
+	fileBase: StudioBase;
 	records: Set<StoreRecord>;
-	pendingSync: { scope: HTMLElement; data: BaseVisualData } | null;
+	/** Changes not written yet, in order. Each is merged onto the file as it is then. */
+	pending: BaseChange[];
 	syncPromise: Promise<void> | null;
 }
 
@@ -97,36 +121,27 @@ export class BaseVisualStoreRepository {
 			return scoped;
 		}
 
-		const storedBase = normalizeBaseData(config.get(LEGACY_BASE_VISUALS_KEY));
-		const fallback = storedBase ?? emptyBaseData();
+		// Until the file is read, the Base's block is what an old per-view copy held (if any).
+		const fallback = readStudioBase({ views: [{ [LEGACY_BASE_VISUALS_KEY]: config.get(LEGACY_BASE_VISUALS_KEY) }] });
 		const group = this.getOrCreateGroup(scope, config, fallback);
 		const base = group.base;
-		const view = normalizeViewData(
-			config.get(VIEW_VISUALS_KEY),
-			config.get(COLUMN_APPEARANCE_CONFIG_KEY),
-		);
+		const view = nativeViewBlock(config);
 		const settings = scopedSettings(this.globalStore.settings, base, view);
 		let record!: StoreRecord;
 		const store = new SettingsStore(settings, async (next) => {
 			this.globalStore.setManagerSearch(next.managerSearch);
 			this.globalStore.setRuleManagerSearch(next.ruleManagerSearch);
 			this.globalStore.setCollapsedPropertyGroups(next.collapsedPropertyGroups);
-			const localBase = baseDataFromSettings(
-				next,
-				record.baseSnapshot,
-				this.globalStore.settings.paletteTemplateId,
-			);
-			const nextBase = mergeBaseChanges(record.baseSnapshot, localBase, group.base);
-			const localView = viewDataFromSettings(next, record.viewSnapshot);
-			const latestView = normalizeViewData(
-				record.config.get(VIEW_VISUALS_KEY),
-				record.config.get(COLUMN_APPEARANCE_CONFIG_KEY),
-			);
-			const nextView = mergeViewChanges(record.viewSnapshot, localView, latestView);
+			const baseline = group.fileBase;
+			const localBase = baseFromSettings(next, record.baseSnapshot, this.globalStore.settings.paletteTemplateId);
+			const nextBase = mergeStudioBase(record.baseSnapshot, localBase, group.base).block;
+			const localView = viewFromSettings(next, record.viewSnapshot);
+			const latestView = nativeViewBlock(record.config);
+			const nextView = mergeStudioView(record.viewSnapshot, localView, latestView).block;
 			const persistedView = await this.syncView(record, nextView);
 			if (persistedView) record.viewSnapshot = structuredClone(persistedView);
 			this.publishBase(group, nextBase, record);
-			await this.queueBaseSync(group, scope, nextBase);
+			await this.queueBaseSync(group, { scope, baseline, data: nextBase });
 		});
 		record = {
 			store, scope, config, group,
@@ -139,7 +154,7 @@ export class BaseVisualStoreRepository {
 		this.recordsByStore.set(store, record);
 		group.records.add(record);
 		this.unsubscribers.set(store, store.subscribe(() => this.globalStore.notify()));
-		void this.hydrateOrMigrate(scope, record, fallback)
+		void this.hydrate(scope, record, fallback)
 			.then(() => this.initializePropertyIdentity(scope, config, store));
 		return store;
 	}
@@ -194,28 +209,32 @@ export class BaseVisualStoreRepository {
 		return ids;
 	}
 
+	/** Each column's style in every view: the `style` of each property in the Base's block. */
 	getBaseColumnAppearances(scope: HTMLElement): Record<string, unknown> {
 		const config = getNativeViewConfig(this.app, scope);
 		const store = config ? this.stores.get(config) : undefined;
 		const base = store
 			? this.recordsByStore.get(store)?.group.base
-			: normalizeBaseData(config?.get(LEGACY_BASE_VISUALS_KEY));
-		return { ...(base?.columnAppearances ?? {}) };
+			: readStudioBase({ views: [{ [LEGACY_BASE_VISUALS_KEY]: config?.get(LEGACY_BASE_VISUALS_KEY) }] });
+		return studioBaseAppearances(base ?? {});
 	}
 
+	/** Saves a column's style for every view (`null` removes it). */
 	setBaseColumnAppearance(scope: HTMLElement, propertyId: string, value: unknown): boolean {
 		const config = getNativeViewConfig(this.app, scope);
 		if (!config) return false;
 		const store = this.forScope(scope);
 		const record = this.recordsByStore.get(store);
 		if (!record) return false;
+		const baseline = record.group.fileBase;
 		const base = structuredClone(record.group.base);
-		const appearances = { ...(base.columnAppearances ?? {}) };
-		if (value === null) delete appearances[propertyId];
-		else appearances[propertyId] = value;
-		base.columnAppearances = appearances;
+		const property: StudioProperty = { ...base.properties?.[propertyId] };
+		const style = value === null ? null : storedColumnAppearance(normalizeColumnAppearance(value));
+		if (style) property.style = style;
+		else delete property.style;
+		base.properties = { ...base.properties, [propertyId]: property };
 		this.publishBase(record.group, base);
-		void this.queueBaseSync(record.group, scope, base);
+		void this.queueBaseSync(record.group, { scope, baseline, data: base });
 		return true;
 	}
 
@@ -223,23 +242,29 @@ export class BaseVisualStoreRepository {
 		const config = getNativeViewConfig(this.app, scope);
 		const store = config ? this.stores.get(config) : undefined;
 		const record = store ? this.recordsByStore.get(store) : undefined;
-		return { ...(record?.viewSnapshot.columnAppearances ?? {}) };
+		return studioViewAppearances(record?.viewSnapshot ?? {});
 	}
 
 	hasViewColumnAppearance(scope: HTMLElement, propertyId: string): boolean {
 		return Object.prototype.hasOwnProperty.call(this.getViewColumnAppearances(scope), propertyId);
 	}
 
+	/**
+	 * Saves a column's style for this view only (`null` removes it). A default style is kept as an
+	 * empty one: it turns the Base's style off in this view.
+	 */
 	setViewColumnAppearance(scope: HTMLElement, propertyId: string, value: unknown): boolean {
 		const store = this.forScope(scope);
 		const record = this.recordsByStore.get(store);
 		if (!record) return false;
 		const baseline = structuredClone(record.viewSnapshot);
 		const next = structuredClone(baseline);
-		if (value === null) delete next.columnAppearances[propertyId];
-		else next.columnAppearances[propertyId] = value;
-		record.viewSnapshot = structuredClone(next);
-		void this.syncView(record, next, baseline).then((persisted) => {
+		const column = { ...next.columns?.[propertyId] };
+		if (value === null) delete column.style;
+		else column.style = storedColumnAppearance(normalizeColumnAppearance(value)) ?? {};
+		next.columns = { ...next.columns, [propertyId]: column };
+		record.viewSnapshot = compactStudioView(next);
+		void this.syncView(record, record.viewSnapshot, baseline).then((persisted) => {
 			record.viewSnapshot = structuredClone(persisted ?? baseline);
 		});
 		return true;
@@ -256,34 +281,32 @@ export class BaseVisualStoreRepository {
 		this.groups.clear();
 	}
 
-	private async hydrateOrMigrate(
+	/**
+	 * Reads the Base's block from the file and rebases this view's unsaved choices onto it. Nothing
+	 * is written: a Base with the older blocks is moved into `basesStudio` on its next edit.
+	 */
+	private async hydrate(
 		scope: HTMLElement,
 		record: StoreRecord,
-		fallback: BaseVisualData,
+		fallback: StudioBase,
 	): Promise<void> {
 		const stored = await this.readBaseData(scope);
-		record.store.setDeclaredOptions(stored.declared, (identity, hex) => {
-			void this.writeDeclaredColor(record.scope, identity, hex);
-		});
+		record.store.setDeclaredOptions(stored.declared);
 		const group = record.group;
-		const local = baseDataFromSettings(
+		if (stored.data) group.fileBase = structuredClone(stored.data);
+		const local = baseFromSettings(
 			record.store.settings,
 			record.baseSnapshot,
 			this.globalStore.settings.paletteTemplateId,
 		);
-		const hydrated = mergeBaseChanges(
-			record.baseSnapshot,
-			local,
-			stored.data ?? group.base ?? fallback,
-		);
-		if (stored.legacy) delete hydrated.rawSource;
+		const hydrated = mergeStudioBase(record.baseSnapshot, local, stored.data ?? group.base ?? fallback).block;
 		this.publishBase(group, hydrated, record);
 	}
 
 	private getOrCreateGroup(
 		scope: HTMLElement,
 		config: NativeViewConfig,
-		initial: BaseVisualData,
+		initial: StudioBase,
 	): BaseStoreGroup {
 		const file = getNativeBaseFile(this.app, scope);
 		const key: BaseGroupKey = file?.path ? `file:${file.path}` : config;
@@ -291,8 +314,9 @@ export class BaseVisualStoreRepository {
 		if (existing) return existing;
 		const group: BaseStoreGroup = {
 			base: structuredClone(initial),
+			fileBase: structuredClone(initial),
 			records: new Set(),
-			pendingSync: null,
+			pending: [],
 			syncPromise: null,
 		};
 		this.groups.set(key, group);
@@ -301,7 +325,7 @@ export class BaseVisualStoreRepository {
 
 	private publishBase(
 		group: BaseStoreGroup,
-		data: BaseVisualData,
+		data: StudioBase,
 		source?: StoreRecord,
 	): void {
 		group.base = structuredClone(data);
@@ -312,12 +336,12 @@ export class BaseVisualStoreRepository {
 				record.store.notify();
 				continue;
 			}
-			const local = baseDataFromSettings(
+			const local = baseFromSettings(
 				record.store.settings,
 				record.baseSnapshot,
 				this.globalStore.settings.paletteTemplateId,
 			);
-			const projected = mergeBaseChanges(record.baseSnapshot, local, data);
+			const projected = mergeStudioBase(record.baseSnapshot, local, data).block;
 			record.baseSnapshot = structuredClone(data);
 			applyBaseToSettings(record.store.settings, projected, this.globalStore.settings.paletteTemplateId);
 			record.store.notify();
@@ -325,12 +349,12 @@ export class BaseVisualStoreRepository {
 		this.globalStore.notify();
 	}
 
-	private queueBaseSync(
-		group: BaseStoreGroup,
-		scope: HTMLElement,
-		data: BaseVisualData,
-	): Promise<void> {
-		group.pendingSync = { scope, data: structuredClone(data) };
+	private queueBaseSync(group: BaseStoreGroup, change: BaseChange): Promise<void> {
+		group.pending.push({
+			scope: change.scope,
+			baseline: structuredClone(change.baseline),
+			data: structuredClone(change.data),
+		});
 		if (!group.syncPromise) {
 			group.syncPromise = this.drainBaseSync(group).finally(() => {
 				group.syncPromise = null;
@@ -340,11 +364,12 @@ export class BaseVisualStoreRepository {
 	}
 
 	private async drainBaseSync(group: BaseStoreGroup): Promise<void> {
-		while (group.pendingSync) {
-			const pending = group.pendingSync;
-			group.pendingSync = null;
-			const persisted = await this.syncBaseViews(pending.scope, pending.data);
-			if (persisted) this.publishBase(group, persisted);
+		for (let change = group.pending.shift(); change; change = group.pending.shift()) {
+			const persisted = await this.syncBase(change);
+			if (!persisted) continue;
+			group.fileBase = structuredClone(persisted);
+			// The file now holds this change; changes still queued are shown on top of it.
+			if (!group.pending.length) this.publishBase(group, persisted);
 		}
 	}
 
@@ -369,49 +394,28 @@ export class BaseVisualStoreRepository {
 		return pending;
 	}
 
+	/** The Base's block in the file, and the options its select columns declare (for their labels). */
 	private async readBaseData(scope: HTMLElement): Promise<{
-		data: BaseVisualData | null;
-		legacy: boolean;
-		declared: Record<string, DeclaredOption[]>;
+		data: StudioBase | null;
+		declared: Record<string, StudioOption[]>;
 	}> {
-		const none = { data: null, legacy: false, declared: {} };
+		const none = { data: null, declared: {} };
 		const file = getNativeBaseFile(this.app, scope);
 		if (!file || !this.app.vault?.cachedRead) return none;
 		try {
 			const parsed = parseYaml(await this.app.vault.cachedRead(file)) as Record<string, unknown> | null;
 			if (!parsed) return none;
+			// A file with no block in either form has nothing saved yet (the view's own copy stands).
+			const saved = STUDIO_KEY in parsed || LEGACY_ROOT_KEYS.some((key) => key in parsed) ||
+				(Array.isArray(parsed.views) && parsed.views.some((view) => isRecord(view) && LEGACY_BASE_VISUALS_KEY in view));
+			const data = readStudioBase(parsed);
 			const declared = Object.fromEntries(
-				Object.entries(declaredPropertyTypes(parsed)).map(([propertyId, type]) => [propertyId, type.options]),
+				Object.entries(data.properties ?? {}).flatMap(([propertyId, property]) =>
+					isRecord(property) && isOptionType(property.type) ? [[propertyId, studioOptions(property)]] : []),
 			);
-			const current = normalizeBaseData(parsed[BASE_VISUALS_KEY]);
-			if (current) return { data: current, legacy: false, declared };
-			if (Array.isArray(parsed.views)) {
-				for (const candidate of parsed.views) {
-					if (!isRecord(candidate)) continue;
-					const data = normalizeBaseData(candidate[LEGACY_BASE_VISUALS_KEY]);
-					if (data) return { data, legacy: true, declared };
-				}
-			}
-			return { ...none, declared };
+			return { data: saved ? data : null, declared };
 		} catch {
 			return none;
-		}
-	}
-
-	/** Saves a declared option's colour in the Base's `basesEditor` block, through the shared contract. */
-	private async writeDeclaredColor(scope: HTMLElement, identity: OptionIdentity, hex: string | null): Promise<void> {
-		const file = getNativeBaseFile(this.app, scope);
-		if (!file || !this.app.vault?.process) return;
-		try {
-			let reason = '';
-			await this.app.vault.process(file, (source) => {
-				const result = setDeclaredOptionColor(source, identity.propertyId, identity.value, hex);
-				if (result.status === 'read-only') reason = result.reason;
-				return result.source;
-			});
-			if (reason) new Notice(`Bases Visuals did not save the colour of “${identity.value}”: ${reason}`);
-		} catch (error) {
-			new Notice(`Bases Visuals could not save ${file.path}: ${errorMessage(error)}`);
 		}
 	}
 
@@ -424,18 +428,18 @@ export class BaseVisualStoreRepository {
 		registerEvent(this.app.vault.on('modify', (file) => {
 			const group = this.groups.get(`file:${file.path}`);
 			if (!group) return;
-			for (const record of group.records) void this.hydrateOrMigrate(record.scope, record, group.base);
+			for (const record of group.records) void this.hydrate(record.scope, record, group.base);
 		}));
 	}
 
-	private async syncBaseViews(scope: HTMLElement, data: BaseVisualData): Promise<BaseVisualData | null> {
+	private async syncBase({ scope, baseline, data }: BaseChange): Promise<StudioBase | null> {
 		const file = getNativeBaseFile(this.app, scope);
 		if (!file || !this.app.vault?.process) return null;
 		this.persistenceStates.set(scope, { status: 'pending' });
 		try {
-			let result: BlockWriteResult<BaseVisualData> | null = null;
+			let result: BlockWriteResult<StudioBase> | null = null;
 			await this.app.vault.process(file, (source) => {
-				result = writeBaseVisuals(source, data);
+				result = writeStudioBase(source, baseline, data);
 				return result.source;
 			});
 			return this.settle(scope, file.path, result, 'Reopen the Base and try again.');
@@ -472,26 +476,25 @@ export class BaseVisualStoreRepository {
 
 	private async syncView(
 		record: StoreRecord,
-		data: ViewVisualData,
-		baseline: ViewVisualData = record.viewSnapshot,
-	): Promise<ViewVisualData | null> {
+		data: StudioView,
+		baseline: StudioView = record.viewSnapshot,
+	): Promise<StudioView | null> {
 		const file = getNativeBaseFile(this.app, record.scope);
 		if (!file || !this.app.vault?.process) {
-			if (isNewerVisualSchema(record.config.get(VIEW_VISUALS_KEY), 'view')) {
-				return this.settle(record.scope, 'this view', {
-					status: 'read-only',
-					source: '',
-					reason: 'basesVisualsView was saved by a newer version',
-				});
-			}
-			const compact = compactViewData(data, data.rawSource);
-			record.config.set(VIEW_VISUALS_KEY, hasExtensionChoices(compact) ? compact : null);
-			record.config.set(COLUMN_APPEARANCE_CONFIG_KEY, null);
-			return normalizeViewData(compact);
+			// Without the file, the view's own config holds the block; the older keys go, unless one
+			// was saved by a newer version.
+			const configView: Record<string, unknown> = {};
+			for (const key of [STUDIO_KEY, ...LEGACY_VIEW_KEYS]) configView[key] = record.config.get(key);
+			const newer = newerBlockReason({ views: [configView] });
+			if (newer) return this.settle(record.scope, 'this view', { status: 'read-only', source: '', reason: newer });
+			const compact = compactStudioView(data);
+			record.config.set(STUDIO_KEY, Object.keys(compact).length ? compact : null);
+			for (const key of LEGACY_VIEW_KEYS) if (record.config.get(key) !== undefined) record.config.set(key, null);
+			return compact;
 		}
 		this.persistenceStates.set(record.scope, { status: 'pending' });
 		try {
-			let result: BlockWriteResult<ViewVisualData> | null = null;
+			let result: BlockWriteResult<StudioView> | null = null;
 			await this.app.vault.process(file, (source) => {
 				const parsed = safeParseRecord(source);
 				if (!parsed) {
@@ -503,7 +506,7 @@ export class BaseVisualStoreRepository {
 					result = { status: 'read-only', source, reason: 'the active native view could not be identified uniquely' };
 					return source;
 				}
-				result = writeViewVisuals(source, viewIndex, baseline, data);
+				result = writeStudioView(source, viewIndex, baseline, data);
 				return result.source;
 			});
 			return this.settle(record.scope, file.path, result);
@@ -518,16 +521,16 @@ export class BaseVisualStoreRepository {
 
 function scopedSettings(
 	global: BasesPillColorsSettings,
-	base: BaseVisualData,
-	view: ViewVisualData,
+	base: StudioBase,
+	view: StudioView,
 ): BasesPillColorsSettings {
 	return {
 		...structuredClone(DEFAULT_SETTINGS),
-		options: structuredClone(base.options),
-		paletteTemplateId: base.paletteTemplateId ?? global.paletteTemplateId,
-		knownProperties: structuredClone(base.knownProperties),
-		propertyStrategies: structuredClone(base.propertyStrategies),
-		rules: [...structuredClone(base.rules), ...structuredClone(view.rules)],
+		options: studioOverrides(base),
+		paletteTemplateId: studioPalette(base) ?? global.paletteTemplateId,
+		knownProperties: {},
+		propertyStrategies: studioStrategies(base),
+		rules: [...studioRules(base, 'base'), ...studioRules(view, 'view')],
 		managerSearch: global.managerSearch,
 		collapsedPropertyGroups: [...global.collapsedPropertyGroups],
 		ruleManagerSearch: global.ruleManagerSearch,
@@ -536,63 +539,105 @@ function scopedSettings(
 	};
 }
 
-
-function baseDataFromSettings(
+/**
+ * The Base's block with the choices in `settings` written over `current`: the palette, each
+ * value's colour (on the property's options), each property's pill strategy and the Base rules.
+ * What the settings do not hold (types, labels, styles, unknown keys) stays as it is, and a choice
+ * that did not change keeps its stored form.
+ */
+function baseFromSettings(
 	settings: BasesPillColorsSettings,
-	current: unknown,
+	current: StudioBase,
 	globalPaletteTemplateId: BasesPillColorsSettings['paletteTemplateId'],
-): BaseVisualData {
-	const previous = normalizeBaseData(current);
-	const options = Object.fromEntries(
-		Object.entries(settings.options).filter(([, option]) => option.override !== undefined),
-	);
-	return {
-		schemaVersion: BASE_VISUALS_SCHEMA_VERSION,
-		...(settings.paletteTemplateId !== globalPaletteTemplateId
-			? { paletteTemplateId: settings.paletteTemplateId }
-			: {}),
-		options: structuredClone(options),
-		knownProperties: {},
-		rules: settings.rules.filter((rule) => rule.scope === 'base').map((rule) => structuredClone(rule)),
-		propertyStrategies: structuredClone(settings.propertyStrategies),
-		...(previous?.columnAppearances ? { columnAppearances: structuredClone(previous.columnAppearances) } : {}),
-		...(previous?.rawSource ? { rawSource: structuredClone(previous.rawSource) } : {}),
-	};
+): StudioBase {
+	const block = structuredClone(current);
+	if (settings.paletteTemplateId !== (studioPalette(current) ?? globalPaletteTemplateId)) {
+		if (settings.paletteTemplateId === globalPaletteTemplateId) delete block.palette;
+		else block.palette = settings.paletteTemplateId;
+	}
+	const colors = new Map<string, Map<string, string>>();
+	for (const option of Object.values(settings.options)) {
+		if (!option.override) continue;
+		const property = colors.get(option.propertyId) ?? new Map<string, string>();
+		property.set(option.value, overrideOptionColor(option.override));
+		colors.set(option.propertyId, property);
+	}
+	const ids = new Set([
+		...Object.keys(block.properties ?? {}),
+		...colors.keys(),
+		...Object.keys(settings.propertyStrategies),
+	]);
+	const properties: Record<string, StudioProperty> = {};
+	for (const id of ids) {
+		const record: StudioProperty = { ...block.properties?.[id] };
+		const options = withColors(record, colors.get(id) ?? new Map());
+		if (options.length) record.options = options;
+		else delete record.options;
+		const strategy = settings.propertyStrategies[id];
+		if (!equalValues(pillsStrategy(record.pills), strategy)) {
+			const unknown: Record<string, unknown> = { ...(isRecord(record.pills) ? record.pills : {}) };
+			for (const key of ['mode', 'preset', 'style', 'wrap']) delete unknown[key];
+			const pills = { ...unknown, ...strategyPills(strategy) };
+			if (Object.keys(pills).length) record.pills = pills;
+			else delete record.pills;
+		}
+		if (Object.keys(record).length) properties[id] = record;
+	}
+	block.properties = properties;
+	const rules = settings.rules.filter((rule) => rule.scope === 'base');
+	if (!equalValues(studioRules(current, 'base'), rules)) block.rules = storedRules(current.rules, rules);
+	return block;
 }
 
-
-
-
+/**
+ * A property's options with each value's colour from `colors` (value → preset, hex or `none`):
+ * a colour on an option that has none is set, a colour gone is removed, and a coloured value with
+ * no option is added. An option left with only its value is dropped unless the property's type
+ * declares options.
+ */
+function withColors(record: StudioProperty, colors: ReadonlyMap<string, string>): StudioOption[] {
+	const wanted = new Map(colors);
+	const list: unknown[] = Array.isArray(record.options) ? record.options : [];
+	const options = list.flatMap((item): StudioOption[] => {
+		const value = typeof item === 'string' ? item : isRecord(item) ? item.value : undefined;
+		if (typeof value !== 'string') return [item as StudioOption];
+		const color = wanted.get(value);
+		wanted.delete(value);
+		const stored = isRecord(item) ? item.color : undefined;
+		if (equalValues(optionColorOverride(stored), color === undefined ? undefined : optionColorOverride(color)))
+			return [item as StudioOption];
+		const option: Record<string, unknown> = isRecord(item) ? { ...item } : { value };
+		if (color === undefined) delete option.color;
+		else option.color = color;
+		if (!isOptionType(record.type) && Object.keys(option).length === 1) return [];
+		return [option as StudioOption];
+	});
+	for (const [value, color] of wanted) options.push({ value, color });
+	return options;
+}
 
 function applyBaseToSettings(
 	settings: BasesPillColorsSettings,
-	base: BaseVisualData,
+	base: StudioBase,
 	globalPaletteTemplateId: BasesPillColorsSettings['paletteTemplateId'],
 ): void {
 	const viewRules = settings.rules.filter((rule) => rule.scope === 'view');
-	settings.paletteTemplateId = base.paletteTemplateId ?? globalPaletteTemplateId;
+	settings.paletteTemplateId = studioPalette(base) ?? globalPaletteTemplateId;
 	const transientOptions = Object.fromEntries(
 		Object.entries(settings.options).filter(([, option]) => option.override === undefined),
 	);
-	settings.options = { ...transientOptions, ...structuredClone(base.options) };
-	settings.propertyStrategies = structuredClone(base.propertyStrategies);
-	settings.rules = [...structuredClone(base.rules), ...viewRules];
+	settings.options = { ...transientOptions, ...studioOverrides(base) };
+	settings.propertyStrategies = studioStrategies(base);
+	settings.rules = [...studioRules(base, 'base'), ...viewRules];
 }
 
-
-function viewDataFromSettings(
-	settings: BasesPillColorsSettings,
-	current: ViewVisualData,
-): ViewVisualData {
-	return {
-		schemaVersion: VIEW_VISUALS_SCHEMA_VERSION,
-		rules: settings.rules.filter((rule) => rule.scope === 'view').map((rule) => structuredClone(rule)),
-		columnAppearances: structuredClone(current.columnAppearances),
-		...(current.rawSource ? { rawSource: structuredClone(current.rawSource) } : {}),
-	};
+/** The view's block with the view rules in `settings` written over `current`. */
+function viewFromSettings(settings: BasesPillColorsSettings, current: StudioView): StudioView {
+	const block = structuredClone(current);
+	const rules = settings.rules.filter((rule) => rule.scope === 'view');
+	if (!equalValues(studioRules(current, 'view'), rules)) block.rules = storedRules(current.rules, rules);
+	return block;
 }
-
-
 
 interface BasePropertyContext {
 	aliases: Map<string, string>;
@@ -748,9 +793,13 @@ function findViewIndex(views: unknown, record: StoreRecord): number {
 	const candidates = views as unknown[];
 	const records = candidates.map((view, index) => ({ view, index }))
 		.filter((entry): entry is { view: Record<string, unknown>; index: number } => isRecord(entry.view));
-	const baseline = record.viewSnapshot.rawSource;
-	if (baseline) {
-		const byBlock = records.filter(({ view }) => equalValues(view[VIEW_VISUALS_KEY], baseline));
+	const snapshot = record.viewSnapshot;
+	if (typeof snapshot.id === 'string') {
+		const byId = records.filter(({ view }) => readStudioView(view).id === snapshot.id);
+		if (byId.length === 1) return byId[0]?.index ?? -1;
+	}
+	if (Object.keys(snapshot).length) {
+		const byBlock = records.filter(({ view }) => equalValues(compactStudioView(readStudioView(view)), snapshot));
 		if (byBlock.length === 1) return byBlock[0]?.index ?? -1;
 	}
 	const name = record.config.get('name');

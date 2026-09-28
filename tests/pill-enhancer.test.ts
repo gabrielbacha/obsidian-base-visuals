@@ -352,7 +352,7 @@ describe('PillEnhancer', () => {
 		expect(pill?.classList.contains('bpc-pill-style-solid')).toBe(false);
 	});
 
-	it('shows a BaseStudio select value as a pill in its declared colour', () => {
+	it('shows a BaseStudio select value as a pill in its option colour', () => {
 		const harness = createHarness([], (baseView) => {
 			const table = baseView.createDiv('bases-table-container');
 			const row = table.createDiv('bases-tbody').createDiv('bases-tr');
@@ -363,8 +363,10 @@ describe('PillEnhancer', () => {
 		const cell = harness.root.querySelector<HTMLElement>('.bases-td[data-property="note.seat"]');
 		expect(cell?.classList.contains('bpc-select-cell')).toBe(false);
 
+		// The option's colour is one of the Base's option colours; the declaration gives its label.
+		harness.store.setOverride({ propertyId: 'note.seat', value: 'World-facing only' }, { kind: 'custom', hex: '#16A085' });
 		harness.store.setDeclaredOptions({
-			'note.seat': [{ value: 'World-facing only', label: 'World-facing', color: '#16A085' }],
+			'note.seat': [{ value: 'World-facing only', label: 'World-facing' }],
 		});
 		expect(cell?.classList.contains('bpc-select-cell')).toBe(true);
 		expect(cell?.style.getPropertyValue('--bpc-accent')).toBe('#16A085');

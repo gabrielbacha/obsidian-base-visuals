@@ -2,17 +2,18 @@
 
 All notable changes to Bases Visuals are documented here.
 
-## Unreleased
+## 0.18.0 — 2026-09-28
 
-- Share one contract with BaseStudio (`@gabrielbacha/bases-contract`): YAML patching, rule matching, colours, strategies, the block merge, names and row heights are no longer kept as a separate copy in the plugin.
-- A rule's background opacity now means the same in both apps: 0–100, where a missing value means 100. Choosing a background saves its default tint explicitly. Older blocks keep the tint they showed (12%, or 3% for Muted) and are upgraded (`basesVisuals` 8, `basesVisualsView` 3) only on an intentional edit.
-- Colours declared on BaseStudio select options take precedence. A colour chosen in the plugin on a declared option is saved on that option. **Clean unused** also removes overrides that a declared colour has replaced.
-- Single-value select columns declared by BaseStudio show as pills in Obsidian.
+- **One block for everything both apps add to a Base: `basesStudio`** (`@gabrielbacha/bases-contract` 2.0.0). At the root it holds the palette, each property's record (type, options with their colours, pill strategy, column style, default value), the Base rules, detail layouts and toolbar settings. Inside each view it holds that view's settings, its columns' wrap and style, and its rules.
+- Bases saved by older releases (`basesVisuals`, `basesVisualsView`, `basesVisualsColumnAppearance`, `basesVisualsBase`, and BaseStudio's `basesEditor` and `basesEditorView`) are read as before. Opening a Base never changes it; the first intentional edit moves the whole file into `basesStudio` and removes the old blocks. **Older releases of the plugin do not read `basesStudio`: update the plugin on every device.**
+- A value has one colour, stored on its option (`color`: a palette preset, a hex, or `none`), whether BaseStudio declares the option or not. The separate declared-colour path is gone.
+- Share one contract with BaseStudio: YAML patching, rule matching, colours, strategies, the block merge, names and row heights are no longer kept as a separate copy in the plugin.
+- A rule's background opacity means the same in both apps: 0–100, where a missing value means 100. Older blocks keep the tint they showed (12%, or 3% for Muted); the move into `basesStudio` writes it explicitly. Rules no longer store `scope`: the block they are in gives it.
+- Single-value select columns declared by BaseStudio show as pills in Obsidian, with their option labels.
 - Edits made to an open Base in another app are picked up without reopening it.
 - Inline rename repairs the typed name the way BaseStudio does, and numbers a name already used (“Existing 2”), in place of refusing it.
 - A block saved by a newer version is read but never rewritten.
-- Column appearance is read by the shared contract (`@gabrielbacha/bases-contract` 1.1.0), so BaseStudio shows the same tones, colours and bold. A custom colour is adjusted per theme so it stays readable in dark mode, and the rule colours are offered as one-click swatches. Both scopes are written to `basesVisuals` / `basesVisualsView`; the older per-view key is only read.
-- Column appearance can set a column's alignment (Auto, Left, Center, Right; `align` in `columnAppearances`, bases-contract 1.2.0). The header aligns with its values.
+- Column style is read by the shared contract, so BaseStudio shows the same tones, colours, bold and alignment (Auto, Left, Center, Right). A custom colour is adjusted per theme so it stays readable in dark mode, and the rule colours are offered as one-click swatches.
 
 ## 0.17.0 — 2026-09-22
 

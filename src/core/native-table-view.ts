@@ -1,8 +1,12 @@
 import { parsePropertyId, type App, type BasesPropertyId, type TFile, type WorkspaceLeaf } from 'obsidian';
 import {
 	DEFAULT_COLUMN_APPEARANCE,
-	LEGACY_VIEW_COLUMN_APPEARANCE_KEY,
+	LEGACY_VIEW_KEYS,
 	normalizeColumnAppearance,
+	readStudioView,
+	STUDIO_KEY,
+	studioViewAppearances,
+	type StudioView,
 	readRowHeight,
 	resolveColumnAppearance,
 	type ColumnAppearance,
@@ -33,15 +37,26 @@ export type ColumnTextTone = ColumnTone;
 export type NativeColumnAppearance = ColumnAppearance;
 export { DEFAULT_COLUMN_APPEARANCE, normalizeColumnAppearance };
 
-/** Where older releases kept view column appearance; the shared contract owns the key. */
-export const COLUMN_APPEARANCE_CONFIG_KEY = LEGACY_VIEW_COLUMN_APPEARANCE_KEY;
-
 export interface NativeViewConfig {
 	groupBy?: { property?: unknown };
 	get(key: string): unknown;
 	set(key: string, value: unknown): void;
 	getOrder?(): unknown[];
 	getDisplayName?(propertyId: string): unknown;
+}
+
+/**
+ * A view's `basesStudio` block, from its native config (read from the older view blocks when the
+ * Base was not yet migrated, by the shared contract).
+ */
+export function nativeViewBlock(config: NativeViewConfig | null | undefined): StudioView {
+	if (!config) return {};
+	const view: Record<string, unknown> = {};
+	for (const key of [STUDIO_KEY, ...LEGACY_VIEW_KEYS]) {
+		const value = config.get(key);
+		if (value !== undefined && value !== null) view[key] = value;
+	}
+	return readStudioView(view);
 }
 
 interface NativeTableView {
@@ -395,13 +410,8 @@ export function getNativeColumnAppearance(
 	baseAppearances?: Record<string, unknown>,
 	viewAppearances?: Record<string, unknown>,
 ): NativeColumnAppearance {
-	const view = findNativeTableView(app, scope);
-	const viewVisuals = view?.config.get('basesVisualsView');
-	const stored = viewAppearances
-		?? (isObject(viewVisuals) && isObject(viewVisuals.columnAppearances)
-			? viewVisuals.columnAppearances
-			: view?.config.get(COLUMN_APPEARANCE_CONFIG_KEY));
-	return resolveColumnAppearance(propertyId, baseAppearances, isObject(stored) ? stored : undefined).appearance;
+	const stored = viewAppearances ?? studioViewAppearances(nativeViewBlock(findNativeTableView(app, scope)?.config));
+	return resolveColumnAppearance(propertyId, baseAppearances, stored).appearance;
 }
 
 export function hasNativeColumnAppearance(
@@ -410,13 +420,8 @@ export function hasNativeColumnAppearance(
 	propertyId: string,
 	viewAppearances?: Record<string, unknown>,
 ): boolean {
-	const config = findNativeTableView(app, scope)?.config;
-	const viewVisuals = config?.get('basesVisualsView');
-	const stored = viewAppearances
-		?? (isObject(viewVisuals) && isObject(viewVisuals.columnAppearances)
-			? viewVisuals.columnAppearances
-			: config?.get(COLUMN_APPEARANCE_CONFIG_KEY));
-	return isObject(stored) && Object.prototype.hasOwnProperty.call(stored, propertyId);
+	const stored = viewAppearances ?? studioViewAppearances(nativeViewBlock(findNativeTableView(app, scope)?.config));
+	return Object.prototype.hasOwnProperty.call(stored, propertyId);
 }
 
 export function findNativeTableView(app: App, scope: HTMLElement): NativeTableView | null {

@@ -100,7 +100,6 @@ export class BasesVisualsModal extends Modal {
 						visibleOptions,
 						this.store.allKnownProperties().filter((propertyId) =>
 							this.basePropertyIds?.has(propertyId) ?? true),
-						(option) => Boolean(this.store.getDeclaredOption(option)?.color),
 					)
 					: undefined,
 				this.basePropertyIds,

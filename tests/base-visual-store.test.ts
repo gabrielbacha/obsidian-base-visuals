@@ -1,15 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Notice, type App, type WorkspaceLeaf } from 'obsidian';
-import {
-	BASE_VISUALS_KEY,
-	LEGACY_BASE_VISUALS_KEY,
-	BaseVisualStoreRepository,
-	VIEW_VISUALS_KEY,
-} from '../src/core/base-visual-store';
+import { BaseVisualStoreRepository } from '../src/core/base-visual-store';
 import { SettingsStore } from '../src/core/settings-store';
 import { DEFAULT_SETTINGS } from '../src/core/types';
-import { encodeOptionKey } from '@gabrielbacha/bases-contract';
-import { COLUMN_APPEARANCE_CONFIG_KEY } from '../src/core/native-table-view';
+import {
+	encodeOptionKey,
+	LEGACY_BASE_VISUALS_KEY,
+	LEGACY_VIEW_COLUMN_APPEARANCE_KEY as COLUMN_APPEARANCE_CONFIG_KEY,
+	LEGACY_VISUALS_KEY as BASE_VISUALS_KEY,
+	LEGACY_VISUALS_VIEW_KEY as VIEW_VISUALS_KEY,
+	STUDIO_KEY,
+} from '@gabrielbacha/bases-contract';
 
 describe('BaseVisualStoreRepository', () => {
 	it('migrates legacy visuals and separates Base-wide and view rules', async () => {
@@ -54,9 +55,11 @@ describe('BaseVisualStoreRepository', () => {
 		store.addRule('note.status');
 		await store.flush();
 
-		const view = values.get(VIEW_VISUALS_KEY) as { rules: Array<{ scope: string }> };
+		// The view's rule is saved in the view's block; where it is saved gives its scope.
+		const view = values.get(STUDIO_KEY) as { rules: Array<Record<string, unknown>> };
 		expect(view.rules).toHaveLength(1);
-		expect(view.rules[0]?.scope).toBe('view');
+		expect(view.rules[0]).not.toHaveProperty('scope');
+		expect(store.settings.rules.filter((rule) => rule.scope === 'view')).toHaveLength(1);
 		await repository.dispose();
 		root.remove();
 	});
@@ -256,13 +259,13 @@ describe('BaseVisualStoreRepository', () => {
 			expect(store.getPropertyStyle('note.workstream_todo')).toBe('outline');
 		}
 		const persisted = JSON.parse(source) as {
-			basesVisuals: { schemaVersion: number; propertyStrategies: unknown };
+			basesStudio: { version: number; properties: unknown };
 			views: Array<Record<string, unknown>>;
 		};
-		expect(persisted.basesVisuals.schemaVersion).toBe(8);
-		expect(persisted.basesVisuals.propertyStrategies).toEqual({
-			'note.priority_todo': { mode: 'smart', style: 'solid' },
-			'note.workstream_todo': { mode: 'smart', style: 'outline' },
+		expect(persisted.basesStudio.version).toBe(1);
+		expect(persisted.basesStudio.properties).toEqual({
+			'note.priority_todo': { pills: { style: 'solid' } },
+			'note.workstream_todo': { pills: { style: 'outline' } },
 		});
 		expect(persisted.views.every((view) => !(LEGACY_BASE_VISUALS_KEY in view))).toBe(true);
 
@@ -328,12 +331,12 @@ describe('BaseVisualStoreRepository', () => {
 		expect(store.getPropertyStyle('note.priority_todo')).toBe('solid');
 		expect(store.getPropertyStyle('note.workstream_todo')).toBe('outline');
 		const persisted = JSON.parse(source) as {
-			basesVisuals: { propertyStrategies: unknown };
+			basesStudio: { properties: unknown };
 			views: Array<Record<string, unknown>>;
 		};
-		expect(persisted.basesVisuals.propertyStrategies).toEqual({
-			'note.workstream_todo': { mode: 'smart', style: 'outline' },
-			'note.priority_todo': { mode: 'smart', style: 'solid' },
+		expect(persisted.basesStudio.properties).toEqual({
+			'note.workstream_todo': { pills: { style: 'outline' } },
+			'note.priority_todo': { pills: { style: 'solid' } },
 		});
 		expect(persisted.views[0]).not.toHaveProperty(LEGACY_BASE_VISUALS_KEY);
 
@@ -407,12 +410,12 @@ describe('BaseVisualStoreRepository', () => {
 
 		store.setPropertyStyle('note.status', 'solid');
 		await store.flush();
-		const persisted = values.get(VIEW_VISUALS_KEY) as {
-			schemaVersion: number;
+		// The old view block moved into basesStudio, with what this version does not know.
+		const persisted = values.get(STUDIO_KEY) as {
 			futureViewField: unknown;
 			rules: Array<Record<string, unknown>>;
 		};
-		expect(persisted.schemaVersion).toBe(3);
+		expect(values.get(VIEW_VISUALS_KEY)).toBeNull();
 		expect(persisted.futureViewField).toEqual({ layout: 'detail' });
 		expect(persisted.rules[0]?.futureRuleField).toBe('keep');
 
@@ -450,6 +453,7 @@ describe('BaseVisualStoreRepository', () => {
 		store.updateRule('view-rule', { enabled: false });
 		await store.flush();
 		expect(values.get(VIEW_VISUALS_KEY)).toEqual(newer);
+		expect(values.get(STUDIO_KEY)).toBeUndefined();
 		expect(repository.getPersistenceState(scope)).toEqual({
 			status: 'read-only',
 			reason: 'basesVisualsView was saved by a newer version',
@@ -459,7 +463,7 @@ describe('BaseVisualStoreRepository', () => {
 		root.remove();
 	});
 
-	it('migrates a legacy view appearance to basesVisualsView v3 on an intentional edit', async () => {
+	it('moves a legacy view appearance into basesStudio on an intentional edit', async () => {
 		const root = document.body.createDiv();
 		const scope = root.createDiv('bases-view');
 		const values = new Map<string, unknown>();
@@ -498,9 +502,8 @@ describe('BaseVisualStoreRepository', () => {
 		repository.setViewColumnAppearance(scope, 'note.status', { tone: 'faint', bold: true });
 		await vi.waitFor(() => {
 			const parsed = JSON.parse(source) as { views: Array<Record<string, unknown>> };
-			expect(parsed.views[0]?.[VIEW_VISUALS_KEY]).toEqual({
-				schemaVersion: 3,
-				columnAppearances: { 'note.status': { tone: 'faint', bold: true } },
+			expect(parsed.views[0]?.[STUDIO_KEY]).toEqual({
+				columns: { 'note.status': { style: { tone: 'faint', bold: true } } },
 			});
 			expect(parsed.views[0]).not.toHaveProperty(COLUMN_APPEARANCE_CONFIG_KEY);
 		});
@@ -552,11 +555,11 @@ describe('BaseVisualStoreRepository', () => {
 
 		store.setPropertyStyle('note.current', 'solid');
 		await store.flush();
-		const strategies = (JSON.parse(source) as {
-			basesVisuals: { propertyStrategies: Record<string, unknown> };
-		}).basesVisuals.propertyStrategies;
-		expect(strategies['note.temporarily_missing']).toEqual({ mode: 'status', style: 'outline' });
-		expect(strategies['note.current']).toEqual({ mode: 'smart', style: 'solid' });
+		const properties = (JSON.parse(source) as {
+			basesStudio: { properties: Record<string, unknown> };
+		}).basesStudio.properties;
+		expect(properties['note.temporarily_missing']).toEqual({ pills: { mode: 'status', style: 'outline' } });
+		expect(properties['note.current']).toEqual({ pills: { style: 'solid' } });
 
 		await repository.dispose();
 		root.remove();
@@ -600,22 +603,19 @@ describe('BaseVisualStoreRepository', () => {
 		await vi.waitFor(() => {
 			expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'status' });
 		});
-		const externallyEdited = JSON.parse(source) as {
-			basesVisuals: {
-				propertyStrategies: Record<string, { mode: string; style?: string }>;
-			};
-		};
-		const externalStatus = externallyEdited.basesVisuals.propertyStrategies['note.status'];
-		if (externalStatus) externalStatus.style = 'solid';
-		source = JSON.stringify(externallyEdited);
+		// Another app moves the Base into basesStudio and makes the pills solid.
+		source = JSON.stringify({
+			basesStudio: { version: 1, properties: { 'note.status': { pills: { mode: 'status', style: 'solid' } } } },
+			views: [],
+		});
 
 		store.setPropertyStyle('note.status', 'outline');
 		await store.flush();
 		const persisted = JSON.parse(source) as {
-			basesVisuals: { propertyStrategies: Record<string, { style?: string }> };
+			basesStudio: { properties: Record<string, { pills?: { style?: string } }> };
 		};
-		expect(persisted.basesVisuals.propertyStrategies['note.status']?.style).toBe('solid');
-		expect(noticeMessages.at(-1)).toContain('conflicting changes in propertyStrategies.note.status');
+		expect(persisted.basesStudio.properties['note.status']?.pills?.style).toBe('solid');
+		expect(noticeMessages.at(-1)).toContain('conflicting changes in properties.note.status.pills.style');
 
 		await repository.dispose();
 		root.remove();

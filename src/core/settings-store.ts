@@ -10,9 +10,8 @@ import {
 	normalizeRuleOpacity,
 	normalizeStoredOptions,
 	pillColor,
-	resolvePreset,
 	ROW_HEIGHTS,
-	type DeclaredOption,
+	type StudioOption,
 	type RowHeight,
 	type ResolvedColor,
 } from '@gabrielbacha/bases-contract';
@@ -32,14 +31,11 @@ import {
 } from './types';
 
 type SaveSettings = (settings: BasesPillColorsSettings) => Promise<void>;
-/** Saves the colour of a declared option in the Base file (`null` removes it). */
-export type DeclaredColorWriter = (identity: OptionIdentity, hex: string | null) => void;
 type Listener = () => void;
 
 export class SettingsStore {
 	private readonly listeners = new Set<Listener>();
-	private declaredOptions: Readonly<Record<string, readonly DeclaredOption[]>> = {};
-	private declaredColorWriter: DeclaredColorWriter | null = null;
+	private declaredOptions: Readonly<Record<string, readonly StudioOption[]>> = {};
 	private saveTimer: number | null = null;
 
 	constructor(
@@ -144,7 +140,6 @@ export class SettingsStore {
 	}
 
 	setOverride(identity: OptionIdentity, override?: ColorOverride): void {
-		if (this.setDeclaredColor(identity, override)) return;
 		const option = this.ensure(identity);
 		if (override) option.override = override;
 		else delete option.override;
@@ -153,77 +148,34 @@ export class SettingsStore {
 	}
 
 	/**
-	 * The options the Base declares for its typed columns (BaseStudio's select columns), and how to
-	 * save a colour on one. A declared option's colour is the single source for that value's colour.
+	 * The options the Base declares for its select columns (their values and labels). A value's
+	 * colour is one of the Base's option colours, like any other value's.
 	 */
-	setDeclaredOptions(
-		declared: Readonly<Record<string, readonly DeclaredOption[]>>,
-		writer?: DeclaredColorWriter,
-	): void {
+	setDeclaredOptions(declared: Readonly<Record<string, readonly StudioOption[]>>): void {
 		this.declaredOptions = declared;
-		if (writer) this.declaredColorWriter = writer;
 		this.emit();
 	}
 
-	getDeclaredOption(identity: OptionIdentity): DeclaredOption | undefined {
+	getDeclaredOption(identity: OptionIdentity): StudioOption | undefined {
 		return this.declaredOptions[identity.propertyId]?.find((option) => option.value === identity.value);
 	}
 
-	getDeclaredOptions(propertyId: string): readonly DeclaredOption[] {
+	getDeclaredOptions(propertyId: string): readonly StudioOption[] {
 		return this.declaredOptions[propertyId] ?? [];
 	}
 
-	/** The colour a value shows, decided by the shared contract (declared option, override, strategy). */
+	/** The colour a value shows, decided by the shared contract (option colour, then strategy). */
 	colorFor(identity: OptionIdentity, displayName?: string): ResolvedColor {
 		return pillColor(
 			{
 				paletteTemplateId: this.settings.paletteTemplateId,
 				strategies: this.settings.propertyStrategies,
 				overrides: this.settings.options,
-				declared: this.declaredOptions,
 				displayName: () => displayName,
 			},
 			identity.propertyId,
 			identity.value,
 		);
-	}
-
-	/**
-	 * Saves a colour choice on a declared option in the Base's declaration, not in `basesVisuals`, so
-	 * the value keeps one colour in both apps. Returns false when the value is not a declared option.
-	 */
-	private setDeclaredColor(identity: OptionIdentity, override?: ColorOverride): boolean {
-		const declared = this.getDeclaredOption(identity);
-		if (!declared || !this.declaredColorWriter) return false;
-		const hex = override?.kind === 'custom'
-			? override.hex
-			: override?.kind === 'preset' && override.name !== 'default'
-				? resolvePreset(override.name, this.settings.paletteTemplateId).dot
-				: null;
-		// Only a colour fits in a declaration; "Off" and "Default" stay Bases Visuals choices.
-		if (override && !hex) {
-			if (declared.color) this.writeDeclaredColor(identity, null);
-			return false;
-		}
-		this.writeDeclaredColor(identity, hex);
-		const option = this.settings.options[encodeOptionKey(identity)];
-		if (option?.override) {
-			delete option.override;
-			this.scheduleSave();
-		}
-		this.emit();
-		return true;
-	}
-
-	private writeDeclaredColor(identity: OptionIdentity, hex: string | null): void {
-		const options = this.getDeclaredOptions(identity.propertyId).map((option) => {
-			if (option.value !== identity.value) return option;
-			const next: DeclaredOption = { value: option.value, ...(option.label ? { label: option.label } : {}) };
-			if (hex) next.color = hex;
-			return next;
-		});
-		this.declaredOptions = { ...this.declaredOptions, [identity.propertyId]: options };
-		this.declaredColorWriter?.(identity, hex);
 	}
 
 	getExplicitPropertyStrategy(propertyId: string): PropertyColorStrategy | undefined {
