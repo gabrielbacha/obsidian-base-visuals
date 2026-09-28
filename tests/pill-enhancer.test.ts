@@ -372,9 +372,22 @@ describe('PillEnhancer', () => {
 		expect(cell?.style.getPropertyValue('--bpc-accent')).toBe('#16A085');
 		expect(cell?.title).toBe('World-facing');
 
+		expect(cell?.dataset.bpcStatus).toBeUndefined();
+
+		// A workflow category shows as a status mark; an unknown one shows none.
+		harness.store.setDeclaredOptions({
+			'note.seat': [{ value: 'World-facing only', category: 'done' }],
+		});
+		expect(cell?.dataset.bpcStatus).toBe('done');
+		harness.store.setDeclaredOptions({
+			'note.seat': [{ value: 'World-facing only', category: 'closed' }],
+		});
+		expect(cell?.dataset.bpcStatus).toBeUndefined();
+
 		harness.store.setDeclaredOptions({});
 		expect(cell?.classList.contains('bpc-select-cell')).toBe(false);
 		expect(cell?.style.getPropertyValue('--bpc-accent')).toBe('');
+		expect(cell?.dataset.bpcStatus).toBeUndefined();
 	});
 
 	it('restores Outline styling after Obsidian rewrites a pill class in place', async () => {

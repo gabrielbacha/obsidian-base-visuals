@@ -4,7 +4,9 @@ import {
 	COLUMN_TONE_OPACITY,
 	describeColumnAppearance,
 	encodeOptionKey,
+	optionCategory,
 	type ResolvedColor,
+	type StudioOption,
 } from '@gabrielbacha/bases-contract';
 import {
 	getNativeColumnAppearance,
@@ -396,8 +398,9 @@ export class PillEnhancer {
 		applyPillStyle(cell, store.getPropertyStyle(propertyId));
 		applyOptionColorVariables(cell, resolved);
 		cell.dataset.bpcKey = encodeOptionKey(identity);
-		const label = declared.find((option) => option.value === value)?.label;
-		if (label && label !== value) cell.title = label;
+		const option = declared.find((item) => item.value === value);
+		if (option?.label && option.label !== value) cell.title = option.label;
+		setStatus(cell, option);
 	}
 
 	private processRow(row: HTMLElement): void {
@@ -1042,6 +1045,7 @@ export class PillEnhancer {
 		const style = store.getPropertyStyle(identity.propertyId);
 		setClass(heading, 'bpc-group-heading', true);
 		heading.dataset.bpcKey = encodeOptionKey(identity);
+		setStatus(heading, store.getDeclaredOption(identity));
 		if (resolved.kind === 'disabled') {
 			setClass(heading, 'bpc-group-heading--colored', false);
 			setClass(heading, 'bpc-group-heading--neutral', false);
@@ -1155,6 +1159,7 @@ export class PillEnhancer {
 		heading.classList.remove('bpc-group-heading', 'bpc-group-heading--colored', 'bpc-group-heading--neutral');
 		clearPillStyle(heading);
 		delete heading.dataset.bpcKey;
+		setStatus(heading, undefined);
 		clearOptionColorVariables(heading);
 		this.trackedGroups.delete(heading);
 	}
@@ -1348,6 +1353,17 @@ function clearSelectCell(cell: HTMLElement): void {
 	clearPillStyle(cell);
 	clearOptionColorVariables(cell);
 	delete cell.dataset.bpcKey;
+	setStatus(cell, undefined);
+}
+
+/**
+ * The option's workflow category (to do, in progress, done) as `data-bpc-status`, which the
+ * stylesheet shows as the same mark BaseStudio shows. Display only; filters never use it.
+ */
+function setStatus(element: HTMLElement, option: StudioOption | undefined): void {
+	const category = option ? optionCategory(option) : undefined;
+	if (category) element.dataset.bpcStatus = category;
+	else delete element.dataset.bpcStatus;
 }
 
 function clearOptionColorVariables(element: HTMLElement): void {

@@ -2,6 +2,10 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## Unreleased
+
+- **Status marks** (`@gabrielbacha/bases-contract` 2.1.0). A select option that BaseStudio gives a workflow category (`todo`, `active`, `done`) shows the same mark as in BaseStudio: a dashed circle, a dotted circle or a check, on its pills and group headings. Filters never use the category.
+
 ## 0.18.0 — 2026-09-28
 
 - **One block for everything both apps add to a Base: `basesStudio`** (`@gabrielbacha/bases-contract` 2.0.0). At the root it holds the palette, each property's record (type, options with their colours, pill strategy, column style, default value), the Base rules, detail layouts and toolbar settings. Inside each view it holds that view's settings, its columns' wrap and style, and its rules.
