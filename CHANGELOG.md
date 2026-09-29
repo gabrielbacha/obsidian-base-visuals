@@ -2,8 +2,11 @@
 
 All notable changes to Bases Visuals are documented here.
 
-## Unreleased
+## 0.19.0 — 2026-09-29
 
+- **Large grouped tables no longer lag.** A change in one cell restyled the whole table, so a render that touched every cell took time that grew with the square of the rows (100 rows: about 14 s in tests, now under 0.1 s). A value or property seen for the first time no longer restyles the table either, since it changes no colour.
+- A click on a file name opens the note again; a click on the empty part of the cell renames it. Obsidian shows the name as a `span.internal-link`, which the plugin did not treat as a link. The main column's link style now applies to it too.
+- The toolbar buttons can no longer be moved without end when the toolbar has no Sort button.
 - **Status marks** (`@gabrielbacha/bases-contract` 2.1.0). A select option that BaseStudio gives a workflow category (`todo`, `active`, `done`) shows the same mark as in BaseStudio: a dashed circle, a dotted circle or a check, on its pills and group headings. Filters never use the category.
 
 ## 0.18.0 — 2026-09-28
