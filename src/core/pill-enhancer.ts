@@ -20,7 +20,7 @@ import {
 	resolveNativePropertyId,
 } from './native-table-view';
 import { evaluateRule, ruleColorVariables, ruleHasFormatting } from '@gabrielbacha/bases-contract';
-import { SettingsStore } from './settings-store';
+import { SettingsStore, type StoreChange } from './settings-store';
 import { BaseVisualStoreRepository } from './base-visual-store';
 import { ConditionalRule, OptionIdentity, type PaletteTemplateId } from './types';
 import { TableLayoutPopover } from '../ui/table-layout-popover';
@@ -40,6 +40,8 @@ const ROW_SELECTOR = '.bases-tr';
 const GROUP_HEADING_SELECTOR = '.bases-group-heading';
 const GROUP_ADD_BUTTON_SELECTOR = '.bpc-group-add-button';
 const FILE_RENAME_INPUT_SELECTOR = '.bpc-file-rename-input';
+/** What a click opens or edits itself. A Base shows a file name as a `span.internal-link`, not an `a`. */
+const INTERACTIVE_SELECTOR = 'a, .internal-link, .external-link, button, input, textarea, select, [contenteditable]';
 const TOOLBAR_SELECTOR = '.bases-toolbar, .query-toolbar';
 const TABLE_SELECTOR = '.bases-table-container';
 const TOOLBAR_CONTROL_SELECTOR = [
@@ -131,7 +133,7 @@ export class PillEnhancer {
 	start(registerEvent: (eventRef: EventRef) => void): void {
 		if (this.started) return;
 		this.started = true;
-		this.unsubscribeStore = this.store.subscribe(() => this.refreshFromStore());
+		this.unsubscribeStore = this.store.subscribe((change) => this.refreshFromStore(change));
 		registerEvent(this.app.workspace.on('layout-change', () => this.refreshRoots()));
 		registerEvent(this.app.workspace.on('active-leaf-change', () => this.refreshRoots()));
 		this.refreshRoots();
@@ -338,10 +340,9 @@ export class PillEnhancer {
 		if (row) this.processRow(row);
 		const group = element.closest<HTMLElement>(GROUP_HEADING_SELECTOR);
 		if (group) this.processGroupHeading(group);
-		const table = element.matches(TABLE_SELECTOR)
-			? element as HTMLElement
-			: element.closest<HTMLElement>(TABLE_SELECTOR);
-		if (table) this.processTable(table);
+		// Only a change on the table itself re-processes it: a change in one of its cells is handled
+		// by that cell, so a render that touches every cell stays linear.
+		if (element.matches(TABLE_SELECTOR)) this.processTable(element as HTMLElement);
 	}
 
 	private recoverPluginClasses(element: HTMLElement): void {
@@ -369,8 +370,8 @@ export class PillEnhancer {
 		this.applySelectCell(cell, scope, propertyId, store);
 		this.applyColumnAppearance(cell, scope, propertyId, Boolean(cell.closest('.bases-thead')));
 		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
-		if (table) this.applyMainColumn(table, cell);
-		this.updateFileRenameCapability(cell, scope, propertyId);
+		if (table) this.applyMainColumn(table, cell, propertyId);
+		this.updateFileRenameCapability(cell, propertyId);
 	}
 
 	/**
@@ -459,7 +460,10 @@ export class PillEnhancer {
 			'Table layout',
 			(button) => this.tableLayoutPopover.toggle(button, scope),
 		);
-		let cursor: ChildNode | null = anchor ?? parent.firstChild;
+		// Never a reference to the controls themselves: moving a node before itself is still a DOM
+		// change, which the observer would answer by placing the controls again, without end.
+		let cursor: ChildNode | null = anchor ?? [...parent.childNodes]
+			.find((node) => node !== layoutItem && node !== formatItem) ?? null;
 		for (const item of [layoutItem, formatItem]) {
 			if (item.nextSibling !== cursor) parent.insertBefore(item, cursor);
 			cursor = item;
@@ -506,37 +510,37 @@ export class PillEnhancer {
 		if (!table.closest(BASE_SCOPE_SELECTOR)) return;
 		setClass(table, 'bpc-table', true);
 		this.tables.add(table);
-		const scope = findBaseTableHost(table);
-		const primary = scope ? this.propertyIdFor(scope, getNativeMainProperty(this.app, scope) ?? '') : null;
-		this.updateMainColumn(table, primary ?? undefined);
-		if (scope) this.refreshColumnAppearances(scope);
+		this.updateMainColumn(table);
 	}
 
-	private updateMainColumn(table: HTMLElement, configuredPrimary?: string): void {
-		const primary = configuredPrimary ?? table.querySelector<HTMLElement>(
-			'.bases-thead .bases-td[data-property], .bases-thead [data-property].bases-table-header',
-		)?.dataset.property?.trim() ?? table.querySelector<HTMLElement>(
-			'.bases-tbody .bases-td[data-property], .bases-tbody .bases-table-cell[data-property]',
-		)?.dataset.property?.trim();
-		if (!primary) return;
+	/** Marks the main column's cells again, but only when the main column changed. */
+	private updateMainColumn(table: HTMLElement): string | undefined {
+		const primary = this.mainPropertyOf(table);
+		if (!primary || primary === this.mainPropertyByTable.get(table)) return primary;
 		this.mainPropertyByTable.set(table, primary);
+		const scope = findBaseTableHost(table);
 		for (const cell of table.querySelectorAll<HTMLElement>(CELL_SELECTOR)) {
-			this.applyMainColumn(table, cell, primary);
+			markMainColumn(cell, primary, (scope ? this.propertyIdFor(scope, cell) : cell.dataset.property?.trim()) ?? undefined);
 		}
+		return primary;
 	}
 
-	private applyMainColumn(table: HTMLElement, cell: HTMLElement, primaryProperty?: string): void {
-		const primary = primaryProperty ?? this.mainPropertyByTable.get(table) ?? table.querySelector<HTMLElement>(
+	private applyMainColumn(table: HTMLElement, cell: HTMLElement, cellProperty: string): void {
+		const previous = this.mainPropertyByTable.get(table);
+		const primary = this.updateMainColumn(table);
+		// A changed main column was just marked on every cell, this one included.
+		if (primary === previous) markMainColumn(cell, primary, cellProperty);
+	}
+
+	/** The view's first column, or the first column shown when the view is not found. */
+	private mainPropertyOf(table: HTMLElement): string | undefined {
+		const scope = findBaseTableHost(table);
+		const configured = scope ? this.propertyIdFor(scope, getNativeMainProperty(this.app, scope) ?? '') : null;
+		return configured ?? table.querySelector<HTMLElement>(
 			'.bases-thead .bases-td[data-property], .bases-thead [data-property].bases-table-header',
 		)?.dataset.property?.trim() ?? table.querySelector<HTMLElement>(
 			'.bases-tbody .bases-td[data-property], .bases-tbody .bases-table-cell[data-property]',
 		)?.dataset.property?.trim();
-		const scope = findBaseTableHost(cell);
-		const cellProperty = scope ? this.propertyIdFor(scope, cell) : cell.dataset.property?.trim();
-		cell.classList.toggle(
-			'bpc-main-column',
-			Boolean(primary) && cellProperty === primary,
-		);
 	}
 
 	private untrackTable(table: HTMLElement): void {
@@ -631,7 +635,7 @@ export class PillEnhancer {
 		}
 		const renameCell = target?.closest<HTMLElement>(CELL_SELECTOR);
 		const renameScope = renameCell ? findBaseTableHost(renameCell) : null;
-		const clickedInteractive = target?.closest('a, button, input, textarea, select, [contenteditable]');
+		const clickedInteractive = target?.closest(INTERACTIVE_SELECTOR);
 		if (
 			renameCell &&
 			renameScope &&
@@ -666,16 +670,14 @@ export class PillEnhancer {
 		this.handleNativeRemoveClick(event);
 	}
 
-	private updateFileRenameCapability(
-		cell: HTMLElement,
-		scope: HTMLElement,
-		propertyId: string,
-	): void {
+	/**
+	 * Shows the rename cursor where a click starts a rename (see `handleClick`). The file is found
+	 * only on that click: finding it here, for every name cell, searched every result each time.
+	 */
+	private updateFileRenameCapability(cell: HTMLElement, propertyId: string): void {
 		cell.classList.toggle(
 			'bpc-file-renamable',
-			propertyId === 'file.name' &&
-			!cell.closest('.bases-thead') &&
-			Boolean(resolveFileFromNameCell(this.app, scope, cell)),
+			propertyId === 'file.name' && !cell.closest('.bases-thead'),
 		);
 	}
 
@@ -1182,7 +1184,10 @@ export class PillEnhancer {
 		this.tracked.delete(pill);
 	}
 
-	private refreshFromStore(): void {
+	private refreshFromStore(change: StoreChange = 'change'): void {
+		// A newly seen value or property changes no colour; each first sight of a value would
+		// otherwise restyle the whole table.
+		if (change === 'discovery') return;
 		for (const elements of [...this.visibleByKey.values()]) for (const pill of [...elements]) {
 			if (pill.isConnected) this.processPill(pill);
 		}
@@ -1208,7 +1213,7 @@ export class PillEnhancer {
 	private scopedStore(scope: HTMLElement): SettingsStore {
 		const store = this.storeForScope(scope);
 		if (store !== this.store && !this.scopedStoreUnsubscribers.has(store)) {
-			this.scopedStoreUnsubscribers.set(store, store.subscribe(() => this.refreshFromStore()));
+			this.scopedStoreUnsubscribers.set(store, store.subscribe((change) => this.refreshFromStore(change)));
 		}
 		return store;
 	}
@@ -1307,10 +1312,15 @@ function mutationElement(node: Node): Element | null {
 	return asElement(node) ?? node.parentElement;
 }
 
+/** The elements that no other element in the list contains. */
 function deduplicateRoots(elements: readonly Element[]): Element[] {
-	const unique = [...new Set(elements)];
-	return unique.filter((candidate) => !unique.some((other) =>
-		other !== candidate && other.contains(candidate)));
+	const unique = new Set(elements);
+	return [...unique].filter((candidate) => {
+		for (let parent = candidate.parentElement; parent; parent = parent.parentElement) {
+			if (unique.has(parent)) return false;
+		}
+		return true;
+	});
 }
 
 function belongsToRoot(root: HTMLElement, element: HTMLElement): boolean {
@@ -1436,8 +1446,12 @@ function findToolbarInsertionAnchor(toolbar: HTMLElement): Element | null {
 	}
 
 	return toolbar.querySelector(
-		'.bases-toolbar-item:not(.bases-toolbar-views-menu):not(.bases-toolbar-result-count)',
+		'.bases-toolbar-item:not(.bases-toolbar-views-menu):not(.bases-toolbar-result-count):not(.bpc-toolbar-control)',
 	);
+}
+
+function markMainColumn(cell: HTMLElement, primary: string | undefined, cellProperty: string | undefined): void {
+	setClass(cell, 'bpc-main-column', Boolean(primary) && cellProperty === primary);
 }
 
 function findBaseTableHost(element: HTMLElement): HTMLElement | null {

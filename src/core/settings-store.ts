@@ -31,7 +31,12 @@ import {
 } from './types';
 
 type SaveSettings = (settings: BasesPillColorsSettings) => Promise<void>;
-type Listener = () => void;
+/**
+ * What changed. `discovery` is a value or property seen for the first time: it changes no colour,
+ * so views that only show colours can skip it (the managers still list the new entry).
+ */
+export type StoreChange = 'change' | 'discovery';
+type Listener = (change: StoreChange) => void;
 
 export class SettingsStore {
 	private readonly listeners = new Set<Listener>();
@@ -135,7 +140,7 @@ export class SettingsStore {
 
 		const option = { ...identity };
 		this.settings.options[key] = option;
-		this.emit();
+		this.emit('discovery');
 		return option;
 	}
 
@@ -388,7 +393,7 @@ export class SettingsStore {
 		const normalized = propertyId.trim();
 		if (!normalized || this.settings.knownProperties[normalized]) return;
 		this.settings.knownProperties[normalized] = { propertyId: normalized };
-		this.emit();
+		this.emit('discovery');
 	}
 
 	allKnownProperties(): string[] {
@@ -544,8 +549,8 @@ export class SettingsStore {
 		await this.saveSettings(this.settings);
 	}
 
-	notify(): void {
-		this.emit();
+	notify(change: StoreChange = 'change'): void {
+		this.emit(change);
 	}
 
 	dispose(): void {
@@ -561,8 +566,8 @@ export class SettingsStore {
 		}, 250);
 	}
 
-	private emit(): void {
-		for (const listener of this.listeners) listener();
+	private emit(change: StoreChange = 'change'): void {
+		for (const listener of this.listeners) listener(change);
 	}
 
 	private changed(): void {

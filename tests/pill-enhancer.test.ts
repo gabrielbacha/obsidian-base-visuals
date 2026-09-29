@@ -206,14 +206,18 @@ describe('PillEnhancer', () => {
 		});
 		const renameFile = vi.fn(async () => undefined);
 		const cellClick = vi.fn();
+		const linkClick = vi.fn();
 		const harness = createHarness([], (baseView) => {
 			const table = baseView.createDiv('bases-table-container');
 			const body = table.createDiv('bases-tbody');
 			const row = body.createDiv('bases-tr');
 			const cell = row.createDiv('bases-td');
 			cell.dataset.property = 'file.name';
-			const link = cell.createEl('a', { text: 'Old name' });
-			link.dataset.href = 'Projects/Old name';
+			// As Obsidian renders a file name: a span link inside the cell's rendered value.
+			const value = cell.createDiv('bases-table-cell bases-rendered-value markdown-rendered');
+			const link = value.createSpan({ cls: 'internal-link', text: 'Old name' });
+			link.dataset.href = 'Projects/Old name.md';
+			link.addEventListener('click', linkClick);
 			cell.addEventListener('click', cellClick);
 		}, undefined, undefined, {
 			order: ['file.name'],
@@ -223,10 +227,13 @@ describe('PillEnhancer', () => {
 		});
 		const fileNameCell = harness.root.querySelector<HTMLElement>('.bases-td[data-property="file.name"]');
 		expect(fileNameCell?.classList.contains('bpc-file-renamable')).toBe(true);
-		harness.root.querySelector<HTMLAnchorElement>('a[data-href]')?.dispatchEvent(
+		// A click on the name opens the note (Obsidian's link handler) and starts no rename.
+		harness.root.querySelector<HTMLElement>('.internal-link[data-href]')?.dispatchEvent(
 			new MouseEvent('click', { bubbles: true, cancelable: true }),
 		);
+		expect(linkClick).toHaveBeenCalledOnce();
 		expect(cellClick).toHaveBeenCalledOnce();
+		expect(harness.root.querySelector('.bpc-file-rename-input')).toBeNull();
 		cellClick.mockClear();
 
 		fileNameCell?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));

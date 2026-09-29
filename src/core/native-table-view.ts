@@ -278,14 +278,11 @@ export function getNativePropertyKind(
 	propertyId: string,
 ): NativePropertyKind {
 	const canonical = resolveNativePropertyId(app, scope, propertyId) ?? propertyId;
-	for (const cell of scope.querySelectorAll<HTMLElement>('.bases-td[data-property], .bases-table-cell[data-property]')) {
-		if (resolveNativePropertyId(app, scope, cell) !== canonical) continue;
-		if (cell.querySelector('.multi-select-pill')) return 'list';
-	}
+	// The result values answer first: a list column usually shows at its first entry. The shown
+	// pills are read only when the values are not known, since that reads every cell.
 	const result = findNativeTableView(app, scope)?.data;
-	if (!result || !Array.isArray(result.data)) return 'unknown';
 	let sawScalar = false;
-	for (const entry of result.data) {
+	for (const entry of Array.isArray(result?.data) ? result.data : []) {
 		if (!isNativeResultEntry(entry)) continue;
 		const value = entry.getValue(canonical);
 		if (isListLikeValue(value)) return 'list';
@@ -293,7 +290,12 @@ export function getNativePropertyKind(
 			sawScalar = true;
 		}
 	}
-	return sawScalar ? 'non-list' : 'unknown';
+	if (sawScalar) return 'non-list';
+	for (const pill of scope.querySelectorAll<HTMLElement>('.multi-select-pill')) {
+		const cell = pill.closest<HTMLElement>('.bases-td[data-property], .bases-table-cell[data-property]');
+		if (cell && resolveNativePropertyId(app, scope, cell) === canonical) return 'list';
+	}
+	return 'unknown';
 }
 
 export function getNativeMainProperty(app: App, scope: HTMLElement): string | null {

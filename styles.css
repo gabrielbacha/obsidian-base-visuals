@@ -566,19 +566,19 @@
 	.metadata-link-inner,
 	input:not([type="checkbox"]),
 	textarea,
-	a.internal-link,
-	a.external-link
+	.internal-link,
+	.external-link
 ) {
 	--link-weight: var(--font-semibold, 600);
 	font-weight: var(--font-semibold, 600);
 }
 
-.bpc-table .bases-tbody .bpc-main-column :is(a.internal-link, a.external-link) {
+.bpc-table .bases-tbody .bpc-main-column :is(.internal-link, .external-link) {
 	color: var(--text-normal);
 	text-decoration-color: var(--text-faint);
 }
 
-.bpc-table .bases-tbody .bpc-main-column :is(a.internal-link, a.external-link):is(:hover, :focus-visible) {
+.bpc-table .bases-tbody .bpc-main-column :is(.internal-link, .external-link):is(:hover, :focus-visible) {
 	color: var(--text-accent);
 	text-decoration-color: currentColor;
 }
@@ -587,7 +587,7 @@
 	cursor: text;
 }
 
-.bases-table :is(.bases-td, .bases-table-cell).bpc-file-renamable a {
+.bases-table :is(.bases-td, .bases-table-cell).bpc-file-renamable :is(a, .internal-link, .external-link) {
 	cursor: pointer;
 }
 
@@ -850,8 +850,8 @@
 	.multi-select-pill-content,
 	input:not([type="checkbox"]),
 	textarea,
-	a.internal-link,
-	a.external-link
+	.internal-link,
+	.external-link
 ) {
 	--link-weight: var(--font-semibold, 600);
 	font-weight: var(--font-semibold, 600) !important;

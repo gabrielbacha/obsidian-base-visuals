@@ -153,7 +153,7 @@ export class BaseVisualStoreRepository {
 		this.liveStores.add(store);
 		this.recordsByStore.set(store, record);
 		group.records.add(record);
-		this.unsubscribers.set(store, store.subscribe(() => this.globalStore.notify()));
+		this.unsubscribers.set(store, store.subscribe((change) => this.globalStore.notify(change)));
 		void this.hydrate(scope, record, fallback)
 			.then(() => this.initializePropertyIdentity(scope, config, store));
 		return store;

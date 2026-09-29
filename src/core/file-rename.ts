@@ -2,7 +2,8 @@ import { noteNameFrom, uniqueName } from '@gabrielbacha/bases-contract';
 import { normalizePath, type App, type TFile } from 'obsidian';
 import { getNativeBaseFile, getNativeResultFiles } from './native-table-view';
 
-const FILE_LINK_SELECTOR = 'a[data-href], a.internal-link, a[href]';
+/** A Base renders a file name as `span.internal-link` with the file's path in `data-href`. */
+const FILE_LINK_SELECTOR = '.internal-link[data-href], a[data-href], a.internal-link, a[href]';
 
 export function resolveFileFromNameCell(
 	app: App,
