@@ -30,6 +30,7 @@ import { compareNaturalValues } from '@gabrielbacha/bases-contract';
 import { strategyLabel } from '@gabrielbacha/bases-contract';
 import { NativePillRemovalService, type PillRemovalCapability } from './native-pill-removal';
 import { renameFileBasename, resolveFileFromNameCell } from './file-rename';
+import { TextLinks } from './text-links';
 
 const PILL_SELECTOR = '.multi-select-pill';
 const BASE_SCOPE_SELECTOR = '.bases-view, .bases-embed';
@@ -114,6 +115,7 @@ export class PillEnhancer {
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
 	private readonly columnPillAppearancePopover: ColumnPillAppearancePopover;
 	private readonly pillRemoval = new NativePillRemovalService();
+	private readonly textLinks = new TextLinks();
 	private unsubscribeStore: (() => void) | null = null;
 	private started = false;
 
@@ -208,6 +210,7 @@ export class PillEnhancer {
 			keyDownHandler,
 			activePill: null,
 		});
+		this.textLinks.attach(root);
 		this.processTree(root);
 	}
 
@@ -218,6 +221,7 @@ export class PillEnhancer {
 		for (const unsubscribe of this.scopedStoreUnsubscribers.values()) unsubscribe();
 		this.scopedStoreUnsubscribers.clear();
 		for (const root of [...this.roots.keys()]) this.detachRoot(root);
+		this.textLinks.dispose();
 		this.visibleByKey.clear();
 		this.visibleGroupsByKey.clear();
 		this.visibleRows.clear();
@@ -265,6 +269,7 @@ export class PillEnhancer {
 		root.removeEventListener('pointerdown', binding.pointerDownHandler, true);
 		root.removeEventListener('focusin', binding.focusInHandler, true);
 		root.removeEventListener('keydown', binding.keyDownHandler, true);
+		this.textLinks.detach(root);
 		this.setActivePill(root, null);
 		this.cleanupTrackedRoot(root);
 		for (const host of this.tableValues.keys()) {
@@ -372,6 +377,7 @@ export class PillEnhancer {
 		const table = cell.closest<HTMLElement>(TABLE_SELECTOR);
 		if (table) this.applyMainColumn(table, cell, propertyId);
 		this.updateFileRenameCapability(cell, propertyId);
+		this.textLinks.updateCell(cell);
 	}
 
 	/**
@@ -1139,6 +1145,7 @@ export class PillEnhancer {
 	private untrackCell(cell: HTMLElement): void {
 		clearSelectCell(cell);
 		this.activeFileRenames.get(cell)?.();
+		this.textLinks.forgetCell(cell);
 		this.visibleCells.delete(cell);
 		cell.classList.remove('bpc-main-column', 'bpc-wrap-pills', 'bpc-file-renaming', 'bpc-file-renamable');
 		clearRuleAppearance(cell, 'bpc-rule-cell');

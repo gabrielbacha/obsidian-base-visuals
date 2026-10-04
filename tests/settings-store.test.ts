@@ -301,6 +301,16 @@ describe('SettingsStore', () => {
 		store.dispose();
 	});
 
+	it('shows a declared option colour until the value has its own colour', () => {
+		const store = new SettingsStore(SettingsStore.normalize({}), async () => undefined);
+		const identity = { propertyId: 'note.status', value: 'done' };
+		store.setDeclaredOptions({ 'note.status': [{ value: 'done', color: 'green' }] });
+		expect(store.colorFor(identity)).toMatchObject({ kind: 'preset', label: 'Green Sea' });
+
+		store.setOverride(identity, { kind: 'custom', hex: '#C0392B' });
+		expect(store.colorFor(identity)).toMatchObject({ kind: 'custom' });
+	});
+
 	it('colours a declared option like any other value, and keeps its label', () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		const declared = { propertyId: 'note.status', value: 'Done' };

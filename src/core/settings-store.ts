@@ -9,6 +9,7 @@ import {
 	normalizeRule,
 	normalizeRuleOpacity,
 	normalizeStoredOptions,
+	optionColorOverride,
 	pillColor,
 	ROW_HEIGHTS,
 	type StudioOption,
@@ -169,13 +170,23 @@ export class SettingsStore {
 		return this.declaredOptions[propertyId] ?? [];
 	}
 
-	/** The colour a value shows, decided by the shared contract (option colour, then strategy). */
+	/**
+	 * The colour a value shows, decided by the shared contract: the value's own colour, then the
+	 * colour the Base declares for that option, then the property's strategy.
+	 */
 	colorFor(identity: OptionIdentity, displayName?: string): ResolvedColor {
+		const key = encodeOptionKey(identity);
+		const declaredColor = this.settings.options[key]?.override
+			? undefined
+			: optionColorOverride(this.getDeclaredOption(identity)?.color);
 		return pillColor(
 			{
 				paletteTemplateId: this.settings.paletteTemplateId,
 				strategies: this.settings.propertyStrategies,
-				overrides: this.settings.options,
+				// The contract reads only this value's entry, so a declared colour needs no copy of the rest.
+				overrides: declaredColor
+					? { [key]: { ...identity, override: declaredColor } }
+					: this.settings.options,
 				displayName: () => displayName,
 			},
 			identity.propertyId,

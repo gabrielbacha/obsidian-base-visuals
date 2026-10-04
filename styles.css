@@ -783,7 +783,7 @@
 
 .bases-view :is(.bpc-column-tone-muted, .bpc-column-tone-faint, .bpc-column-tone-custom):is(.bases-rendered-value, .metadata-property-value),
 .bases-embed :is(.bpc-column-tone-muted, .bpc-column-tone-faint, .bpc-column-tone-custom):is(.bases-rendered-value, .metadata-property-value),
-.bases-view :is(.bpc-column-tone-muted, .bpc-column-tone-faint, .bpc-column-tone-custom) :is(
+.bases-view :is(.bpc-column-tone-muted, .bpc-column-tone-faint, .bpc-column-tone-custom):not(.bpc-select-cell) :is(
 	.bases-rendered-value,
 	.metadata-input-text,
 	.metadata-input-number,
@@ -794,7 +794,7 @@
 	.internal-link,
 	.external-link
 ),
-.bases-embed :is(.bpc-column-tone-muted, .bpc-column-tone-faint, .bpc-column-tone-custom) :is(
+.bases-embed :is(.bpc-column-tone-muted, .bpc-column-tone-faint, .bpc-column-tone-custom):not(.bpc-select-cell) :is(
 	.bases-rendered-value,
 	.metadata-input-text,
 	.metadata-input-number,
@@ -858,7 +858,8 @@
 }
 
 .bases-view :is(.bpc-column-tone-muted, .bpc-column-tone-faint) .bpc-pill,
-.bases-embed :is(.bpc-column-tone-muted, .bpc-column-tone-faint) .bpc-pill {
+.bases-embed :is(.bpc-column-tone-muted, .bpc-column-tone-faint) .bpc-pill,
+:is(.bases-view, .bases-embed) :is(.bpc-column-tone-muted, .bpc-column-tone-faint).bpc-select-cell .metadata-input-longtext:not(:empty) {
 	opacity: var(--bpc-column-pill-opacity, 1);
 }
 
@@ -2880,9 +2881,15 @@
 	font-size: var(--font-ui-smaller);
 }
 
-/* Select columns declared by BaseStudio: the single text value shows as a pill in its declared colour. */
+/*
+ * Select columns (declared in basesStudio or in the Base's own properties): the single text value
+ * shows as a pill in its declared colour. Obsidian stretches the text element across the cell, so
+ * it is held to its content's width.
+ */
 .bases-td.bpc-select-cell .metadata-input-longtext:not(:empty) {
 	display: inline-block;
+	flex: 0 1 auto;
+	align-self: flex-start;
 	width: fit-content;
 	max-width: 100%;
 	box-sizing: border-box;
@@ -2978,4 +2985,15 @@
 }
 [data-bpc-status="done"] {
 	--bpc-status-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='m16 9-5.5 5.5L8 12'/%3E%3C/svg%3E");
+}
+
+/* URLs inside a text cell (see text-links.ts): marked without changing the editable text. */
+::highlight(bpc-text-url) {
+	color: var(--link-external-color, var(--text-accent));
+	text-decoration: underline;
+	text-decoration-color: var(--link-external-color, var(--text-accent));
+}
+
+:is(.bases-view, .bases-embed) .metadata-input-longtext.bpc-text-url-hover {
+	cursor: pointer;
 }

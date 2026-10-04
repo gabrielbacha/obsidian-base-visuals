@@ -380,6 +380,51 @@ describe('BaseVisualStoreRepository', () => {
 		root.remove();
 	});
 
+	it('reads the options a Base declares in its native properties block', async () => {
+		const root = document.body.createDiv();
+		const scope = root.createDiv('bases-view');
+		const config = { get: () => undefined, set: vi.fn() };
+		const baseFile = { path: 'declared.base', extension: 'base' };
+		const leaf = { view: { containerEl: root, nativeTable: {
+			type: 'table', containerEl: scope, config, path: baseFile.path,
+		} } } as unknown as WorkspaceLeaf;
+		const process = vi.fn();
+		const app = {
+			workspace: { getLeavesOfType: () => [leaf] },
+			vault: {
+				getFileByPath: () => baseFile,
+				cachedRead: async () => JSON.stringify({
+					properties: {
+						status: { type: 'select', options: { draft: 'grey', done: 'green' } },
+						'note.priority': { type: 'select', options: ['low', { value: 'high', color: 'orange' }] },
+						audience: { type: 'multi' },
+					},
+					[STUDIO_KEY]: { properties: { 'note.status': { type: 'select', options: [{ value: 'done', label: 'Finished' }] } } },
+				}),
+				process,
+			},
+		} as unknown as App;
+		const repository = new BaseVisualStoreRepository(
+			app,
+			new SettingsStore(structuredClone(DEFAULT_SETTINGS), async () => undefined),
+		);
+		const store = repository.forScope(scope);
+		await vi.waitFor(() => expect(store.getDeclaredOptions('note.status')).toHaveLength(2));
+
+		// basesStudio's option comes first and keeps its fields; the native one fills in the rest.
+		expect(store.getDeclaredOptions('note.status')).toEqual([
+			{ value: 'done', label: 'Finished' },
+			{ value: 'draft', color: 'gray' },
+		]);
+		expect(store.getDeclaredOptions('note.priority')).toEqual([{ value: 'low' }, { value: 'high', color: 'orange' }]);
+		expect(store.getDeclaredOptions('note.audience')).toEqual([]);
+		expect(store.colorFor({ propertyId: 'note.priority', value: 'high' }))
+			.toMatchObject({ kind: 'preset', label: 'Carrot' });
+		expect(process).not.toHaveBeenCalled();
+		await repository.dispose();
+		root.remove();
+	});
+
 	it('preserves unknown view data when saving recognized view rules', async () => {
 		const root = document.body.createDiv();
 		const scope = root.createDiv('bases-view');

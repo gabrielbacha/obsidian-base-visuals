@@ -409,10 +409,11 @@ export class BaseVisualStoreRepository {
 			const saved = STUDIO_KEY in parsed || LEGACY_ROOT_KEYS.some((key) => key in parsed) ||
 				(Array.isArray(parsed.views) && parsed.views.some((view) => isRecord(view) && LEGACY_BASE_VISUALS_KEY in view));
 			const data = readStudioBase(parsed);
-			const declared = Object.fromEntries(
-				Object.entries(data.properties ?? {}).flatMap(([propertyId, property]) =>
-					isRecord(property) && isOptionType(property.type) ? [[propertyId, studioOptions(property)]] : []),
-			);
+			const declared = nativeDeclaredOptions(parsed.properties);
+			for (const [propertyId, property] of Object.entries(data.properties ?? {})) {
+				if (!isRecord(property) || !isOptionType(property.type)) continue;
+				declared[propertyId] = mergeDeclaredOptions(studioOptions(property), declared[propertyId] ?? []);
+			}
 			return { data: saved ? data : null, declared };
 		} catch {
 			return none;
@@ -699,6 +700,44 @@ async function loadBasePropertyContext(app: App, scope: HTMLElement): Promise<Ba
 	}
 }
 
+
+/**
+ * The options a Base declares in its native `properties` block, keyed by canonical property ID.
+ * They are read in two forms: a map of value to colour (`done: green`) or a list of values or
+ * `{ value, color }` records. Nothing is written back.
+ */
+function nativeDeclaredOptions(definitions: unknown): Record<string, StudioOption[]> {
+	const declared: Record<string, StudioOption[]> = {};
+	if (!isRecord(definitions)) return declared;
+	for (const [name, definition] of Object.entries(definitions)) {
+		if (!isRecord(definition)) continue;
+		const options = nativeOptions(definition.options);
+		if (options.length) declared[canonicalPropertyId(name)] = options;
+	}
+	return declared;
+}
+
+function nativeOptions(raw: unknown): StudioOption[] {
+	if (Array.isArray(raw)) return studioOptions({ options: raw }).map(nativeOptionColor);
+	if (!isRecord(raw)) return [];
+	return Object.entries(raw).flatMap(([value, color]): StudioOption[] => {
+		if (!value) return [];
+		return [nativeOptionColor(typeof color === 'string' && color ? { value, color } : { value })];
+	});
+}
+
+/** British spelling of a colour name, which the shared palette names only as `gray`. */
+function nativeOptionColor(option: StudioOption): StudioOption {
+	return typeof option.color === 'string' && option.color.trim().toLocaleLowerCase() === 'grey'
+		? { ...option, color: 'gray' }
+		: option;
+}
+
+/** The `basesStudio` options, then the native ones it does not list. */
+function mergeDeclaredOptions(studio: StudioOption[], native: StudioOption[]): StudioOption[] {
+	const values = new Set(studio.map((option) => option.value));
+	return [...studio, ...native.filter((option) => !values.has(option.value))];
+}
 
 function isListDefinition(value: unknown): boolean {
 	if (!isRecord(value)) return false;
