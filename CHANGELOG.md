@@ -2,6 +2,12 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.20.0 — 2026-10-04
+
+- **Select columns declared in the Base's own `properties` block show as pills.** Options written there as a map (`done: green`) or as a list (`[low, { value: high, color: orange }]`) now give select cells, list pills and group headings their colour. Before, only options in `basesStudio` were read, so these columns showed plain text and their groups took a strategy colour. A colour set on a value in the plugin still wins. Nothing is written back to the file.
+- Select pills are as wide as their text, not the whole cell, and a column's custom or muted text colour no longer paints over the pill's own text colour.
+- **URLs inside text cells open on a click or a tap.** A text value such as `see https://example.com` showed the address as plain text, and a click on it started editing. Each URL is now underlined in the link colour and opens in the browser; a click or tap on the rest of the text still edits it, and the text is never changed. On touch screens, a tap on a URL does not open the keyboard.
+
 ## 0.19.0 — 2026-09-29
 
 - **Large grouped tables no longer lag.** A change in one cell restyled the whole table, so a render that touched every cell took time that grew with the square of the rows (100 rows: about 14 s in tests, now under 0.1 s). A value or property seen for the first time no longer restyles the table either, since it changes no colour.
