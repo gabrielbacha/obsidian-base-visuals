@@ -17,6 +17,7 @@ import {
 	getNativeMainProperty,
 	getNativePropertyKind,
 	getNativePropertyDisplayName,
+	forgetNativeTableViewMisses,
 	resolveNativePropertyId,
 } from './native-table-view';
 import { evaluateRule, ruleColorVariables, ruleHasFormatting } from '@gabrielbacha/bases-contract';
@@ -136,8 +137,14 @@ export class PillEnhancer {
 		if (this.started) return;
 		this.started = true;
 		this.unsubscribeStore = this.store.subscribe((change) => this.refreshFromStore(change));
-		registerEvent(this.app.workspace.on('layout-change', () => this.refreshRoots()));
-		registerEvent(this.app.workspace.on('active-leaf-change', () => this.refreshRoots()));
+		registerEvent(this.app.workspace.on('layout-change', () => {
+			forgetNativeTableViewMisses();
+			this.refreshRoots();
+		}));
+		registerEvent(this.app.workspace.on('active-leaf-change', () => {
+			forgetNativeTableViewMisses();
+			this.refreshRoots();
+		}));
 		this.refreshRoots();
 	}
 
@@ -168,6 +175,8 @@ export class PillEnhancer {
 			for (const element of deduplicateRoots(removedRoots)) this.untrackTree(element);
 			for (const element of deduplicateRoots(addedRoots)) this.processTree(element);
 			for (const target of classTargets) {
+				// A class change elsewhere in a note (a tab, a callout, a theme toggle) has nothing to restore.
+				if (!this.ownsClassTarget(target)) continue;
 				if (target.isConnected && (target === root || root.contains(target))) {
 					this.recoverPluginClasses(target);
 				}
@@ -282,6 +291,8 @@ export class PillEnhancer {
 		const element = asElement(node);
 		if (!element) return;
 		const buckets = collectTreeBuckets(element);
+		// A table that has just rendered may belong to a view an earlier lookup could not find yet.
+		if (buckets.tables.length) forgetNativeTableViewMisses();
 		for (const item of buckets.pills) this.processPill(item);
 		for (const item of buckets.cells) this.processCell(item);
 		for (const item of buckets.rows) this.processRow(item);
@@ -348,6 +359,11 @@ export class PillEnhancer {
 		// Only a change on the table itself re-processes it: a change in one of its cells is handled
 		// by that cell, so a render that touches every cell stays linear.
 		if (element.matches(TABLE_SELECTOR)) this.processTable(element as HTMLElement);
+	}
+
+	private ownsClassTarget(element: HTMLElement): boolean {
+		return this.tracked.has(element) || this.trackedGroups.has(element) ||
+			element.closest(BASE_SCOPE_SELECTOR) !== null;
 	}
 
 	private recoverPluginClasses(element: HTMLElement): void {

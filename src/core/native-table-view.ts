@@ -426,22 +426,65 @@ export function hasNativeColumnAppearance(
 	return Object.prototype.hasOwnProperty.call(stored, propertyId);
 }
 
+/**
+ * Finds the native table view that owns `scope`.
+ *
+ * Searching a leaf's object graph is slow (seconds for a large Live Preview note), so it is a last
+ * resort: views found once are remembered and matched by their container element, only leaves
+ * whose DOM holds `scope` are searched, and a failed search is remembered until the layout changes.
+ */
 export function findNativeTableView(app: App, scope: HTMLElement): NativeTableView | null {
 	const cached = VIEW_CACHE.get(scope);
 	if (cached?.containerEl.isConnected && elementsOverlap(cached.containerEl, scope)) return cached;
 	VIEW_CACHE.delete(scope);
+
+	const known = findKnownView(scope);
+	if (known) {
+		VIEW_CACHE.set(scope, known);
+		return known;
+	}
+	if (MISSED_SCOPES.has(scope)) return null;
+
 	const leaves = [
 		...app.workspace.getLeavesOfType('bases'),
 		...app.workspace.getLeavesOfType('markdown'),
-	];
+	].filter((leaf) => leafHolds(leaf, scope));
 	for (const leaf of leaves) {
 		const candidate = findInLeaf(leaf, scope);
 		if (candidate) {
+			KNOWN_VIEWS.add(candidate);
 			VIEW_CACHE.set(scope, candidate);
 			return candidate;
 		}
 	}
+	MISSED_SCOPES.add(scope);
 	return null;
+}
+
+/** Forgets failed lookups, so the next one searches again. Call it when the workspace layout changes. */
+export function forgetNativeTableViewMisses(): void {
+	MISSED_SCOPES = new WeakSet<HTMLElement>();
+	BASE_FILE_CACHE = new WeakMap<NativeTableView, TFile | null>();
+}
+
+const KNOWN_VIEWS = new Set<NativeTableView>();
+let MISSED_SCOPES = new WeakSet<HTMLElement>();
+
+function findKnownView(scope: HTMLElement): NativeTableView | null {
+	for (const view of KNOWN_VIEWS) {
+		if (!view.containerEl.isConnected) {
+			KNOWN_VIEWS.delete(view);
+			continue;
+		}
+		if (elementsOverlap(view.containerEl, scope)) return view;
+	}
+	return null;
+}
+
+function leafHolds(leaf: WorkspaceLeaf, scope: HTMLElement): boolean {
+	const container = (leaf.view as typeof leaf.view & { containerEl?: unknown }).containerEl;
+	// Without a container to compare, the leaf cannot be ruled out.
+	return !isHTMLElement(container) || elementsOverlap(container, scope);
 }
 
 export function getNativeViewConfig(app: App, scope: HTMLElement): NativeViewConfig | null {
@@ -451,7 +494,12 @@ export function getNativeViewConfig(app: App, scope: HTMLElement): NativeViewCon
 export function getNativeBaseFile(app: App, scope: HTMLElement): TFile | null {
 	const nativeView = findNativeTableView(app, scope);
 	if (nativeView) {
-		const associated = findBaseFileInGraph(nativeView, app);
+		// A TFile keeps its identity through renames, so the graph is searched once per view.
+		let associated = BASE_FILE_CACHE.get(nativeView);
+		if (associated === undefined) {
+			associated = findBaseFileInGraph(nativeView, app);
+			BASE_FILE_CACHE.set(nativeView, associated);
+		}
 		if (associated) return associated;
 	}
 	const leaves = [...app.workspace.getLeavesOfType('bases'), ...app.workspace.getLeavesOfType('markdown')];
@@ -463,13 +511,17 @@ export function getNativeBaseFile(app: App, scope: HTMLElement): TFile | null {
 	return null;
 }
 
+let BASE_FILE_CACHE = new WeakMap<NativeTableView, TFile | null>();
+
 function findBaseFileInGraph(root: object, app: App): TFile | null {
 	const queue: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
 	const visited = new WeakSet<object>();
-	while (queue.length) {
+	let inspected = 0;
+	while (queue.length && inspected < 1500) {
 		const entry = queue.shift();
 		if (!entry || !isObject(entry.value) || visited.has(entry.value)) continue;
 		visited.add(entry.value);
+		inspected += 1;
 		const path = typeof entry.value.path === 'string' ? entry.value.path : '';
 		if (path.endsWith('.base')) {
 			const file = app.vault.getFileByPath?.(path);

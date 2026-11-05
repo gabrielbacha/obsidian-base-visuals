@@ -4,6 +4,8 @@ import {
 	applyNativeColumnWidthPreset,
 	canCreateNativeFileForGroup,
 	createNativeFileForGroup,
+	findNativeTableView,
+	forgetNativeTableViewMisses,
 	getNativeColumnAppearance,
 	getNativeGroupProperty,
 	getNativePropertyKind,
@@ -246,6 +248,66 @@ describe('native table view bridge', () => {
 		expect(createFileForView).not.toHaveBeenCalled();
 	});
 
+});
+
+describe('native table view lookup cost', () => {
+	/** A view whose object graph counts how often it is searched. */
+	function countingView(container: HTMLElement, child: object | null) {
+		const counter = { reads: 0 };
+		const view = { containerEl: container } as Record<string, unknown>;
+		Object.defineProperty(view, 'renderer', {
+			enumerable: true,
+			get: () => {
+				counter.reads += 1;
+				return child ?? {};
+			},
+		});
+		return { view, counter };
+	}
+
+	function nativeTable(container: HTMLElement) {
+		return { type: 'table', containerEl: container, config: { get: () => undefined, set: () => undefined } };
+	}
+
+	it('searches a leaf once when no table is found, until the misses are forgotten', () => {
+		const root = document.body.createDiv();
+		const scope = root.createDiv();
+		const { view, counter } = countingView(root, null);
+		const app = appWithLeaves([{ view } as unknown as WorkspaceLeaf]);
+
+		expect(findNativeTableView(app, scope)).toBeNull();
+		expect(findNativeTableView(app, scope)).toBeNull();
+		expect(counter.reads).toBe(1);
+
+		forgetNativeTableViewMisses();
+		expect(findNativeTableView(app, scope)).toBeNull();
+		expect(counter.reads).toBe(2);
+	});
+
+	it('never searches a leaf whose DOM does not hold the element', () => {
+		const other = document.body.createDiv();
+		const root = document.body.createDiv();
+		const table = root.createDiv();
+		const unrelated = countingView(other, null);
+		const owner = { view: { containerEl: root, renderer: { child: nativeTable(table) } } };
+		const app = appWithLeaves([{ view: unrelated.view } as unknown as WorkspaceLeaf, owner as unknown as WorkspaceLeaf]);
+
+		expect(findNativeTableView(app, table)?.containerEl).toBe(table);
+		expect(unrelated.counter.reads).toBe(0);
+	});
+
+	it('matches other cells of a table already found without searching again', () => {
+		const root = document.body.createDiv();
+		const table = root.createDiv();
+		const firstCell = table.createDiv();
+		const secondCell = table.createDiv();
+		const { view, counter } = countingView(root, { child: nativeTable(table) });
+		const app = appWithLeaves([{ view } as unknown as WorkspaceLeaf]);
+
+		expect(findNativeTableView(app, firstCell)?.containerEl).toBe(table);
+		expect(findNativeTableView(app, secondCell)?.containerEl).toBe(table);
+		expect(counter.reads).toBe(1);
+	});
 });
 
 function appWithLeaves(leaves: WorkspaceLeaf[]): App {
