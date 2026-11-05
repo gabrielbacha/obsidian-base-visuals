@@ -2,7 +2,7 @@
 
 All notable changes to Bases Visuals are documented here.
 
-## Unreleased
+## 0.20.1 — 2026-11-05
 
 - **No more freezes with embedded Bases.** Finding the table a cell belongs to could search every open note's internals for each cell and column, and a failed search was never remembered. With a Base embedded in a note, this blocked Obsidian for 10–50 seconds on a tab switch. A table found once is now matched by its element, only the note that holds the cell is searched, and a failed search is remembered until the layout changes. Class changes outside a Base no longer trigger any work. ([#2](https://github.com/gabrielbacha/obsidian-base-visuals/issues/2))
 - **Row rules hold when their column is scrolled out of view.** A Base renders only the columns in view, so a row rule lost its colour as soon as the column it tests scrolled away. The value now comes from the row's note in the Base's results (found through its name column, or by position when every row is shown), or failing that from what the row last showed. ([#5](https://github.com/gabrielbacha/obsidian-base-visuals/issues/5))
