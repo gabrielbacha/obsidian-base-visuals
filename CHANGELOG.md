@@ -2,6 +2,11 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## Unreleased
+
+- **No more freezes with embedded Bases.** Finding the table a cell belongs to could search every open note's internals for each cell and column, and a failed search was never remembered. With a Base embedded in a note, this blocked Obsidian for 10–50 seconds on a tab switch. A table found once is now matched by its element, only the note that holds the cell is searched, and a failed search is remembered until the layout changes. Class changes outside a Base no longer trigger any work. ([#2](https://github.com/gabrielbacha/obsidian-base-visuals/issues/2))
+- **Empty cells stay empty in formatted rows and cells.** A rule's text colour also coloured the hidden placeholder of an empty cell, so “No value” appeared once the rule matched. ([#4](https://github.com/gabrielbacha/obsidian-base-visuals/issues/4))
+
 ## 0.20.0 — 2026-10-04
 
 - **Select columns declared in the Base's own `properties` block show as pills.** Options written there as a map (`done: green`) or as a list (`[low, { value: high, color: orange }]`) now give select cells, list pills and group headings their colour. Before, only options in `basesStudio` were read, so these columns showed plain text and their groups took a strategy colour. A colour set on a value in the plugin still wins. Nothing is written back to the file.
