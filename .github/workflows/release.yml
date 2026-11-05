@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
+  # Run from the Actions tab on main: releases the version in manifest.json and creates its tag.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,9 +21,21 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - name: Resolve release version
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$GITHUB_REF_NAME" != "main" ]; then echo "Run the release from main." >&2; exit 1; fi
+            version=$(node -p "require('./manifest.json').version")
+            if git ls-remote --exit-code --tags origin "refs/tags/$version" >/dev/null; then
+              echo "Tag $version already exists." >&2; exit 1
+            fi
+          else
+            version="$GITHUB_REF_NAME"
+          fi
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
       - name: Verify release version
         run: |
-          node -e "const m=require('./manifest.json'); const p=require('./package.json'); if (m.version !== p.version || m.version !== process.env.GITHUB_REF_NAME) process.exit(1)"
+          node -e "const m=require('./manifest.json'); const p=require('./package.json'); if (m.version !== p.version || m.version !== process.env.RELEASE_VERSION) process.exit(1)"
       - run: npm ci
       - run: npm test
       - run: npm run lint
@@ -39,8 +53,10 @@ jobs:
           release_notes="${RUNNER_TEMP}/bases-visuals-release-notes.md"
           printf "%s\n\n" "More software, tools, and ideas: [gabrielbacha.com](https://www.gabrielbacha.com/?utm_source=github&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=bases_visuals_release)" > "$release_notes"
           cat CHANGELOG.md >> "$release_notes"
-          gh release create "$GITHUB_REF_NAME" \
+          # On a manual run the tag does not exist yet: --target creates it at this commit.
+          gh release create "$RELEASE_VERSION" \
             --draft \
-            --title "$GITHUB_REF_NAME" \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_VERSION" \
             --notes-file "$release_notes" \
             main.js manifest.json styles.css
