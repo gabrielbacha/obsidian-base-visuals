@@ -114,7 +114,7 @@ export class PillEnhancer {
 	private readonly mainPropertyByTable = new WeakMap<HTMLElement, string>();
 	private readonly activeFileRenames = new WeakMap<HTMLElement, () => void>();
 	/** The last value each row showed for a property, for when its cell is scrolled out of view. */
-	private readonly rowRuleValues = new WeakMap<HTMLElement, Map<string, CellValue>>();
+	private readonly rowRuleValues = new WeakMap<HTMLElement, { note: string | null; values: Map<string, CellValue> }>();
 	private readonly tableLayoutPopover: TableLayoutPopover;
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
 	private readonly columnPillAppearancePopover: ColumnPillAppearancePopover;
@@ -1173,34 +1173,45 @@ export class PillEnhancer {
 	): CellValue | null {
 		const idFor = (cell: HTMLElement) =>
 			scope ? this.propertyIdFor(scope, cell) : cell.dataset.property?.trim() ?? null;
+		const nameCell = scope ? this.rowNameCell(cells, scope, idFor) : null;
+		// A row element can be reused for another note while scrolling: what it showed before is then forgotten.
+		const note = nameCell?.textContent?.trim() || null;
 		let remembered = this.rowRuleValues.get(row);
+		if (remembered && note !== null && remembered.note !== null && remembered.note !== note) remembered = undefined;
+		if (!remembered) {
+			remembered = { note, values: new Map<string, CellValue>() };
+			this.rowRuleValues.set(row, remembered);
+		}
+		remembered.note = note ?? remembered.note;
+
 		const cell = cells.find((candidate) => idFor(candidate) === propertyId);
 		if (cell) {
 			const value = renderedCellValue(cell);
-			if (!remembered) this.rowRuleValues.set(row, remembered = new Map<string, CellValue>());
-			remembered.set(propertyId, value);
+			remembered.values.set(propertyId, value);
 			return value;
 		}
 		if (scope) {
-			const file = this.rowFile(row, cells, scope, idFor);
+			const file = this.rowFile(row, nameCell, scope);
 			const value = file ? getNativeEntryValue(this.app, scope, file, propertyId) : null;
 			if (value) return value;
 		}
-		return remembered?.get(propertyId) ?? null;
+		return remembered.values.get(propertyId) ?? null;
 	}
 
-	private rowFile(
-		row: HTMLElement,
+	/** The row's own name column. A link in another column points to a different note. */
+	private rowNameCell(
 		cells: HTMLElement[],
 		scope: HTMLElement,
 		idFor: (cell: HTMLElement) => string | null,
-	) {
-		// Only the note's own name column identifies the row: a link in another column points elsewhere.
+	): HTMLElement | null {
 		const main = getNativeMainProperty(this.app, scope);
-		const nameCell = cells.find((cell) => {
+		return cells.find((cell) => {
 			const id = idFor(cell);
 			return id === 'file.name' || id === 'file.file' || (id !== null && id === main);
-		});
+		}) ?? null;
+	}
+
+	private rowFile(row: HTMLElement, nameCell: HTMLElement | null, scope: HTMLElement) {
 		if (nameCell?.querySelector('.internal-link[data-href], a[data-href], a.internal-link')) {
 			const file = resolveFileFromNameCell(this.app, scope, nameCell);
 			if (file) return file;

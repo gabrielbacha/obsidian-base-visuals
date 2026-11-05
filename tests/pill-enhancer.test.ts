@@ -697,6 +697,26 @@ describe('PillEnhancer', () => {
 		expect(row?.dataset.bpcRuleId).toBe(rule.id);
 	});
 
+	it('forgets what a row last showed once the row shows another note', async () => {
+		const harness = createHarness([], (baseView) => {
+			const row = baseView.createDiv('bases-tr');
+			appendTableCell(row, 'file.name', 'First note');
+			appendTableCell(row, 'note.status', 'Done');
+		});
+		const rule = harness.store.addRule('note.status');
+		harness.store.updateRule(rule.id, { operand: 'done', target: 'row', color: { kind: 'preset', name: 'green-sea' } });
+		const row = harness.root.querySelector<HTMLElement>('.bases-tr');
+		expect(row?.dataset.bpcRuleId).toBe(rule.id);
+
+		row?.querySelector('[data-property="note.status"]')?.remove();
+		const name = row?.querySelector<HTMLElement>('[data-property="file.name"]');
+		if (name) name.textContent = 'Second note';
+		await mutationCycle();
+		harness.store.updateRule(rule.id, { bold: true });
+
+		expect(row?.classList.contains('bpc-rule-row')).toBe(false);
+	});
+
 	it('handles checkbox and live input values', () => {
 		const harness = createHarness([], (baseView) => {
 			const row = baseView.createDiv('bases-tr');
