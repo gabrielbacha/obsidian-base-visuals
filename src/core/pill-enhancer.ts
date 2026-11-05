@@ -18,6 +18,7 @@ import {
 	getNativePropertyKind,
 	getNativePropertyDisplayName,
 	forgetNativeTableViewMisses,
+	getNativeEntryValue,
 	resolveNativePropertyId,
 } from './native-table-view';
 import { evaluateRule, ruleColorVariables, ruleHasFormatting } from '@gabrielbacha/bases-contract';
@@ -30,7 +31,7 @@ import { ColumnPillAppearancePopover } from '../ui/column-pill-appearance-popove
 import { compareNaturalValues } from '@gabrielbacha/bases-contract';
 import { strategyLabel } from '@gabrielbacha/bases-contract';
 import { NativePillRemovalService, type PillRemovalCapability } from './native-pill-removal';
-import { renameFileBasename, resolveFileFromNameCell } from './file-rename';
+import { renameFileBasename, resolveFileByRowPosition, resolveFileFromNameCell } from './file-rename';
 import { TextLinks } from './text-links';
 
 const PILL_SELECTOR = '.multi-select-pill';
@@ -112,6 +113,8 @@ export class PillEnhancer {
 	private readonly scopedStoreUnsubscribers = new Map<SettingsStore, () => void>();
 	private readonly mainPropertyByTable = new WeakMap<HTMLElement, string>();
 	private readonly activeFileRenames = new WeakMap<HTMLElement, () => void>();
+	/** The last value each row showed for a property, for when its cell is scrolled out of view. */
+	private readonly rowRuleValues = new WeakMap<HTMLElement, Map<string, CellValue>>();
 	private readonly tableLayoutPopover: TableLayoutPopover;
 	private readonly columnAppearancePopover: ColumnAppearancePopover;
 	private readonly columnPillAppearancePopover: ColumnPillAppearancePopover;
@@ -1149,13 +1152,60 @@ export class PillEnhancer {
 		const rules = scope ? this.scopedStore(scope).settings.rules : this.store.settings.rules;
 		for (const rule of rules) {
 			if (!rule.enabled || rule.target !== 'row' || !ruleHasFormatting(rule)) continue;
-			const cell = cells.find((candidate) =>
-				(scope ? this.propertyIdFor(scope, candidate) : candidate.dataset.property?.trim()) === rule.propertyId);
-			if (cell && evaluateRule(rule, renderedCellValue(cell))) {
+			const value = this.rowRuleValue(row, cells, scope, rule.propertyId);
+			if (value && evaluateRule(rule, value)) {
 				applyRuleAppearance(row, 'bpc-rule-row', rule, scope ? this.scopedStore(scope).getPaletteTemplateId() : this.store.getPaletteTemplateId());
 				return;
 			}
 		}
+	}
+
+	/**
+	 * The value a row rule tests. A Base renders only the columns in view, so when the rule's cell is
+	 * scrolled out of sight the value comes from the row's note in the result, or failing that from
+	 * what the row last showed.
+	 */
+	private rowRuleValue(
+		row: HTMLElement,
+		cells: HTMLElement[],
+		scope: HTMLElement | null,
+		propertyId: string,
+	): CellValue | null {
+		const idFor = (cell: HTMLElement) =>
+			scope ? this.propertyIdFor(scope, cell) : cell.dataset.property?.trim() ?? null;
+		let remembered = this.rowRuleValues.get(row);
+		const cell = cells.find((candidate) => idFor(candidate) === propertyId);
+		if (cell) {
+			const value = renderedCellValue(cell);
+			if (!remembered) this.rowRuleValues.set(row, remembered = new Map<string, CellValue>());
+			remembered.set(propertyId, value);
+			return value;
+		}
+		if (scope) {
+			const file = this.rowFile(row, cells, scope, idFor);
+			const value = file ? getNativeEntryValue(this.app, scope, file, propertyId) : null;
+			if (value) return value;
+		}
+		return remembered?.get(propertyId) ?? null;
+	}
+
+	private rowFile(
+		row: HTMLElement,
+		cells: HTMLElement[],
+		scope: HTMLElement,
+		idFor: (cell: HTMLElement) => string | null,
+	) {
+		// Only the note's own name column identifies the row: a link in another column points elsewhere.
+		const main = getNativeMainProperty(this.app, scope);
+		const nameCell = cells.find((cell) => {
+			const id = idFor(cell);
+			return id === 'file.name' || id === 'file.file' || (id !== null && id === main);
+		});
+		if (nameCell?.querySelector('.internal-link[data-href], a[data-href], a.internal-link')) {
+			const file = resolveFileFromNameCell(this.app, scope, nameCell);
+			if (file) return file;
+		}
+		return resolveFileByRowPosition(this.app, scope, row);
 	}
 
 	private untrackCell(cell: HTMLElement): void {
@@ -1243,7 +1293,9 @@ export class PillEnhancer {
 
 }
 
-export function renderedCellValue(cell: HTMLElement): { text: string; values: string[] } {
+type CellValue = { text: string; values: string[] };
+
+export function renderedCellValue(cell: HTMLElement): CellValue {
 	const pills = [...cell.querySelectorAll<HTMLElement>('.multi-select-pill-content')]
 		.map((pill) => pill.textContent?.trim() ?? '');
 	if (pills.length) return { text: pills.join(', '), values: pills };

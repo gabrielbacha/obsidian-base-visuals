@@ -380,6 +380,47 @@ export function getNativeResultPropertyValues(
 }
 
 /**
+ * The value a note has for a property in the current result, in the shape a rendered cell gives
+ * (`renderedCellValue`), or null when the note is not in the result. A Base renders only the
+ * columns in view, so this answers for a cell that is scrolled out of sight.
+ */
+export function getNativeEntryValue(
+	app: App,
+	scope: HTMLElement,
+	file: TFile,
+	propertyId: string,
+): { text: string; values: string[] } | null {
+	const result = findNativeTableView(app, scope)?.data;
+	if (!result || !Array.isArray(result.data)) return null;
+	const entry = entriesByPath(result.data).get(file.path);
+	if (!entry) return null;
+	let value: unknown;
+	try {
+		value = entry.getValue(propertyId);
+	} catch {
+		return null;
+	}
+	const values = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+		? [String(value).trim()].filter(Boolean)
+		: valueTexts(value);
+	return values.length ? { text: values.join(', '), values } : { text: '', values: [''] };
+}
+
+/** Entries indexed by file path, rebuilt when the result's size changes. */
+const ENTRY_INDEX = new WeakMap<unknown[], { length: number; byPath: Map<string, NativeResultEntry> }>();
+
+function entriesByPath(data: unknown[]): Map<string, NativeResultEntry> {
+	const cached = ENTRY_INDEX.get(data);
+	if (cached?.length === data.length) return cached.byPath;
+	const byPath = new Map<string, NativeResultEntry>();
+	for (const entry of data) {
+		if (isNativeResultEntry(entry) && isTFileLike(entry.file)) byPath.set(entry.file.path, entry);
+	}
+	ENTRY_INDEX.set(data, { length: data.length, byPath });
+	return byPath;
+}
+
+/**
  * Return the files represented by the current native result in rendered order.
  * Grouped results are preferred because the table renders those groups rather
  * than the ungrouped `data` array.
