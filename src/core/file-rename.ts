@@ -28,16 +28,25 @@ export function resolveFileFromNameCell(
 		if (matches.length === 1) return matches[0] ?? null;
 	}
 
-	// Positional matching is safe only when every native result row is present.
-	// That avoids guessing when Obsidian has virtualized part of a long table.
 	const row = cell.closest<HTMLElement>('.bases-tr');
+	return row ? resolveFileByRowPosition(app, scope, row, nativeFiles) : null;
+}
+
+/**
+ * The file a row shows, found by its position. This is safe only when every native result row is
+ * rendered, which avoids guessing when Obsidian has virtualized part of a long table.
+ */
+export function resolveFileByRowPosition(
+	app: App,
+	scope: HTMLElement,
+	row: HTMLElement,
+	nativeFiles: TFile[] = getNativeResultFiles(app, scope),
+): TFile | null {
 	const renderedRows = [...scope.querySelectorAll<HTMLElement>('.bases-tr')]
 		.filter((candidate) => !candidate.closest('.bases-thead'));
-	if (row && nativeFiles.length === renderedRows.length) {
-		const index = renderedRows.indexOf(row);
-		if (index >= 0) return nativeFiles[index] ?? null;
-	}
-	return null;
+	if (nativeFiles.length !== renderedRows.length) return null;
+	const index = renderedRows.indexOf(row);
+	return index >= 0 ? nativeFiles[index] ?? null : null;
 }
 
 /**

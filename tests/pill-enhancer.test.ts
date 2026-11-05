@@ -31,6 +31,8 @@ interface NativeFixtureOptions {
 		frontmatterProcessor?: (frontmatter: Record<string, unknown>) => void,
 	) => Promise<void>;
 	file?: TFile;
+	/** Result entries: each note with its property values. */
+	entries?: Array<{ file: TFile; values: Record<string, string> }>;
 	renameFile?: (file: TFile, path: string) => Promise<void>;
 	getAbstractFileByPath?: (path: string) => unknown;
 }
@@ -635,6 +637,66 @@ describe('PillEnhancer', () => {
 		expect(cell?.classList.contains('bpc-rule-cell')).toBe(true);
 	});
 
+	it('keeps a row rule when its cell is scrolled out of view, reading the note in the result', async () => {
+		const note = (name: string) => Object.assign(new TFile(), {
+			path: `${name}.md`, name: `${name}.md`, basename: name, extension: 'md',
+		});
+		const done = note('Done task');
+		const open = note('Open task');
+		const entries = [
+			{ file: done, values: { 'note.status': 'Done' } },
+			{ file: open, values: { 'note.status': 'Open' } },
+		];
+		const harness = createHarness([], (baseView) => {
+			const table = baseView.createDiv('bases-table-container');
+			for (const file of [done, open]) {
+				const row = table.createDiv('bases-tr');
+				const nameCell = row.createDiv('bases-td');
+				nameCell.dataset.property = 'file.name';
+				nameCell.createSpan({ cls: 'internal-link', text: file.basename, attr: { 'data-href': file.path } });
+				appendTableCell(row, 'note.status', file === done ? 'Done' : 'Open');
+			}
+			// A third row keeps positional matching from answering.
+			table.createDiv('bases-tr');
+		}, undefined, undefined, { entries });
+		// Each name links to its own note.
+		const app = (harness.enhancer as unknown as { app: App }).app;
+		app.metadataCache.getFirstLinkpathDest = (target: string) => [done, open].find((file) => file.path === target) ?? null;
+		const rule = harness.store.addRule('note.status');
+		harness.store.updateRule(rule.id, { operand: 'done', target: 'row', color: { kind: 'preset', name: 'green-sea' } });
+		const rows = [...harness.root.querySelectorAll<HTMLElement>('.bases-tr')];
+		expect(rows[0]?.dataset.bpcRuleId).toBe(rule.id);
+
+		// The status column scrolls out of view: Obsidian removes its cells.
+		for (const cell of harness.root.querySelectorAll('[data-property="note.status"]')) cell.remove();
+		await mutationCycle();
+		// The notes change while their cells are out of view; the data, not the last shown value, decides.
+		entries[0]!.values['note.status'] = 'Open';
+		entries[1]!.values['note.status'] = 'Done';
+		harness.store.updateRule(rule.id, { bold: true });
+
+		expect(rows[0]?.classList.contains('bpc-rule-row')).toBe(false);
+		expect(rows[1]?.dataset.bpcRuleId).toBe(rule.id);
+	});
+
+	it('keeps a row rule from the value the row last showed when its note cannot be found', async () => {
+		const harness = createHarness([], (baseView) => {
+			const row = baseView.createDiv('bases-tr');
+			appendTableCell(row, 'note.title', 'Task');
+			appendTableCell(row, 'note.status', 'Done');
+		});
+		const rule = harness.store.addRule('note.status');
+		harness.store.updateRule(rule.id, { operand: 'done', target: 'row', color: { kind: 'preset', name: 'green-sea' } });
+		const row = harness.root.querySelector<HTMLElement>('.bases-tr');
+		expect(row?.dataset.bpcRuleId).toBe(rule.id);
+
+		row?.querySelector('[data-property="note.status"]')?.remove();
+		await mutationCycle();
+		harness.store.updateRule(rule.id, { bold: true });
+
+		expect(row?.dataset.bpcRuleId).toBe(rule.id);
+	});
+
 	it('handles checkbox and live input values', () => {
 		const harness = createHarness([], (baseView) => {
 			const row = baseView.createDiv('bases-tr');
@@ -993,7 +1055,17 @@ function createHarness(
 					set: (key: string, value: unknown) => values.set(key, value),
 					...(nativeOptions.order ? { getOrder: () => nativeOptions.order ?? [] } : {}),
 				},
-				...(nativeOptions.dataProperties || nativeOptions.listProperties
+				...(nativeOptions.entries
+					? {
+						data: {
+							properties: nativeOptions.dataProperties ?? [],
+							data: nativeOptions.entries.map(({ file, values }) => ({
+								file,
+								getValue: (propertyId: string) => values[propertyId] ?? null,
+							})),
+						},
+					}
+					: nativeOptions.dataProperties || nativeOptions.listProperties
 					? {
 						data: {
 							properties: nativeOptions.dataProperties ?? nativeOptions.listProperties ?? [],
