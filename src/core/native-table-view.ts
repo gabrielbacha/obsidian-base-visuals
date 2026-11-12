@@ -61,6 +61,7 @@ export function nativeViewBlock(config: NativeViewConfig | null | undefined): St
 
 interface NativeTableView {
 	type: string;
+	path?: unknown;
 	containerEl: HTMLElement;
 	config: NativeViewConfig;
 	createFileForView?: (
@@ -505,7 +506,7 @@ export function findNativeTableView(app: App, scope: HTMLElement): NativeTableVi
 /** Forgets failed lookups, so the next one searches again. Call it when the workspace layout changes. */
 export function forgetNativeTableViewMisses(): void {
 	MISSED_SCOPES = new WeakSet<HTMLElement>();
-	BASE_FILE_CACHE = new WeakMap<NativeTableView, TFile | null>();
+	BASE_FILE_CACHE = new WeakMap<NativeTableView, BaseFileAssociation>();
 }
 
 const KNOWN_VIEWS = new Set<NativeTableView>();
@@ -535,13 +536,15 @@ export function getNativeViewConfig(app: App, scope: HTMLElement): NativeViewCon
 export function getNativeBaseFile(app: App, scope: HTMLElement): TFile | null {
 	const nativeView = findNativeTableView(app, scope);
 	if (nativeView) {
-		// A TFile keeps its identity through renames, so the graph is searched once per view.
+		// Keep the bounded graph cache only while this native view still represents the same target.
+		const identity = { config: nativeView.config, path: nativeView.path, name: nativeView.config.get('name'), type: nativeView.config.get('type') };
 		let associated = BASE_FILE_CACHE.get(nativeView);
-		if (associated === undefined) {
-			associated = findBaseFileInGraph(nativeView, app);
+		if (!associated || associated.config !== identity.config || associated.path !== identity.path ||
+			associated.name !== identity.name || associated.type !== identity.type) {
+			associated = { ...identity, file: findBaseFileInGraph(nativeView, app) };
 			BASE_FILE_CACHE.set(nativeView, associated);
 		}
-		if (associated) return associated;
+		if (associated.file) return associated.file;
 	}
 	const leaves = [...app.workspace.getLeavesOfType('bases'), ...app.workspace.getLeavesOfType('markdown')];
 	for (const leaf of leaves) {
@@ -552,7 +555,14 @@ export function getNativeBaseFile(app: App, scope: HTMLElement): TFile | null {
 	return null;
 }
 
-let BASE_FILE_CACHE = new WeakMap<NativeTableView, TFile | null>();
+interface BaseFileAssociation {
+	file: TFile | null;
+	config: NativeViewConfig;
+	path: unknown;
+	name: unknown;
+	type: unknown;
+}
+let BASE_FILE_CACHE = new WeakMap<NativeTableView, BaseFileAssociation>();
 
 function findBaseFileInGraph(root: object, app: App): TFile | null {
 	const queue: Array<{ value: unknown; depth: number }> = [{ value: root, depth: 0 }];
