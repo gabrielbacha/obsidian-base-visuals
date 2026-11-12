@@ -110,6 +110,22 @@
 	text-decoration-line: underline line-through !important;
 }
 
+/*
+ * The rule colour above is forced with -webkit-text-fill-color, which an empty field's placeholder
+ * ("No value") inherits. Obsidian keeps that placeholder hidden in a Base, so keep it hidden here too.
+ */
+:is(.bases-view, .bases-embed) :is(
+	.bpc-rule-row.bpc-rule-has-foreground :is(.bases-td, .bases-table-cell),
+	:is(.bases-td, .bases-table-cell).bpc-rule-cell.bpc-rule-has-foreground
+) :is(input, textarea):not(:focus)::placeholder,
+:is(.bases-view, .bases-embed) :is(
+	.bpc-rule-row.bpc-rule-has-foreground :is(.bases-td, .bases-table-cell),
+	:is(.bases-td, .bases-table-cell).bpc-rule-cell.bpc-rule-has-foreground
+) .metadata-input-longtext:empty:not(:focus)::before {
+	color: transparent !important;
+	-webkit-text-fill-color: transparent !important;
+}
+
 .bases-view .bases-td.bpc-rule-cell.bpc-rule-has-background:hover,
 .bases-view .bases-table-cell.bpc-rule-cell.bpc-rule-has-background:hover,
 .bases-embed .bases-td.bpc-rule-cell.bpc-rule-has-background:hover,
