@@ -5,7 +5,7 @@ import type { ColorPopover } from '../src/ui/color-popover';
 import { PillColorManagerView } from '../src/ui/pill-color-manager';
 
 describe('pill color manager cleanup', () => {
-	it('confirms before removing only the stale saved values', () => {
+	it('confirms before removing only the stale saved values', async () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		store.ensure({ propertyId: 'note.category', value: 'Current' });
 		store.ensure({ propertyId: 'note.category', value: 'Deleted' });
@@ -33,11 +33,11 @@ describe('pill color manager cleanup', () => {
 		expect(store.get({ propertyId: 'note.category', value: 'Current' })).toBeDefined();
 
 		view.unmount();
-		store.dispose();
+		await store.dispose();
 		container.remove();
 	});
 
-	it('shows and resets only properties allowed by the opened base', () => {
+	it('shows and resets only properties allowed by the opened base', async () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		store.ensure({ propertyId: 'note.status', value: 'Done' });
 		store.ensure({ propertyId: 'note.other', value: 'Elsewhere' });
@@ -58,11 +58,11 @@ describe('pill color manager cleanup', () => {
 		expect(store.getPropertyStyle('note.other')).toBe('outline');
 
 		view.unmount();
-		store.dispose();
+		await store.dispose();
 		container.remove();
 	});
 
-	it('collapses property categories and restores their saved state in a new manager', () => {
+	it('collapses property categories and restores their saved state in a new manager', async () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		store.ensure({ propertyId: 'note.priority', value: 'High' });
 		store.ensure({ propertyId: 'note.priority', value: 'Low' });
@@ -101,7 +101,7 @@ describe('pill color manager cleanup', () => {
 		expect(container.querySelector<HTMLElement>('.bpc-property-group__body')?.hidden).toBe(true);
 
 		reopened.unmount();
-		store.dispose();
+		await store.dispose();
 		container.remove();
 	});
 });

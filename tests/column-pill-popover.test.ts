@@ -7,9 +7,9 @@ import { ColumnPillPopover } from '../src/ui/column-pill-popover';
 const stores: SettingsStore[] = [];
 const popovers: ColumnPillPopover[] = [];
 
-afterEach(() => {
+afterEach(async () => {
 	for (const popover of popovers.splice(0)) popover.close();
-	for (const store of stores.splice(0)) store.dispose();
+	for (const store of stores.splice(0)) await store.dispose();
 	document.body.replaceChildren();
 });
 
@@ -73,7 +73,7 @@ describe('ColumnPillPopover', () => {
 		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'single', preset: 'raspberry' });
 	});
 
-	it('edits pill style independently from the color strategy', () => {
+	it('edits pill style independently from the color strategy', async () => {
 		const { popover, store, saveSettings } = createPopover();
 		popover.open(createRequest());
 		findMenuItem('Manage “status” colors')?.click();
@@ -84,6 +84,7 @@ describe('ColumnPillPopover', () => {
 		const outlineOption = document.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__option[data-value="outline"]');
 		outlineOption?.click();
 		expect(store.getPropertyStyle('note.status')).toBe('outline');
+		await store.flush();
 		expect(saveSettings).toHaveBeenCalledOnce();
 		expect(document.querySelector('.bpc-custom-dropdown__menu')).toBeNull();
 		expect(styleTrigger?.getAttribute('aria-expanded')).toBe('false');

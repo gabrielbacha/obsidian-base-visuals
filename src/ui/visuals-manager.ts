@@ -100,6 +100,7 @@ export class BasesVisualsModal extends Modal {
 						visibleOptions,
 						this.store.allKnownProperties().filter((propertyId) =>
 							this.basePropertyIds?.has(propertyId) ?? true),
+						Object.fromEntries(this.store.allKnownProperties().map(propertyId => [propertyId, this.store.getDeclaredOptions(propertyId)])),
 					)
 					: undefined,
 				this.basePropertyIds,

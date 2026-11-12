@@ -6,9 +6,9 @@ import { RuleManagerView } from '../src/ui/rule-manager';
 let view: RuleManagerView | null = null;
 let store: SettingsStore | null = null;
 
-afterEach(() => {
+afterEach(async () => {
 	view?.unmount();
-	store?.dispose();
+	await store?.dispose();
 	view = null;
 	store = null;
 	document.body.replaceChildren();
@@ -141,7 +141,7 @@ describe('RuleManagerView', () => {
 		panel?.querySelector<HTMLButtonElement>('.bpc-swatch--neutral')?.click();
 		expect(document.querySelector('.bpc-rule-color-popover')).toBe(panel);
 		expect(store.settings.rules[0]?.color).toEqual({ kind: 'preset', name: 'default' });
-		expect(range?.value).toBe('42');
+		expect(range?.value).toBe('3');
 		panel?.querySelector<HTMLButtonElement>('.bpc-rule-opacity__reset')?.click();
 		expect(store.settings.rules[0]?.backgroundOpacity).toBe(3);
 		expect(range?.value).toBe('3');
@@ -244,3 +244,20 @@ function dragEvent(type: string, clientY: number): Event {
 	});
 	return event;
 }
+
+it('shows saved colors without opacity as 100 percent and labels the stored opacity', () => {
+	store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
+	store.addRule('note.status');
+	const rule = store.settings.rules[0];
+	if (!rule) throw new Error('Missing generated rule');
+	rule.color = {kind:'custom',hex:'#336699'}; delete rule.backgroundOpacity;
+	view = new RuleManagerView({} as App, store, [], false);
+	const container = document.body.createDiv(); view.mount(container);
+	const button = container.querySelector<HTMLButtonElement>('.bpc-rule-color:not(.bpc-rule-font-color)');
+	expect(button?.textContent).toContain('100%'); button?.click();
+	const panel = document.querySelector('.bpc-rule-color-popover');
+	const range = panel?.querySelector<HTMLInputElement>('input[type="range"]');
+	expect(range?.value).toBe('100'); expect(range?.getAttribute('aria-label')).toBe('Background opacity percentage');
+	if (range) range.value='0'; range?.dispatchEvent(new Event('input',{bubbles:true})); expect(rule.backgroundOpacity).toBe(0);
+	if (range) range.value='100'; range?.dispatchEvent(new Event('input',{bubbles:true})); expect(rule.backgroundOpacity).toBe(100);
+});

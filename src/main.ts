@@ -1,4 +1,4 @@
-import { Plugin } from 'obsidian';
+import { Notice, Plugin } from 'obsidian';
 import { PillEnhancer } from './core/pill-enhancer';
 import { SettingsStore } from './core/settings-store';
 import { BaseVisualStoreRepository } from './core/base-visual-store';
@@ -17,12 +17,18 @@ export default class BasesPillColorsPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		this.active = true;
+		const raw: unknown = await this.loadData();
+		if (SettingsStore.futureVersion(raw)) {
+			this.active = false;
+			new Notice('These settings need a newer plugin version. Update the plugin to edit them. The saved settings were kept.');
+			return;
+		}
 		const settings = SettingsStore.compactForPersistence(
-			SettingsStore.normalize(await this.loadData()),
+			SettingsStore.normalize(raw),
 		);
-		await this.saveData(settings);
 		this.store = new SettingsStore(settings, (nextSettings) =>
-			this.saveData(SettingsStore.compactForPersistence(nextSettings)),
+			this.saveData(SettingsStore.persistenceSnapshot(SettingsStore.compactForPersistence(nextSettings))),
+			() => new Notice('Could not save settings. Your changes remain in memory. Keep Obsidian open and change a setting to retry.'),
 		);
 		this.baseStores = new BaseVisualStoreRepository(this.app, this.store);
 		this.baseStores.watch((eventRef) => this.registerEvent(eventRef));
@@ -69,7 +75,14 @@ export default class BasesPillColorsPlugin extends Plugin {
 		this.enhancer?.stop();
 		this.popover?.close();
 		this.columnPopover?.close();
-		void this.baseStores?.dispose();
-		this.store?.dispose();
+		// Obsidian's unload hook cannot wait; the retained stores own the final queued writes.
+		void this.finishSettingsWrites();
+	}
+
+	async finishSettingsWrites(): Promise<void> {
+		await Promise.all([
+			this.baseStores?.dispose().catch(() => new Notice('Could not save base settings before closing.')),
+			this.store?.dispose(),
+		]);
 	}
 }

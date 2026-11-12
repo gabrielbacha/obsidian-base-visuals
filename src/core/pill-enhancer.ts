@@ -85,6 +85,7 @@ interface RootBinding {
 export type OpenRuleManager = (propertyIds: string[], scope?: HTMLElement) => void;
 export interface ColumnMenuRequest {
 	document: Document;
+	anchor?: HTMLElement;
 	point: { x: number; y: number };
 	propertyId: string;
 	propertyName?: string;
@@ -108,6 +109,7 @@ export class PillEnhancer {
 	private readonly columnAppearanceElements = new Set<HTMLElement>();
 	private readonly toolbarControls = new Set<HTMLElement>();
 	private readonly pendingMenuObservers = new Set<MutationObserver>();
+	private readonly scopesByStore = new Map<SettingsStore, Set<HTMLElement>>();
 	private readonly scopedStoreUnsubscribers = new Map<SettingsStore, () => void>();
 	private readonly mainPropertyByTable = new WeakMap<HTMLElement, string>();
 	private readonly activeFileRenames = new WeakMap<HTMLElement, () => void>();
@@ -166,6 +168,8 @@ export class PillEnhancer {
 				if (target) refreshTargets.add(target);
 			}
 			for (const element of deduplicateRoots(removedRoots)) this.untrackTree(element);
+			this.releaseDetachedScopes();
+			if (removedRoots.length) this.textLinks.pruneDisconnected();
 			for (const element of deduplicateRoots(addedRoots)) this.processTree(element);
 			for (const target of classTargets) {
 				if (target.isConnected && (target === root || root.contains(target))) {
@@ -276,6 +280,7 @@ export class PillEnhancer {
 			if (host === root || root.contains(host)) this.tableValues.delete(host);
 		}
 		this.roots.delete(root);
+		this.releaseDetachedScopes(root);
 	}
 
 	private processTree(node: Node): void {
@@ -622,6 +627,7 @@ export class PillEnhancer {
 		event.stopImmediatePropagation();
 		this.openColumnManager({
 			document: pill.ownerDocument,
+			anchor: pill,
 			point: { x: event.clientX, y: event.clientY },
 			propertyId: metadata.identity.propertyId,
 			propertyName: getNativePropertyDisplayName(this.app, host, metadata.identity.propertyId),
@@ -1191,23 +1197,45 @@ export class PillEnhancer {
 		this.tracked.delete(pill);
 	}
 
-	private refreshFromStore(change: StoreChange = 'change'): void {
+	private refreshFromStore(change: StoreChange = 'change', source?: SettingsStore): void {
+		const scopes = source ? this.scopesByStore.get(source) : undefined;
+		const affected = (element: HTMLElement) => !source || Boolean(scopes?.has(findBaseTableHost(element) as HTMLElement));
 		// A newly seen value or property changes no colour; each first sight of a value would
 		// otherwise restyle the whole table.
 		if (change === 'discovery') return;
+		if (source) {
+			for (const scope of scopes ?? []) {
+				if (!scope.isConnected) continue;
+				const buckets = collectTreeBuckets(scope);
+				for (const pill of buckets.pills) this.processPill(pill);
+				for (const heading of buckets.groups) this.processGroupHeading(heading);
+				for (const cell of buckets.cells) this.processCell(cell);
+				for (const row of buckets.rows) this.processRow(row);
+			}
+			return;
+		}
 		for (const elements of [...this.visibleByKey.values()]) for (const pill of [...elements]) {
-			if (pill.isConnected) this.processPill(pill);
+			if (pill.isConnected && affected(pill)) this.processPill(pill);
 		}
 		for (const elements of [...this.visibleGroupsByKey.values()]) for (const heading of [...elements]) {
-			if (heading.isConnected) this.processGroupHeading(heading);
+			if (heading.isConnected && affected(heading)) this.processGroupHeading(heading);
 		}
 		for (const cell of this.visibleCells) {
-			if (cell.isConnected) this.processCell(cell);
-			else this.visibleCells.delete(cell);
+			if (cell.isConnected && affected(cell)) this.processCell(cell);
+			else if (!cell.isConnected) this.visibleCells.delete(cell);
 		}
 		for (const row of this.visibleRows) {
-			if (row.isConnected) this.processRow(row);
-			else this.visibleRows.delete(row);
+			if (row.isConnected && affected(row)) this.processRow(row);
+			else if (!row.isConnected) this.visibleRows.delete(row);
+		}
+	}
+
+	private releaseDetachedScopes(root?: HTMLElement): void {
+		for (const [store, scopes] of this.scopesByStore) {
+			for (const scope of [...scopes]) if (!scope.isConnected || (root && (scope === root || root.contains(scope)))) {
+				scopes.delete(scope); void this.baseStores?.releaseScope(scope).catch(() => undefined);
+			}
+			if (!scopes.size) { this.scopedStoreUnsubscribers.get(store)?.(); this.scopedStoreUnsubscribers.delete(store); this.scopesByStore.delete(store); }
 		}
 	}
 
@@ -1219,8 +1247,11 @@ export class PillEnhancer {
 
 	private scopedStore(scope: HTMLElement): SettingsStore {
 		const store = this.storeForScope(scope);
+		if (store !== this.store) {
+			const scopes = this.scopesByStore.get(store) ?? new Set<HTMLElement>(); scopes.add(scope); this.scopesByStore.set(store, scopes);
+		}
 		if (store !== this.store && !this.scopedStoreUnsubscribers.has(store)) {
-			this.scopedStoreUnsubscribers.set(store, store.subscribe((change) => this.refreshFromStore(change)));
+			this.scopedStoreUnsubscribers.set(store, store.subscribe((change) => this.refreshFromStore(change, store)));
 		}
 		return store;
 	}

@@ -1,4 +1,4 @@
-import { Notice, parseYaml, type App, type EventRef } from 'obsidian';
+import { Notice, parseYaml, type App, type EventRef, type TFile } from 'obsidian';
 import {
 	getNativeBaseFile,
 	getNativePropertyDisplayName,
@@ -62,11 +62,15 @@ interface StoreRecord {
 	store: SettingsStore;
 	scope: HTMLElement;
 	config: NativeViewConfig;
+	viewIdentity: { name: unknown; type: unknown };
 	group: BaseStoreGroup;
 	/** The Base's `basesStudio` block as this view last took it. */
 	baseSnapshot: StudioBase;
 	/** This view's `basesStudio` block as it was last read or saved. */
 	viewSnapshot: StudioView;
+	scopes: Set<HTMLElement>;
+	file: TFile | null;
+	released: boolean;
 }
 
 /**
@@ -75,6 +79,8 @@ interface StoreRecord {
  */
 interface BaseChange {
 	scope: HTMLElement;
+	owner?: SettingsStore;
+	file?: TFile | null;
 	baseline: StudioBase;
 	data: StudioBase;
 }
@@ -100,6 +106,7 @@ export class BaseVisualStoreRepository {
 	private readonly propertyContexts = new WeakMap<HTMLElement, Promise<BasePropertyContext>>();
 	private readonly canonicalProperties = new WeakMap<HTMLElement, Map<string, string>>();
 	private readonly persistenceStates = new WeakMap<HTMLElement, VisualPersistenceState>();
+	private readonly storePersistenceStates = new WeakMap<SettingsStore, VisualPersistenceState>();
 
 	constructor(
 		private readonly app: App,
@@ -109,16 +116,16 @@ export class BaseVisualStoreRepository {
 	forScope(scope: HTMLElement): SettingsStore {
 		const config = getNativeViewConfig(this.app, scope);
 		if (!config) return this.globalStore;
+		const file = getNativeBaseFile(this.app, scope);
 		const existing = this.stores.get(config);
-		if (existing) return existing;
-		const scoped = this.storesByScope.get(scope);
-		if (scoped) {
-			const record = this.recordsByStore.get(scoped);
-			if (record) {
-				record.config = config;
-				this.stores.set(config, scoped);
-			}
-			return scoped;
+		const previous = this.storesByScope.get(scope);
+		if (previous) {
+			const record = this.recordsByStore.get(previous);
+			if (!record || !this.matchesIdentity(record, config, file)) void this.releaseScope(scope);
+		}
+		const existingRecord = existing ? this.recordsByStore.get(existing) : undefined;
+		if (existingRecord && this.matchesIdentity(existingRecord, config, file) && !existingRecord.released) {
+			existingRecord.scopes.add(scope); this.storesByScope.set(scope, existingRecord.store); return existingRecord.store;
 		}
 
 		// Until the file is read, the Base's block is what an old per-view copy held (if any).
@@ -136,15 +143,17 @@ export class BaseVisualStoreRepository {
 			const localBase = baseFromSettings(next, record.baseSnapshot, this.globalStore.settings.paletteTemplateId);
 			const nextBase = mergeStudioBase(record.baseSnapshot, localBase, group.base).block;
 			const localView = viewFromSettings(next, record.viewSnapshot);
-			const latestView = nativeViewBlock(record.config);
+			const latestView = this.isCurrent(record) ? nativeViewBlock(record.config) : record.viewSnapshot;
 			const nextView = mergeStudioView(record.viewSnapshot, localView, latestView).block;
 			const persistedView = await this.syncView(record, nextView);
+			if (!persistedView && !equalValues(nextView, latestView)) throw new Error("View settings did not save. The dirty revision is retained for retry.");
 			if (persistedView) record.viewSnapshot = structuredClone(persistedView);
 			this.publishBase(group, nextBase, record);
-			await this.queueBaseSync(group, { scope, baseline, data: nextBase });
+			await this.queueBaseSync(group, { scope, owner: record.store, baseline, data: nextBase, file: record.file });
 		});
 		record = {
-			store, scope, config, group,
+			store, scope, config, viewIdentity: { name: config.get('name'), type: config.get('type') },
+			group, scopes: new Set([scope]), file, released: false,
 			baseSnapshot: structuredClone(base),
 			viewSnapshot: structuredClone(view),
 		};
@@ -153,14 +162,55 @@ export class BaseVisualStoreRepository {
 		this.liveStores.add(store);
 		this.recordsByStore.set(store, record);
 		group.records.add(record);
-		this.unsubscribers.set(store, store.subscribe((change) => this.globalStore.notify(change)));
+
 		void this.hydrate(scope, record, fallback)
-			.then(() => this.initializePropertyIdentity(scope, config, store));
+			.then(() => record.released ? undefined : this.initializePropertyIdentity(scope, config, store));
 		return store;
 	}
 
+	private matchesIdentity(record: StoreRecord, config: NativeViewConfig, file: TFile | null): boolean {
+		return record.config === config && record.file?.path === file?.path &&
+			equalValues(record.viewIdentity, { name: config.get('name'), type: config.get('type') });
+	}
+
+	private isCurrent(record: StoreRecord): boolean {
+		return [...record.scopes].some(scope => this.storesByScope.get(scope) === record.store &&
+			this.matchesIdentity(record, getNativeViewConfig(this.app, scope) ?? record.config, getNativeBaseFile(this.app, scope)));
+	}
+
+	get liveStoreCount(): number { return this.liveStores.size; }
+	get groupCount(): number { return this.groups.size; }
+	async releaseScope(scope: HTMLElement): Promise<void> {
+		const store = this.storesByScope.get(scope), record = store ? this.recordsByStore.get(store) : undefined;
+		this.storesByScope.delete(scope); this.propertyContexts.delete(scope); this.canonicalProperties.delete(scope);
+		if (!store || !record) return;
+		record.scopes.delete(scope);
+		if (record.scopes.size) { record.scope = record.scopes.values().next().value ?? record.scope; return; }
+		record.released = true;
+		const saved = await store.dispose();
+		if (!saved) { new Notice("Closed Base settings are still dirty after a save failure. They are retained for retry."); return; }
+		if (record.group.syncPromise) await record.group.syncPromise;
+		if (record.group.pending.length) { new Notice("Closed Base settings are retained because their write is still pending or failed."); return; }
+		this.finalizeReleasedRecord(record);
+	}
+
+	private finalizeReleasedRecord(record: StoreRecord): void {
+		const store = record.store;
+		if (!record.released || store.isDirty || this.recordsByStore.get(store) !== record) return;
+		this.unsubscribers.get(store)?.(); this.unsubscribers.delete(store);
+		if (this.stores.get(record.config) === store) this.stores.delete(record.config);
+		this.liveStores.delete(store); this.recordsByStore.delete(store); record.group.records.delete(record);
+		if (!record.group.records.size && !record.group.pending.length && !record.group.syncPromise) for (const [key, group] of this.groups) if (group === record.group) this.groups.delete(key);
+	}
+
 	getPersistenceState(scope: HTMLElement): VisualPersistenceState {
-		return this.persistenceStates.get(scope) ?? { status: 'saved' };
+		const store = this.storesByScope.get(scope);
+		return (store ? this.storePersistenceStates.get(store) : this.persistenceStates.get(scope)) ?? { status: 'saved' };
+	}
+
+	private setPersistenceState(scope: HTMLElement, state: VisualPersistenceState, owner?: SettingsStore): void {
+		if (owner) this.storePersistenceStates.set(owner, state);
+		if (!owner || this.storesByScope.get(scope) === owner) this.persistenceStates.set(scope, state);
 	}
 
 	resolvePropertyId(scope: HTMLElement, propertyId: string): string {
@@ -234,7 +284,7 @@ export class BaseVisualStoreRepository {
 		else delete property.style;
 		base.properties = { ...base.properties, [propertyId]: property };
 		this.publishBase(record.group, base);
-		void this.queueBaseSync(record.group, { scope, baseline, data: base });
+		void this.queueBaseSync(record.group, { scope, owner: record.store, baseline, data: base, file: record.file }).catch(() => undefined);
 		return true;
 	}
 
@@ -290,7 +340,8 @@ export class BaseVisualStoreRepository {
 		record: StoreRecord,
 		fallback: StudioBase,
 	): Promise<void> {
-		const stored = await this.readBaseData(scope);
+		const stored = await this.readBaseData(record.file);
+		if (record.released || this.recordsByStore.get(record.store) !== record) return;
 		record.store.setDeclaredOptions(stored.declared);
 		const group = record.group;
 		if (stored.data) group.fileBase = structuredClone(stored.data);
@@ -330,10 +381,12 @@ export class BaseVisualStoreRepository {
 	): void {
 		group.base = structuredClone(data);
 		for (const record of group.records) {
+			if (record.released) continue;
+			const before = structuredClone(record.store.settings);
 			if (record === source) {
 				record.baseSnapshot = structuredClone(data);
 				applyBaseToSettings(record.store.settings, data, this.globalStore.settings.paletteTemplateId);
-				record.store.notify();
+				if (!equalValues(before, record.store.settings)) record.store.notify();
 				continue;
 			}
 			const local = baseFromSettings(
@@ -344,20 +397,23 @@ export class BaseVisualStoreRepository {
 			const projected = mergeStudioBase(record.baseSnapshot, local, data).block;
 			record.baseSnapshot = structuredClone(data);
 			applyBaseToSettings(record.store.settings, projected, this.globalStore.settings.paletteTemplateId);
-			record.store.notify();
+			if (!equalValues(before, record.store.settings)) record.store.notify();
 		}
-		this.globalStore.notify();
 	}
 
 	private queueBaseSync(group: BaseStoreGroup, change: BaseChange): Promise<void> {
 		group.pending.push({
 			scope: change.scope,
+			owner: change.owner,
+			file: change.file === undefined ? getNativeBaseFile(this.app, change.scope) : change.file,
 			baseline: structuredClone(change.baseline),
 			data: structuredClone(change.data),
 		});
 		if (!group.syncPromise) {
 			group.syncPromise = this.drainBaseSync(group).finally(() => {
 				group.syncPromise = null;
+				// Let the SettingsStore finish its immutable revision before releasing a retried closed scope.
+				if (!group.pending.length) window.setTimeout(() => { for (const record of [...group.records]) this.finalizeReleasedRecord(record); }, 0);
 			});
 		}
 		return group.syncPromise;
@@ -366,7 +422,11 @@ export class BaseVisualStoreRepository {
 	private async drainBaseSync(group: BaseStoreGroup): Promise<void> {
 		for (let change = group.pending.shift(); change; change = group.pending.shift()) {
 			const persisted = await this.syncBase(change);
-			if (!persisted) continue;
+			if (!persisted) {
+				const state = (change.owner ? this.storePersistenceStates.get(change.owner) : undefined) ?? this.getPersistenceState(change.scope);
+				if (state.status === "failed" || state.status === "conflict" || state.status === "read-only") { group.pending.unshift(change); throw new Error("Base settings did not save. The dirty revision is retained for retry."); }
+				continue;
+			}
 			group.fileBase = structuredClone(persisted);
 			// The file now holds this change; changes still queued are shown on top of it.
 			if (!group.pending.length) this.publishBase(group, persisted);
@@ -379,6 +439,7 @@ export class BaseVisualStoreRepository {
 		_store: SettingsStore,
 	): Promise<void> {
 		const context = await this.propertyContext(scope);
+		if (this.storesByScope.get(scope) !== _store) return;
 		this.canonicalProperties.set(scope, context.aliases);
 		_store.rekeyProperties(
 			(propertyId) => resolveWithAliases(context.aliases, propertyId),
@@ -395,12 +456,11 @@ export class BaseVisualStoreRepository {
 	}
 
 	/** The Base's block in the file, and the options its select columns declare (for their labels). */
-	private async readBaseData(scope: HTMLElement): Promise<{
+	private async readBaseData(file: TFile | null): Promise<{
 		data: StudioBase | null;
 		declared: Record<string, StudioOption[]>;
 	}> {
 		const none = { data: null, declared: {} };
-		const file = getNativeBaseFile(this.app, scope);
 		if (!file || !this.app.vault?.cachedRead) return none;
 		try {
 			const parsed = parseYaml(await this.app.vault.cachedRead(file)) as Record<string, unknown> | null;
@@ -429,24 +489,24 @@ export class BaseVisualStoreRepository {
 		registerEvent(this.app.vault.on('modify', (file) => {
 			const group = this.groups.get(`file:${file.path}`);
 			if (!group) return;
-			for (const record of group.records) void this.hydrate(record.scope, record, group.base);
+			for (const record of group.records) if (!record.released) void this.hydrate(record.scope, record, group.base);
 		}));
 	}
 
-	private async syncBase({ scope, baseline, data }: BaseChange): Promise<StudioBase | null> {
-		const file = getNativeBaseFile(this.app, scope);
+	private async syncBase({ scope, owner, baseline, data, file: retainedFile }: BaseChange): Promise<StudioBase | null> {
+		const file = retainedFile === undefined ? getNativeBaseFile(this.app, scope) : retainedFile;
 		if (!file || !this.app.vault?.process) return null;
-		this.persistenceStates.set(scope, { status: 'pending' });
+		this.setPersistenceState(scope, { status: 'pending' }, owner);
 		try {
 			let result: BlockWriteResult<StudioBase> | null = null;
 			await this.app.vault.process(file, (source) => {
 				result = writeStudioBase(source, baseline, data);
 				return result.source;
 			});
-			return this.settle(scope, file.path, result, 'Reopen the Base and try again.');
+			return this.settle(scope, file.path, result, 'Reopen the Base and try again.', owner);
 		} catch (error) {
 			const reason = errorMessage(error);
-			this.persistenceStates.set(scope, { status: 'failed', reason });
+			this.setPersistenceState(scope, { status: 'failed', reason }, owner);
 			new Notice(`Bases Visuals could not save ${file.path}: ${reason}`);
 			return null;
 		}
@@ -457,21 +517,22 @@ export class BaseVisualStoreRepository {
 		path: string,
 		result: BlockWriteResult<T> | null,
 		conflictAdvice = '',
+		owner?: SettingsStore,
 	): T | null {
 		if (!result) return null;
 		if (result.status === 'read-only') {
-			this.persistenceStates.set(scope, { status: 'read-only', reason: result.reason });
+			this.setPersistenceState(scope, { status: 'read-only', reason: result.reason }, owner);
 			new Notice(`Bases Visuals did not save ${path}: ${result.reason}.`);
 			return null;
 		}
 		if (result.status === 'conflict') {
-			this.persistenceStates.set(scope, { status: 'conflict', paths: result.paths });
+			this.setPersistenceState(scope, { status: 'conflict', paths: result.paths }, owner);
 			new Notice(
 				`Bases Visuals did not save ${path}: conflicting changes in ${result.paths.join(', ')}.${conflictAdvice ? ` ${conflictAdvice}` : ''}`,
 			);
 			return null;
 		}
-		this.persistenceStates.set(scope, { status: 'saved' });
+		this.setPersistenceState(scope, { status: 'saved' }, owner);
 		return result.persisted;
 	}
 
@@ -480,20 +541,21 @@ export class BaseVisualStoreRepository {
 		data: StudioView,
 		baseline: StudioView = record.viewSnapshot,
 	): Promise<StudioView | null> {
-		const file = getNativeBaseFile(this.app, record.scope);
+		const file = record.file;
 		if (!file || !this.app.vault?.process) {
 			// Without the file, the view's own config holds the block; the older keys go, unless one
 			// was saved by a newer version.
+			if (!this.isCurrent(record)) throw new Error("The original view is no longer available. Its dirty settings are retained.");
 			const configView: Record<string, unknown> = {};
 			for (const key of [STUDIO_KEY, ...LEGACY_VIEW_KEYS]) configView[key] = record.config.get(key);
 			const newer = newerBlockReason({ views: [configView] });
-			if (newer) return this.settle(record.scope, 'this view', { status: 'read-only', source: '', reason: newer });
+			if (newer) return this.settle(record.scope, 'this view', { status: 'read-only', source: '', reason: newer }, '', record.store);
 			const compact = compactStudioView(data);
 			record.config.set(STUDIO_KEY, Object.keys(compact).length ? compact : null);
 			for (const key of LEGACY_VIEW_KEYS) if (record.config.get(key) !== undefined) record.config.set(key, null);
 			return compact;
 		}
-		this.persistenceStates.set(record.scope, { status: 'pending' });
+		this.setPersistenceState(record.scope, { status: 'pending' }, record.store);
 		try {
 			let result: BlockWriteResult<StudioView> | null = null;
 			await this.app.vault.process(file, (source) => {
@@ -510,10 +572,10 @@ export class BaseVisualStoreRepository {
 				result = writeStudioView(source, viewIndex, baseline, data);
 				return result.source;
 			});
-			return this.settle(record.scope, file.path, result);
+			return this.settle(record.scope, file.path, result, '', record.store);
 		} catch (error) {
 			const reason = errorMessage(error);
-			this.persistenceStates.set(record.scope, { status: 'failed', reason });
+			this.setPersistenceState(record.scope, { status: 'failed', reason }, record.store);
 			new Notice(`Bases Visuals could not save ${file.path}: ${reason}`);
 			return null;
 		}
@@ -841,8 +903,7 @@ function findViewIndex(views: unknown, record: StoreRecord): number {
 		const byBlock = records.filter(({ view }) => equalValues(compactStudioView(readStudioView(view)), snapshot));
 		if (byBlock.length === 1) return byBlock[0]?.index ?? -1;
 	}
-	const name = record.config.get('name');
-	const type = record.config.get('type');
+	const { name, type } = record.viewIdentity;
 	const byNativeIdentity = records.filter(({ view }) =>
 		(typeof name !== 'string' || view.name === name) &&
 		(typeof type !== 'string' || view.type === type));

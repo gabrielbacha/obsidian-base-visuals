@@ -1,3 +1,4 @@
+import { managePopover, positionBoundedPopover } from './popover-lifecycle';
 import { setIcon } from 'obsidian';
 import { palettePresetName, paletteTemplate, resolvePreset } from '@gabrielbacha/bases-contract';
 import { strategyLabel } from '@gabrielbacha/bases-contract';
@@ -271,8 +272,10 @@ function renderDropdown<T extends string>(options: {
 		}
 	};
 
+	let floatingCleanup: (() => void) | null = null;
 	const closeDropdown = (restoreFocus = false) => {
 		if (menu.hidden) return;
+		floatingCleanup?.(); floatingCleanup = null;
 		menu.hidden = true;
 		menu.remove();
 		picker.classList.remove('is-open');
@@ -311,6 +314,7 @@ function renderDropdown<T extends string>(options: {
 		picker.classList.add('is-open');
 		trigger.setAttribute('aria-expanded', 'true');
 		positionDropdownMenu(menu, trigger, doc);
+		floatingCleanup = managePopover(menu, {trigger, width: 270, close: closeDropdown, cleanup: () => undefined});
 		doc.addEventListener('pointerdown', onPointerDown, true);
 		doc.addEventListener('keydown', onKeyDown);
 
@@ -354,35 +358,8 @@ function commitExplicitChange(store: SettingsStore, onChange?: () => void): void
 }
 
 function positionDropdownMenu(menu: HTMLElement, trigger: HTMLElement, doc: Document): void {
-	const win = doc.defaultView ?? window;
-	const viewportWidth = win.innerWidth || 800;
-	const viewportHeight = win.innerHeight || 600;
-	const rect = trigger.getBoundingClientRect();
-	const menuWidth = Math.min(270, viewportWidth - 24);
-
-	menu.style.width = `${menuWidth}px`;
 	doc.body.appendChild(menu);
-	const menuHeight = menu.offsetHeight || 220;
-
-	const spaceBelow = viewportHeight - rect.bottom - 8;
-	const spaceAbove = rect.top - 8;
-
-	let top: number;
-	let maxHeight: number;
-
-	if (spaceBelow < menuHeight && spaceAbove > spaceBelow) {
-		maxHeight = Math.min(360, spaceAbove);
-		top = Math.max(8, rect.top - Math.min(menuHeight, maxHeight) - 4);
-	} else {
-		maxHeight = Math.min(360, spaceBelow);
-		top = rect.bottom + 4;
-	}
-
-	const left = Math.max(8, Math.min(rect.right - menuWidth, viewportWidth - menuWidth - 8));
-
-	menu.style.top = `${top}px`;
-	menu.style.left = `${left}px`;
-	menu.style.maxHeight = `${maxHeight}px`;
+	positionBoundedPopover(menu, {rect: trigger.getBoundingClientRect(), width: 270});
 }
 
 function renderStrategySample(sample: HTMLElement, mode: PropertyStrategyMode, singleColor: string): void {

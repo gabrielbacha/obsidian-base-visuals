@@ -114,3 +114,15 @@ Report bugs and request features through [GitHub Issues](https://github.com/gabr
     <a href="https://github.com/gabrielbacha/obsidian-base-visuals/issues/new?template=feature_request.yml"><strong>Request a feature</strong></a>
   </p>
 </div>
+
+## Filename helper ownership and isolated checks
+
+`src/generated/portable-names.ts` is a compatibility copy of canonical contract v2 `Applications-GB/_Supporting/bases-contract-NPM/src/names.ts`. The normal plugin build imports this file for rename behavior; other contract imports retain the registry dependency. Run `node scripts/filename-contract.mjs --update` after validating a canonical change. The build checks the pinned SHA-256, and checks canonical drift when that checkout is present. A standalone clone can build using its checksum-pinned copy. Do not hand-edit the generated helper.
+
+`BPC_BUILD_DIR` directs a development bundle to an isolated output folder. The native acceptance test uses the existing strict Obsidian harness with a generated vault/profile, the installed executable and code-only ASAR. It verifies artifact, user-data and vault ownership and closes only its owned processes. The supplemental source-rule layout fixture uses SDK test stubs; the ordinary plugin and real popout are loaded normally. No installed plugin, existing profile or personal vault is changed.
+
+Clean unused checks cached Markdown note properties across the vault, which includes notes hidden by another Base filter. It keeps declared options and uncertain properties, lists the proposed removals and checks their usage again at confirmation. Unindexed notes prevent removal. A failed close-time save keeps its dirty data for retry; it is not silently discarded. The Obsidian void unload hook cannot delay operating-system application exit.
+
+The immutable source files in `tests/baseline/` are the performance reference recorded by `provenance.json`; they are not maintained as a second implementation. Comparisons use named synthetic sizes and the same host. They do not establish a maximum supported table or an absolute response-time target.
+
+Scoped settings capture the Base file and native view when an edit starts. If Obsidian reuses a pane for another file or view, the old store completes its queued write against the original target and a new store reads the new target. Save results belong to their store, so a late result cannot overwrite the new pane's feedback.

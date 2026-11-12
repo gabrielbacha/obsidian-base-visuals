@@ -1,3 +1,4 @@
+import { managePopover, positionBoundedPopover } from './popover-lifecycle';
 import { setIcon, type App } from 'obsidian';
 import {
 	applyNativeColumnWidthPreset,
@@ -314,14 +315,14 @@ export class TableLayoutPopover {
 		};
 		doc.addEventListener('pointerdown', dismiss, true);
 		panel.addEventListener('keydown', keydown);
-		this.cleanup = () => {
+		this.cleanup = managePopover(panel, { trigger: anchor, close: () => this.close(), cleanup: () => {
 			indicatorObserver.disconnect();
 			doc.removeEventListener('pointerdown', dismiss, true);
 			panel.removeEventListener('keydown', keydown);
 			anchor.closest('.bases-toolbar-item')?.classList.remove('is-active');
 			clearColumnWidthIndicators(scope);
 			panel.remove();
-		};
+		} });
 		positionPopover(panel, anchor);
 		queueMicrotask(() => rowButtons.find((button) =>
 			button.getAttribute('aria-checked') === 'true')?.focus());
@@ -395,11 +396,5 @@ function rowHeightLabel(rowHeight: LayoutPreset['rowHeight']): string {
 }
 
 function positionPopover(panel: HTMLElement, anchor: HTMLElement): void {
-	const win = anchor.ownerDocument.defaultView;
-	if (!win) return;
-	const anchorRect = anchor.getBoundingClientRect();
-	const panelRect = panel.getBoundingClientRect();
-	const margin = 12;
-	panel.style.left = `${Math.max(margin, Math.min(anchorRect.left, win.innerWidth - panelRect.width - margin))}px`;
-	panel.style.top = `${Math.max(margin, Math.min(anchorRect.bottom + 6, win.innerHeight - panelRect.height - margin))}px`;
+	positionBoundedPopover(panel, {rect: anchor.getBoundingClientRect()});
 }

@@ -1,3 +1,5 @@
+import './scripts/filename-contract.mjs';
+import path from 'node:path';
 import esbuild from 'esbuild';
 import process from 'process';
 import { builtinModules } from 'node:module';
@@ -33,7 +35,7 @@ const context = await esbuild.context({
 	logLevel: 'info',
 	sourcemap: production ? false : 'inline',
 	treeShaking: true,
-	outfile: 'main.js',
+	outfile: process.env.BPC_BUILD_DIR ? path.join(process.env.BPC_BUILD_DIR, 'main.js') : 'main.js',
 	minify: production,
 });
 

@@ -1,3 +1,4 @@
+import { managePopover, positionBoundedPopover } from './popover-lifecycle';
 import { SettingsStore } from '../core/settings-store';
 import { OptionIdentity } from '../core/types';
 import { ColorControlsHandle, renderColorControls } from './color-controls';
@@ -25,6 +26,7 @@ export class ColorPopover {
 			{ x: rect.left, y: rect.bottom + 6 },
 			identity,
 			store,
+			anchor,
 		);
 	}
 
@@ -41,6 +43,7 @@ export class ColorPopover {
 		point: { x: number; y: number },
 		identity: OptionIdentity,
 		store: SettingsStore,
+		anchor?: HTMLElement,
 	): void {
 		this.close();
 		const panel = doc.body.createDiv('bpc-popover');
@@ -73,11 +76,11 @@ export class ColorPopover {
 
 		doc.addEventListener('pointerdown', outsideHandler, true);
 		panel.addEventListener('keydown', keyHandler);
-		this.cleanup = () => {
+		this.cleanup = managePopover(panel, {point, trigger: anchor, close: () => this.close(), cleanup: () => {
 			doc.removeEventListener('pointerdown', outsideHandler, true);
 			panel.removeEventListener('keydown', keyHandler);
 			panel.remove();
-		};
+		}});
 
 		this.controls.focus();
 	}
@@ -92,18 +95,5 @@ function positionPanel(
 	panel: HTMLElement,
 	point: { x: number; y: number },
 ): void {
-	const win = panel.ownerDocument.defaultView;
-	if (!win) return;
-	const margin = 12;
-	const rect = panel.getBoundingClientRect();
-	const left = Math.max(
-		margin,
-		Math.min(point.x, win.innerWidth - rect.width - margin),
-	);
-	const top = Math.max(
-		margin,
-		Math.min(point.y, win.innerHeight - rect.height - margin),
-	);
-	panel.style.left = `${left}px`;
-	panel.style.top = `${top}px`;
+	positionBoundedPopover(panel, {point});
 }

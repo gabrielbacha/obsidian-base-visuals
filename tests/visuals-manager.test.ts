@@ -45,6 +45,6 @@ describe('Bases visuals manager', () => {
 		expect(properties).not.toContain('note.other');
 
 		modal.close();
-		store.dispose();
+		await store.dispose();
 	});
 });

@@ -190,7 +190,7 @@ export class PillColorManagerView {
 			cleanup.addEventListener('click', () => {
 				const plan = this.unusedOptionsPlan?.();
 				if (!plan || plan.verifiedProperties === 0) {
-					new Notice('No base values are currently available to verify.');
+					new Notice(plan?.reason ?? 'No complete note-property scope is available to verify.');
 					return;
 				}
 				const strategyCount = plan.removedProperties.filter((propertyId) =>
@@ -200,8 +200,13 @@ export class PillColorManagerView {
 					new Notice('No unused pill color settings found.');
 					return;
 				}
-				new ConfirmCleanupModal(this.app, plan.options.length, strategyCount, () => {
-					const removed = this.store.removeUnusedOptions(plan.options, plan.removedProperties);
+				new ConfirmCleanupModal(this.app, plan, () => {
+					const latest = this.unusedOptionsPlan?.();
+					const allowed = new Set(latest?.options.map(option => `${option.propertyId}\0${option.value}`));
+					if (!latest?.verifiedProperties || plan.options.some(option => !allowed.has(`${option.propertyId}\0${option.value}`))) {
+						new Notice('Note values or declarations changed. No settings were removed. Review cleanup again.'); return;
+					}
+					const removed = this.store.removeUnusedOptions(plan.options, []);
 					new Notice(`Cleaned ${removed} unused visual ${removed === 1 ? 'setting' : 'settings'}.`);
 				}).open();
 			});
@@ -395,8 +400,7 @@ export class ConfirmResetModal extends Modal {
 class ConfirmCleanupModal extends Modal {
 	constructor(
 		app: App,
-		private readonly valueCount: number,
-		private readonly strategyCount: number,
+		private readonly plan: UnusedOptionsPlan,
 		private readonly onConfirm: () => void,
 	) {
 		super(app);
@@ -405,12 +409,14 @@ class ConfirmCleanupModal extends Modal {
 	onOpen(): void {
 		this.setTitle('Clean unused pill settings?');
 		this.contentEl.addClass('bpc-confirm-modal');
-		const total = this.valueCount + this.strategyCount;
+		const total = this.plan.options.length;
 		this.contentEl.createEl('p', {
 			text: `${total} saved visual ${total === 1 ? 'setting is' : 'settings are'} no longer used. This removes only Bases Visuals configuration; notes and property values will not be changed.`,
 		});
 		const detail = this.contentEl.createEl('p', { cls: 'setting-item-description' });
-		detail.textContent = 'Note properties are checked across the vault. Calculated properties are checked against the current base results.';
+		detail.textContent = this.plan.scope ?? 'Only verified note properties are checked. Declared options and uncertain properties are kept.';
+		const entries = this.contentEl.createEl('ul');
+		for (const option of this.plan.options) entries.createEl('li', {text: `${option.propertyId}: ${option.value}`});
 		const actions = this.contentEl.createDiv('bpc-confirm-modal__actions');
 		const cancel = actions.createEl('button', { text: 'Cancel', attr: { type: 'button' } });
 		cancel.addEventListener('click', () => this.close());

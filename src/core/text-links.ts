@@ -58,6 +58,9 @@ type HighlightRegistry = Map<string, Highlight>;
 export class TextLinks {
 	private readonly roots = new Map<HTMLElement, RootListeners>();
 	private readonly rangesByText = new Map<HTMLElement, Range[]>();
+	private readonly textsByCell = new Map<HTMLElement, Set<HTMLElement>>();
+	private readonly cellByText = new WeakMap<HTMLElement, HTMLElement>();
+	private readonly sourceByText = new WeakMap<HTMLElement, string>();
 	private readonly highlights = new Map<Document, Highlight>();
 	private touch: { x: number; y: number; time: number } | null = null;
 
@@ -128,20 +131,23 @@ export class TextLinks {
 		root.removeEventListener('focusin', listeners.focusChange, true);
 		root.removeEventListener('focusout', listeners.focusChange, true);
 		this.roots.delete(root);
-		for (const text of [...this.rangesByText.keys()]) if (root.contains(text)) this.forget(text);
+		for (const [cell] of this.textsByCell) if (root.contains(cell)) this.forgetCell(cell);
 	}
 
 	/** Marks the URLs of a cell's text again, after its value or focus changed. */
 	updateCell(cell: HTMLElement): void {
-		const text = cell.querySelector<HTMLElement>(TEXT_SELECTOR);
-		for (const tracked of [...this.rangesByText.keys()]) {
-			if (tracked !== text && (!tracked.isConnected || cell.contains(tracked))) this.forget(tracked);
-		}
-		if (text) this.update(text);
+		const current = new Set(cell.querySelectorAll<HTMLElement>(TEXT_SELECTOR));
+		for (const tracked of this.textsByCell.get(cell) ?? []) if (!current.has(tracked) || !tracked.isConnected) this.forget(tracked);
+		for (const text of current) this.update(text);
 	}
 
 	forgetCell(cell: HTMLElement): void {
-		for (const text of [...this.rangesByText.keys()]) if (cell.contains(text)) this.forget(text);
+		for (const text of [...(this.textsByCell.get(cell) ?? [])]) this.forget(text);
+		this.textsByCell.delete(cell);
+	}
+	/** One detached-node pass per DOM mutation batch, never per updated cell. */
+	pruneDisconnected(): void {
+		for (const [cell] of this.textsByCell) if (!cell.isConnected) this.forgetCell(cell);
 	}
 
 	dispose(): void {
@@ -149,9 +155,11 @@ export class TextLinks {
 		for (const text of [...this.rangesByText.keys()]) this.forget(text);
 		for (const [doc] of this.highlights) highlightRegistry(doc)?.delete(TEXT_URL_HIGHLIGHT);
 		this.highlights.clear();
+		this.textsByCell.clear();
 	}
 
 	private update(text: HTMLElement): void {
+		if (text.isConnected && !isEditing(text) && this.rangesByText.has(text) && this.sourceByText.get(text) === text.textContent) return;
 		this.forget(text);
 		if (!text.isConnected || isEditing(text) || !text.closest(BASE_SCOPE_SELECTOR)) return;
 		const highlight = this.highlightFor(text.ownerDocument);
@@ -165,12 +173,21 @@ export class TextLinks {
 				highlight?.add(range);
 			}
 		}
+		const cell = text.closest<HTMLElement>(CELL_SELECTOR);
+		if (cell) {
+			const texts = this.textsByCell.get(cell) ?? new Set<HTMLElement>();
+			texts.add(text); this.textsByCell.set(cell, texts); this.cellByText.set(text, cell);
+		}
+		this.sourceByText.set(text, text.textContent ?? "");
 		if (ranges.length) this.rangesByText.set(text, ranges);
 	}
 
 	private forget(text: HTMLElement): void {
 		text.classList.remove(HOVER_CLASS);
 		const ranges = this.rangesByText.get(text);
+		const cell = this.cellByText.get(text);
+		if (cell) { const texts = this.textsByCell.get(cell); texts?.delete(text); if (!texts?.size) this.textsByCell.delete(cell); }
+		this.cellByText.delete(text); this.sourceByText.delete(text);
 		if (!ranges) return;
 		const highlight = this.highlights.get(text.ownerDocument);
 		for (const range of ranges) highlight?.delete(range);
@@ -213,7 +230,9 @@ export class TextLinks {
 }
 
 function textOf(target: EventTarget | null): HTMLElement | null {
-	const element = target instanceof Node ? (target.nodeType === 1 ? target as Element : target.parentElement) : null;
+	const node = target as Node | null;
+	const element = node && typeof node === "object" && typeof node.nodeType === "number" ? (node.nodeType === 1 ? node as Element : node.parentElement) : null;
+	if (!element || typeof element.closest !== "function") return null;
 	const text = element?.closest<HTMLElement>(TEXT_SELECTOR);
 	return text?.closest(CELL_SELECTOR) ? text : null;
 }

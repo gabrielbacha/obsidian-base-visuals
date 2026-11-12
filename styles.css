@@ -2997,3 +2997,7 @@
 :is(.bases-view, .bases-embed) .metadata-input-longtext.bpc-text-url-hover {
 	cursor: pointer;
 }
+
+/* Shared placement owns the dynamic bounds; the theme owns these static rules. */
+.bpc-bounded-popover { box-sizing: border-box; overflow-y: auto; }
+.bpc-bounded-popover button, .bpc-bounded-popover input:not([type="checkbox"]):not([type="radio"]) { min-width: 24px; min-height: 24px; }

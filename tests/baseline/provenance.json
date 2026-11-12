@@ -1,0 +1,20 @@
+[
+  {
+    "file": "tests/baseline/base-visual-store.ts",
+    "source": "src/core/base-visual-store.ts",
+    "commit": "28075fe98d3002e5c0185dcca94f534109812607",
+    "sha256": "e19a204685c9e72d582cd1448634e759bbc022ddd752d3f80ef902b5420a3721"
+  },
+  {
+    "file": "tests/baseline/pill-enhancer.ts",
+    "source": "src/core/pill-enhancer.ts",
+    "commit": "28075fe98d3002e5c0185dcca94f534109812607",
+    "sha256": "5faff31f6557c966ea7094dab280a21e316bab1a1cad7cfc180f2906375bca77"
+  },
+  {
+    "file": "tests/baseline/text-links.ts",
+    "source": "src/core/text-links.ts",
+    "commit": "28075fe98d3002e5c0185dcca94f534109812607",
+    "sha256": "6044763544d0b38ef19fe15b256774946c10dc6de610466e823c1c8af4af0edd"
+  }
+]

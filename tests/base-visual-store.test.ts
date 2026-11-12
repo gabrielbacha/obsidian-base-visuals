@@ -115,8 +115,8 @@ describe('BaseVisualStoreRepository', () => {
 		nativeTable.config = createConfig(secondValues);
 		const rebound = repository.forScope(scope);
 
-		expect(rebound).toBe(store);
-		expect(rebound.getPropertyStyle('note.status')).toBe('solid');
+		expect(rebound).not.toBe(store);
+		expect(rebound.getExplicitPropertyStrategy('note.status')).toBeUndefined();
 		expect(secondValues.has(BASE_VISUALS_KEY)).toBe(false);
 		await repository.dispose();
 		root.remove();

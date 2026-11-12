@@ -1,3 +1,4 @@
+import { managePopover, positionBoundedPopover } from './popover-lifecycle';
 import { setIcon } from 'obsidian';
 import type { SettingsStore } from '../core/settings-store';
 import { renderPropertyStrategyControls } from './property-strategy-controls';
@@ -82,7 +83,7 @@ export class ColumnPillAppearancePopover {
 		doc.addEventListener('pointerdown', dismiss, true);
 		doc.addEventListener('pointerover', changeNativeMenuItem, true);
 		panel.addEventListener('keydown', keydown);
-		this.cleanup = () => {
+		this.cleanup = managePopover(panel, { trigger: anchor, width: 340, beside: true, close: () => this.close(), cleanup: () => {
 			for (const openMenu of doc.querySelectorAll<HTMLElement>('.bpc-custom-dropdown__menu')) {
 				openMenu.remove();
 			}
@@ -91,7 +92,7 @@ export class ColumnPillAppearancePopover {
 			panel.removeEventListener('keydown', keydown);
 			anchor.classList.remove('selected');
 			panel.remove();
-		};
+		} });
 		positionPopover(panel, doc, anchorRect);
 		queueMicrotask(() => panel.querySelector<HTMLButtonElement>('.bpc-custom-dropdown__trigger')?.focus());
 	}
@@ -114,16 +115,5 @@ function snapshotRect(rect: DOMRect): AnchorRect {
 }
 
 function positionPopover(panel: HTMLElement, doc: Document, rect: AnchorRect): void {
-	const win = doc.defaultView;
-	const viewportWidth = win?.innerWidth ?? document.documentElement.clientWidth;
-	const viewportHeight = win?.innerHeight ?? document.documentElement.clientHeight;
-	const width = Math.min(340, viewportWidth - 24);
-	panel.style.width = `${width}px`;
-	const panelHeight = Math.min(panel.offsetHeight || 280, viewportHeight - 24);
-	const right = Math.max(12, rect.right + 6);
-	const left = right + width <= viewportWidth - 12
-		? right
-		: Math.max(12, rect.left - width - 6);
-	panel.style.left = `${left}px`;
-	panel.style.top = `${Math.max(12, Math.min(rect.top, viewportHeight - panelHeight - 12))}px`;
+	positionBoundedPopover(panel, {rect, width: 340, beside: true});
 }

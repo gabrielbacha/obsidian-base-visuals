@@ -6,7 +6,7 @@ import { SettingsStore } from '../src/core/settings-store';
 afterEach(() => document.body.replaceChildren());
 
 describe('TableLayoutPopover', () => {
-	it('groups row height and scoped column width controls', () => {
+	it('groups row height and scoped column width controls', async () => {
 		const root = document.body.createDiv('workspace-leaf-content');
 		const toolbarItem = root.createDiv('bases-toolbar-item');
 		const anchor = toolbarItem.createEl('button');
@@ -155,7 +155,7 @@ describe('TableLayoutPopover', () => {
 		popover.toggle(anchor, root);
 		expect(document.querySelector('.bpc-layout-popover')).toBeNull();
 		expect(root.querySelector('.bpc-column-width-indicator')).toBeNull();
-		store.dispose();
+		await store.dispose();
 	});
 });
 

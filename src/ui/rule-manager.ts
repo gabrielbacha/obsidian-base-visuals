@@ -1,3 +1,4 @@
+import { managePopover, positionBoundedPopover } from './popover-lifecycle';
 import { AbstractInputSuggest, App, Modal, setIcon } from 'obsidian';
 import { normalizeHex, palettePresetName, paletteTemplate, resolvePreset, resolveRuleColor } from '@gabrielbacha/bases-contract';
 import { defaultRuleBackgroundOpacity, effectiveRuleBackgroundOpacity, OPERATOR_LABELS, operatorNeedsOperand } from '@gabrielbacha/bases-contract';
@@ -516,9 +517,12 @@ class RuleColorPopover {
 		panel.createDiv({ cls: 'bpc-rule-color-popover__title', text: this.label });
 		let selectedColor = current;
 		let refreshOpacity = (): void => undefined;
+		let storedOpacity = this.opacity?.stored;
 		const swatches: HTMLButtonElement[] = [];
 		const chooseColor = (next: RuleColor, closeAfter = !this.opacity): void => {
+			const changed = !selectedColor || ruleColorKey(next) !== ruleColorKey(selectedColor);
 			selectedColor = next;
+			if (changed && this.opacity) { storedOpacity = defaultRuleBackgroundOpacity(next); this.opacity.onChange(storedOpacity); }
 			this.onChange(next);
 			for (const swatch of swatches) {
 				swatch.setAttribute('aria-pressed', String(swatch.dataset.bpcRuleColor === ruleColorKey(next)));
@@ -622,23 +626,23 @@ class RuleColorPopover {
 		text.addEventListener('pointerdown', (event) => event.stopPropagation());
 		text.addEventListener('click', (event) => event.stopPropagation());
 		if (this.opacity) {
-			let storedOpacity = this.opacity.stored;
+
 			const opacitySection = panel.createDiv('bpc-rule-opacity');
 			const opacityHeader = opacitySection.createDiv('bpc-rule-opacity__header');
-			opacityHeader.createEl('label', { text: 'Transparency' });
+			opacityHeader.createEl('label', { text: 'Opacity' });
 			const reset = opacityHeader.createEl('button', {
 				text: 'Reset',
 				cls: 'clickable-icon bpc-rule-opacity__reset',
-				attr: { type: 'button', 'aria-label': 'Reset background transparency' },
+				attr: { type: 'button', 'aria-label': 'Reset background opacity' },
 			});
 			const opacityControls = opacitySection.createDiv('bpc-rule-opacity__controls');
 			const range = opacityControls.createEl('input', {
-				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Background transparency percentage' },
+				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Background opacity percentage' },
 			});
 			range.type = 'range';
 			const number = opacityControls.createEl('input', {
 				cls: 'bpc-rule-opacity__number',
-				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Background transparency percentage value' },
+				attr: { min: '0', max: '100', step: '1', 'aria-label': 'Background opacity percentage value' },
 			});
 			number.type = 'number';
 			opacityControls.createSpan({ text: '%', cls: 'bpc-rule-opacity__suffix' });
@@ -664,7 +668,7 @@ class RuleColorPopover {
 					return;
 				}
 				const defaultValue = defaultRuleBackgroundOpacity(selectedColor);
-				const effective = storedOpacity ?? defaultValue;
+				const effective = effectiveRuleBackgroundOpacity(selectedColor, storedOpacity);
 				range.value = String(effective);
 				number.value = String(effective);
 				description.textContent = effective === defaultValue
@@ -682,15 +686,13 @@ class RuleColorPopover {
 			});
 			refreshOpacity();
 		}
-		const rect = anchor.getBoundingClientRect();
-		panel.style.left = `${Math.max(12, rect.left)}px`;
-		panel.style.top = `${Math.max(12, rect.bottom + 6)}px`;
+		positionBoundedPopover(panel, {rect: anchor.getBoundingClientRect()});
 		const outside = (event: PointerEvent) => { if (!panel.contains(event.target as Node) && event.target !== anchor) this.close(); };
 		const keyboard = (event: KeyboardEvent) => { if (event.key === 'Escape') this.close(); };
 		doc.addEventListener('pointerdown', outside, true);
 		panel.addEventListener('keydown', keyboard);
 		this.panel = panel;
-		this.cleanup = () => { doc.removeEventListener('pointerdown', outside, true); panel.removeEventListener('keydown', keyboard); panel.remove(); };
+		this.cleanup = managePopover(panel, {trigger: anchor, close: () => this.close(), cleanup: () => {doc.removeEventListener('pointerdown', outside, true); panel.removeEventListener('keydown', keyboard); panel.remove();}});
 	}
 
 	close(): void {

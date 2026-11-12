@@ -37,10 +37,10 @@ interface NativeFixtureOptions {
 
 const activeHarnesses: Harness[] = [];
 
-afterEach(() => {
+afterEach(async () => {
 	for (const harness of activeHarnesses.splice(0)) {
 		harness.enhancer.stop();
-		for (const store of harness.stores) store.dispose();
+		for (const store of harness.stores) await store.dispose();
 	}
 	document.body.replaceChildren();
 	(Notice as unknown as { messages: string[] }).messages.length = 0;

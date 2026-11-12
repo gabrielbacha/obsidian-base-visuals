@@ -1,3 +1,4 @@
+import { managePopover, positionBoundedPopover } from './popover-lifecycle';
 import { setIcon, type App } from 'obsidian';
 import type { ColumnMenuRequest } from '../core/pill-enhancer';
 import { SettingsStore } from '../core/settings-store';
@@ -207,11 +208,11 @@ export class ColumnPillPopover {
 		};
 		request.document.addEventListener('pointerdown', outsideHandler, true);
 		panel.addEventListener('keydown', keyHandler);
-		this.cleanup = () => {
+		this.cleanup = managePopover(panel, {point: request.point, trigger: request.anchor, close: () => this.close(), cleanup: () => {
 			request.document.removeEventListener('pointerdown', outsideHandler, true);
 			panel.removeEventListener('keydown', keyHandler);
 			panel.remove();
-		};
+		}});
 		renderQuick();
 	}
 
@@ -282,10 +283,5 @@ function finishView(panel: HTMLElement, point: { x: number; y: number }, focus?:
 }
 
 function positionPanel(panel: HTMLElement, point: { x: number; y: number }): void {
-	const win = panel.ownerDocument.defaultView;
-	if (!win) return;
-	const margin = 12;
-	const rect = panel.getBoundingClientRect();
-	panel.style.left = `${Math.max(margin, Math.min(point.x, win.innerWidth - rect.width - margin))}px`;
-	panel.style.top = `${Math.max(margin, Math.min(point.y, win.innerHeight - rect.height - margin))}px`;
+	positionBoundedPopover(panel, {point});
 }

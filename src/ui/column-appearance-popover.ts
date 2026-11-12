@@ -1,3 +1,4 @@
+import { managePopover, positionBoundedPopover } from './popover-lifecycle';
 import { setIcon, type App } from 'obsidian';
 import { normalizeHex, RULE_TEXT_SWATCHES, type ColumnAlignment } from '@gabrielbacha/bases-contract';
 import { bindRadioGroup } from './radio-group';
@@ -240,13 +241,13 @@ export class ColumnAppearancePopover {
 		doc.addEventListener('pointerdown', dismiss, true);
 		doc.addEventListener('pointerover', changeNativeMenuItem, true);
 		panel.addEventListener('keydown', keydown);
-		this.cleanup = () => {
+		this.cleanup = managePopover(panel, { trigger: anchor, width: 320, beside: true, close: () => this.close(), cleanup: () => {
 			doc.removeEventListener('pointerdown', dismiss, true);
 			doc.removeEventListener('pointerover', changeNativeMenuItem, true);
 			panel.removeEventListener('keydown', keydown);
 			anchor.classList.remove('selected');
 			panel.remove();
-		};
+		} });
 		positionPopover(panel, anchor);
 		queueMicrotask(() => toneButtons.find((button) =>
 			button.getAttribute('aria-checked') === 'true')?.focus());
@@ -260,17 +261,5 @@ export class ColumnAppearancePopover {
 }
 
 function positionPopover(panel: HTMLElement, anchor: HTMLElement): void {
-	const rect = anchor.getBoundingClientRect();
-	const win = anchor.ownerDocument.defaultView;
-	const viewportWidth = win?.innerWidth ?? document.documentElement.clientWidth;
-	const viewportHeight = win?.innerHeight ?? document.documentElement.clientHeight;
-	const width = Math.min(320, viewportWidth - 24);
-	panel.style.width = `${width}px`;
-	const panelHeight = Math.min(panel.offsetHeight || 480, viewportHeight - 24);
-	const right = Math.max(12, rect.right + 6);
-	const left = right + width <= viewportWidth - 12
-		? right
-		: Math.max(12, rect.left - width - 6);
-	panel.style.left = `${left}px`;
-	panel.style.top = `${Math.max(12, Math.min(rect.top, viewportHeight - panelHeight - 12))}px`;
+	positionBoundedPopover(panel, {rect: anchor.getBoundingClientRect(), width: 320, beside: true});
 }

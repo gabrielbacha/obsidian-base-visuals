@@ -1,10 +1,66 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SettingsStore } from '../src/core/settings-store';
+import type { BasesPillColorsSettings } from '../src/core/types';
 
 describe('SettingsStore', () => {
+	it('refuses future settings without changing their unknown fields or rules', () => {
+		const raw = { schemaVersion: 999, extra: { exact: true }, rules: [{ operator: 'future' }] };
+		const before = JSON.stringify(raw);
+		expect(SettingsStore.futureVersion(raw)).toBe(true);
+		expect(() => SettingsStore.normalize(raw)).toThrow('newer');
+		expect(JSON.stringify(raw)).toBe(before);
+	});
+
+	it('keeps unsupported rules and global fields when supported settings are saved', () => {
+		const unsupported = { id: 'future', operator: 'future', extra: ['keep', 1] };
+		const settings = SettingsStore.normalize({ schemaVersion: 11, custom: { keep: true }, rules: [unsupported] });
+		expect(settings.rules).toEqual([]);
+		const snapshot = SettingsStore.persistenceSnapshot(SettingsStore.compactForPersistence(settings));
+		expect(snapshot).toMatchObject({ custom: { keep: true }, rules: [unsupported] });
+	});
+
+	it('serializes immutable revisions and awaits the last revision during dispose', async () => {
+		let release!: () => void;
+		const first = new Promise<void>((resolve) => { release = resolve; });
+		const snapshots: string[] = [];
+		const store = new SettingsStore(SettingsStore.normalize(null), async (snapshot) => {
+			snapshots.push(snapshot.paletteTemplateId);
+			if (snapshots.length === 1) await first;
+		});
+		store.setPaletteTemplateId('ocean-depth');
+		const early = store.flush();
+		await Promise.resolve();
+		store.setPaletteTemplateId('default');
+		const closing = store.dispose();
+		await Promise.resolve();
+		expect(snapshots).toEqual(['ocean-depth']);
+		expect(store.isDirty).toBe(true);
+		release();
+		expect(await early).toBe(true);
+		expect(await closing).toBe(true);
+		expect(snapshots).toEqual(['ocean-depth', 'default']);
+		expect(store.isDirty).toBe(false);
+	});
+
+	it('reports a rejected save and retries the retained dirty revision', async () => {
+		const failure = new Error('disk full');
+		const save = vi.fn<(settings: BasesPillColorsSettings) => Promise<void>>().mockRejectedValueOnce(failure).mockResolvedValue(undefined);
+		const report = vi.fn();
+		const store = new SettingsStore(SettingsStore.normalize(null), save, report);
+		store.setPaletteTemplateId('ocean-depth');
+		expect(await store.flush()).toBe(false);
+		expect(store.getSaveError()).toBe(failure);
+		expect(store.isDirty).toBe(true);
+		expect(report).toHaveBeenCalledWith(failure);
+		expect(await store.dispose()).toBe(true);
+		expect(save.mock.calls[1]?.[0].paletteTemplateId).toBe('ocean-depth');
+		expect(store.getSaveError()).toBe(null);
+		expect(store.isDirty).toBe(false);
+	});
+
 	it('normalizes malformed and legacy-shaped data safely', () => {
 		const settings = SettingsStore.normalize({
-			schemaVersion: 999,
+			schemaVersion: 1,
 			managerSearch: 'status',
 			options: {
 				old: {
@@ -31,7 +87,7 @@ describe('SettingsStore', () => {
 		]);
 	});
 
-	it('preserves exact case-sensitive values and resets overrides', () => {
+	it('preserves exact case-sensitive values and resets overrides', async () => {
 		const save = vi.fn(async () => undefined);
 		const store = new SettingsStore(SettingsStore.normalize(null), save);
 		store.setOverride(
@@ -46,7 +102,7 @@ describe('SettingsStore', () => {
 		expect(store.allOptions()).toHaveLength(2);
 		store.resetProperty('note.status');
 		expect(store.allOptions().every((option) => !option.override)).toBe(true);
-		store.dispose();
+		await store.dispose();
 	});
 
 	it('keeps discovered values transient and compacts them before persistence', async () => {
@@ -65,10 +121,10 @@ describe('SettingsStore', () => {
 		expect(compact.knownProperties).toEqual({
 			'note.status': { propertyId: 'note.status' },
 		});
-		store.dispose();
+		await store.dispose();
 	});
 
-	it('normalizes and persists collapsed property groups by canonical ID', () => {
+	it('normalizes and persists collapsed property groups by canonical ID', async () => {
 		const settings = SettingsStore.normalize({
 			collapsedPropertyGroups: [' note.priority ', '', 'note.priority', 42, 'note.status'],
 		});
@@ -78,7 +134,7 @@ describe('SettingsStore', () => {
 		store.setPropertyGroupCollapsed('note.priority', false);
 		store.setPropertyGroupCollapsed('note.workstream', true);
 		expect(store.settings.collapsedPropertyGroups).toEqual(['note.status', 'note.workstream']);
-		store.dispose();
+		await store.dispose();
 	});
 
 	it('migrates schema one settings and rejects malformed rules', () => {
@@ -109,7 +165,7 @@ describe('SettingsStore', () => {
 		expect(settings.knownProperties['note.status']).toEqual({ propertyId: 'note.status' });
 	});
 
-	it('stores pill style independently from the inferred or explicit strategy', () => {
+	it('stores pill style independently from the inferred or explicit strategy', async () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		store.setPropertyStyle('note.status', 'solid');
 		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'smart', style: 'solid' });
@@ -120,10 +176,10 @@ describe('SettingsStore', () => {
 		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'priority' });
 		store.setPropertyStrategy('note.status', undefined);
 		expect(store.getExplicitPropertyStrategy('note.status')).toBeUndefined();
-		store.dispose();
+		await store.dispose();
 	});
 
-	it('stores pill wrapping independently and preserves it across strategy changes', () => {
+	it('stores pill wrapping independently and preserves it across strategy changes', async () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		store.setWrapPills('note.status', true);
 		expect(store.getWrapPills('note.status')).toBe(true);
@@ -139,10 +195,10 @@ describe('SettingsStore', () => {
 		store.setWrapPills('note.status', false);
 		expect(store.getWrapPills('note.status')).toBe(false);
 		expect(store.getExplicitPropertyStrategy('note.status')).toEqual({ mode: 'priority', style: 'solid' });
-		store.dispose();
+		await store.dispose();
 	});
 
-	it('creates visually empty rules and removes background-only settings together', () => {
+	it('creates visually empty rules and removes background-only settings together', async () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		const rule = store.addRule('note.status');
 		expect(rule.color).toBeUndefined();
@@ -159,7 +215,7 @@ describe('SettingsStore', () => {
 		expect(store.settings.rules[0]?.color).toBeUndefined();
 		expect(store.settings.rules[0]?.backgroundOpacity).toBeUndefined();
 		expect(store.settings.rules[0]?.overridePillColors).toBeUndefined();
-		store.dispose();
+		await store.dispose();
 	});
 
 	it('preserves non-default pill appearance attached to Smart during normalization', () => {
@@ -178,7 +234,7 @@ describe('SettingsStore', () => {
 		});
 	});
 
-	it('normalizes and persists a selected palette template', () => {
+	it('normalizes and persists a selected palette template', async () => {
 		const save = vi.fn(async () => undefined);
 		const store = new SettingsStore(SettingsStore.normalize({ paletteTemplateId: 'ocean-depth' }), save);
 		expect(store.getPaletteTemplateId()).toBe('ocean-depth');
@@ -186,7 +242,7 @@ describe('SettingsStore', () => {
 		expect(store.getPaletteTemplateId()).toBe('ember');
 		store.setPaletteTemplateId('not-a-template' as never);
 		expect(store.getPaletteTemplateId()).toBe('default');
-		store.dispose();
+		await store.dispose();
 	});
 
 	it('migrates every legacy preset ID and normalizes property strategies', () => {
@@ -209,17 +265,17 @@ describe('SettingsStore', () => {
 		});
 	});
 
-	it('resets exact overrides and the property strategy back to Smart', () => {
+	it('resets exact overrides and the property strategy back to Smart', async () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		store.setPropertyStrategy('note.status', { mode: 'single', preset: 'raspberry' });
 		store.setOverride({ propertyId: 'note.status', value: 'Done' }, { kind: 'preset', name: 'green-sea' });
 		store.resetProperty('note.status');
 		expect(store.getExplicitPropertyStrategy('note.status')).toBeUndefined();
 		expect(store.get({ propertyId: 'note.status', value: 'Done' })?.override).toBeUndefined();
-		store.dispose();
+		await store.dispose();
 	});
 
-	it('removes only confirmed stale option and property records', () => {
+	it('removes only confirmed stale option and property records', async () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		store.ensure({ propertyId: 'note.category', value: 'Current' });
 		store.ensure({ propertyId: 'note.category', value: 'Deleted' });
@@ -239,10 +295,10 @@ describe('SettingsStore', () => {
 		expect(store.get({ propertyId: 'note.category', value: 'Deleted' })).toBeUndefined();
 		expect(store.getExplicitPropertyStrategy('note.category')).toEqual({ mode: 'distinct' });
 		expect(store.getExplicitPropertyStrategy('note.removed')).toBeUndefined();
-		store.dispose();
+		await store.dispose();
 	});
 
-	it('adds, duplicates, reorders, updates, and deletes rules', () => {
+	it('adds, duplicates, reorders, updates, and deletes rules', async () => {
 		const store = new SettingsStore(SettingsStore.normalize(null), vi.fn(async () => undefined));
 		const first = store.addRule('note.status');
 		const second = store.addRule('note.priority');
@@ -259,10 +315,10 @@ describe('SettingsStore', () => {
 		expect(store.settings.rules.map((rule) => rule.id)).toEqual([second.id, first.id, copy?.id]);
 		store.deleteRule(second.id);
 		expect(store.settings.rules).toHaveLength(2);
-		store.dispose();
+		await store.dispose();
 	});
 
-	it('normalizes, saves, and deletes complete layout presets', () => {
+	it('normalizes, saves, and deletes complete layout presets', async () => {
 		const settings = SettingsStore.normalize({
 			layoutPresets: [
 				{
@@ -298,7 +354,7 @@ describe('SettingsStore', () => {
 			.toEqual(['Writing', 'Maximum-ish']);
 		store.setLastColumnWidthPreset(185);
 		expect(store.settings.lastColumnWidthPreset).toBe(185);
-		store.dispose();
+		await store.dispose();
 	});
 
 	it('shows a declared option colour until the value has its own colour', () => {
@@ -325,3 +381,13 @@ describe('SettingsStore', () => {
 	});
 });
 
+
+
+it('keeps unsupported rules at their saved positions while supported fields change', () => {
+	const unsupported={id:'future',operator:'future',unknown:{keep:[1,2]}};
+	const known={id:'known',name:'Known',enabled:true,propertyId:'note.status',operator:'equals',operand:'Todo',target:'row',scope:'base'};
+	const settings=SettingsStore.normalize({schemaVersion:11,rules:[unsupported,known],custom:{keep:true}});
+	settings.managerSearch='Generated change';
+	const saved=SettingsStore.persistenceSnapshot(SettingsStore.compactForPersistence(settings));
+	expect(saved.rules[0]).toEqual(unsupported);expect(saved.rules[1]?.id).toBe('known');
+});

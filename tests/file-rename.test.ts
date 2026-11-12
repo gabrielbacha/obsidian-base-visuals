@@ -98,3 +98,13 @@ function createFile(path: string): TFile {
 		parent: { path: parentPath },
 	});
 }
+
+it('reserves actual extension and suffix bytes for CJK, emoji and repeated extensions', async () => {
+	const file = createFile('Generated/old.pdf');
+	const calls: string[] = [];
+	const app = {vault:{getAbstractFileByPath:()=>null},fileManager:{renameFile:async (_file:unknown,path:string)=>{calls.push(path);}}} as unknown as App;
+	await renameFileBasename(app,file,'Report.md.pdf');expect(calls.at(-1)).toBe('Generated/Report.md.pdf');
+	await renameFileBasename(app,file,'界'.repeat(120)+'😀');
+	const complete=calls.at(-1)?.split('/').at(-1)??'';expect(new TextEncoder().encode(complete).length).toBeLessThanOrEqual(255);
+	expect(complete.endsWith('.pdf')).toBe(true);
+});

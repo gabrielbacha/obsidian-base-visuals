@@ -1,4 +1,4 @@
-import { noteNameFrom, uniqueName } from '@gabrielbacha/bases-contract';
+import { noteNameFrom, uniqueName } from '../generated/portable-names';
 import { normalizePath, type App, type TFile } from 'obsidian';
 import { getNativeBaseFile, getNativeResultFiles } from './native-table-view';
 
@@ -50,17 +50,17 @@ export async function renameFileBasename(
 	file: TFile,
 	requestedName: string,
 ): Promise<'renamed' | 'unchanged'> {
-	const typed = stripExtension(requestedName.trim(), file.extension);
-	if (!typed) throw new Error('File name cannot be empty.');
+	const typed = requestedName.trim();
+	if (!stripExtension(typed, file.extension)) throw new Error('File name cannot be empty.');
 	const extension = file.extension ? `.${file.extension}` : '';
 	const parentPath = file.parent?.path ?? '';
 	const pathOf = (basename: string) => normalizePath(`${parentPath ? `${parentPath}/` : ''}${basename}${extension}`);
-	const wanted = noteNameFrom(typed);
+	const wanted = noteNameFrom(typed, { extension });
 	if (pathOf(wanted) === file.path) return 'unchanged';
 	const basename = uniqueName(wanted, (candidate) => {
 		const existing = app.vault.getAbstractFileByPath(pathOf(candidate));
 		return Boolean(existing) && existing !== file;
-	});
+	}, { extension });
 	const targetPath = pathOf(basename);
 	if (targetPath === file.path) return 'unchanged';
 	await app.fileManager.renameFile(file, targetPath);

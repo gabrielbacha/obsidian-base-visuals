@@ -38,19 +38,30 @@ type SaveSettings = (settings: BasesPillColorsSettings) => Promise<void>;
  */
 export type StoreChange = 'change' | 'discovery';
 type Listener = (change: StoreChange) => void;
+const retainedRules = new WeakMap<BasesPillColorsSettings, { unknown: unknown[]; positions: number[]; known: Map<string, Record<string, unknown>> }>();
 
 export class SettingsStore {
 	private readonly listeners = new Set<Listener>();
 	private declaredOptions: Readonly<Record<string, readonly StudioOption[]>> = {};
 	private saveTimer: number | null = null;
+	private revision = 0;
+	private savedRevision = 0;
+	private writeQueue: Promise<boolean> = Promise.resolve(true);
+	private saveError: unknown = null;
 
 	constructor(
 		public readonly settings: BasesPillColorsSettings,
 		private readonly saveSettings: SaveSettings,
+		private readonly reportSaveError: (error: unknown) => void = console.error,
 	) {}
+
+	static futureVersion(raw: unknown): boolean {
+		return isRecord(raw) && typeof raw.schemaVersion === 'number' && raw.schemaVersion > SCHEMA_VERSION;
+	}
 
 	static normalize(raw: unknown): BasesPillColorsSettings {
 		if (!isRecord(raw)) return structuredClone(DEFAULT_SETTINGS);
+		if (SettingsStore.futureVersion(raw)) throw new Error('These settings need a newer Bases Pill Colors version.');
 
 		const options = normalizeStoredOptions(raw.options);
 
@@ -66,6 +77,7 @@ export class SettingsStore {
 			knownProperties[option.propertyId] = { propertyId: option.propertyId };
 		}
 
+		const retained = { unknown: [] as unknown[], positions: [] as number[], known: new Map<string, Record<string, unknown>>() };
 		const rules = Array.isArray(raw.rules)
 			? raw.rules.flatMap((candidate, index) => {
 				const rule = normalizeRule(candidate, index, {
@@ -73,7 +85,10 @@ export class SettingsStore {
 					// Rules saved before the opacity contract meant a 12% tint when they had no opacity.
 					legacy: !(typeof raw.schemaVersion === 'number' && raw.schemaVersion >= SCHEMA_VERSION),
 				});
-				if (rule) knownProperties[rule.propertyId] = { propertyId: rule.propertyId };
+				if (rule) {
+					knownProperties[rule.propertyId] = { propertyId: rule.propertyId };
+					if (isRecord(candidate)) retained.known.set(rule.id, structuredClone(candidate));
+				} else { retained.unknown.push(structuredClone(candidate)); retained.positions.push(index); }
 				return rule ? [rule] : [];
 			})
 			: [];
@@ -85,7 +100,8 @@ export class SettingsStore {
 		}
 		const collapsedPropertyGroups = normalizePropertyIds(raw.collapsedPropertyGroups);
 
-		return {
+		const settings: BasesPillColorsSettings = {
+			...structuredClone(raw),
 			schemaVersion: SCHEMA_VERSION,
 			paletteTemplateId: normalizePaletteTemplateId(raw.paletteTemplateId),
 			options,
@@ -100,11 +116,15 @@ export class SettingsStore {
 			layoutPresets,
 			lastColumnWidthPreset,
 		};
+		retainedRules.set(settings, retained);
+		return settings;
 	}
 
 	/** Remove values learned while rendering; only deliberate choices are durable. */
 	static compactForPersistence(settings: BasesPillColorsSettings): BasesPillColorsSettings {
 		const compact = structuredClone(settings);
+		const retained = retainedRules.get(settings);
+		if (retained) retainedRules.set(compact, retained);
 		compact.options = Object.fromEntries(
 			Object.entries(compact.options).filter(([, option]) => option.override !== undefined),
 		);
@@ -118,6 +138,21 @@ export class SettingsStore {
 		);
 		return compact;
 	}
+
+	/** Preserve fields this release cannot interpret at the persistence boundary. */
+	static persistenceSnapshot(settings: BasesPillColorsSettings): BasesPillColorsSettings {
+		const snapshot = structuredClone(settings);
+		const retained = retainedRules.get(settings);
+		if (retained) {
+			const rules: unknown[] = snapshot.rules.map((rule) => ({ ...retained.known.get(rule.id), ...rule }));
+			for (const [index, unknown] of retained.unknown.entries()) rules.splice(Math.min(retained.positions[index] ?? rules.length, rules.length), 0, structuredClone(unknown));
+			snapshot.rules = rules as ConditionalRule[];
+		}
+		return snapshot;
+	}
+
+	getSaveError(): unknown { return this.saveError; }
+	get isDirty(): boolean { return this.revision > this.savedRevision; }
 
 	getPaletteTemplateId(): PaletteTemplateId {
 		return this.settings.paletteTemplateId;
@@ -552,28 +587,46 @@ export class SettingsStore {
 		return () => this.listeners.delete(listener);
 	}
 
-	async flush(): Promise<void> {
+	flush(): Promise<boolean> {
 		if (this.saveTimer !== null) {
 			window.clearTimeout(this.saveTimer);
 			this.saveTimer = null;
 		}
-		await this.saveSettings(this.settings);
+		const revision = this.revision;
+		const snapshot = structuredClone(this.settings);
+		const retained = retainedRules.get(this.settings);
+		if (retained) retainedRules.set(snapshot, retained);
+		this.writeQueue = this.writeQueue.then(async () => {
+			if (revision <= this.savedRevision) return true;
+			try {
+				await this.saveSettings(snapshot);
+				this.savedRevision = revision;
+				this.saveError = null;
+				return true;
+			} catch (error) {
+				this.saveError = error;
+				try { this.reportSaveError(error); } catch { /* Reporting must not break the writer. */ }
+				return false;
+			}
+		});
+		return this.writeQueue;
 	}
 
 	notify(change: StoreChange = 'change'): void {
 		this.emit(change);
 	}
 
-	dispose(): void {
+	dispose(): Promise<boolean> {
 		this.listeners.clear();
-		void this.flush();
+		return this.flush();
 	}
 
 	private scheduleSave(): void {
+		this.revision++;
 		if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
 		this.saveTimer = window.setTimeout(() => {
 			this.saveTimer = null;
-			void this.saveSettings(this.settings);
+			void this.flush();
 		}, 250);
 	}
 

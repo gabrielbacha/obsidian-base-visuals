@@ -1,0 +1,6 @@
+{
+  "owner": "Applications-GB/_Supporting/bases-contract-NPM/src/names.ts",
+  "major": 2,
+  "sha256": "f06e762d35f38b4dba9e07933506e4b4e4b99285d1fe84c7cd28d43f1d7b923a",
+  "update": "node scripts/filename-contract.mjs --update"
+}
