@@ -9,7 +9,7 @@ export function positionBoundedPopover(panel: HTMLElement, options: PopoverPlace
 	panel.classList.add('bpc-bounded-popover');
 	panel.style.maxWidth = `${availableWidth}px`;
 	panel.style.maxHeight = `${availableHeight}px`;
-	
+
 	if (options.width) panel.style.width = `${Math.min(options.width, availableWidth)}px`;
 	const measured = panel.getBoundingClientRect(), width = Math.min(measured.width || options.width || 280, availableWidth), height = Math.min(measured.height || panel.offsetHeight || 280, availableHeight);
 	const rect = options.rect;

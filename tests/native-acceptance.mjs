@@ -85,7 +85,7 @@ try {
  await page.waitForFunction(()=>Boolean(app.vault.getAbstractFileByPath(`Records/${'界'.repeat(83)} 3.md`)));
  const nativeName=await page.evaluate(()=>app.vault.getAbstractFileByPath(`Records/${'界'.repeat(83)} 3.md`).name);
  assert(Buffer.byteLength(nativeName,'utf8')<=255);
- 
+
  const loadedRuleCode=await page.evaluate(()=>app.vault.adapter.read('.fixture-code/rule.cjs'));
  assert.equal(digest(Buffer.from(loadedRuleCode)),digest(Buffer.from(ruleCode)));
  const panels=await verifyPanels(page,loadedRuleCode);
