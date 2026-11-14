@@ -9,6 +9,8 @@ Bases Visuals adds compact, Notion-inspired pill colors and conditional formatti
     &nbsp;·&nbsp;
     <a href="https://mindfulapps.xyz/obsidian/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=bases_visuals_readme_header"><strong>More Obsidian plugins</strong></a>
     &nbsp;·&nbsp;
+    <a href="https://www.gabrielbacha.com/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=bases_visuals_readme_header"><strong>Gabriel Bacha's website</strong></a>
+    &nbsp;·&nbsp;
     <a href="https://github.com/gabrielbacha/obsidian-base-visuals/issues/new?template=feature_request.yml"><strong>Request a feature</strong></a>
   </p>
 </div>
@@ -110,6 +112,8 @@ Report bugs and request features through [GitHub Issues](https://github.com/gabr
     <a href="https://mindfulapps.xyz/bases-visuals/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=bases_visuals_readme_footer"><strong>Plugin page</strong></a>
     &nbsp;·&nbsp;
     <a href="https://mindfulapps.xyz/obsidian/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=bases_visuals_readme_footer"><strong>More Obsidian plugins</strong></a>
+    &nbsp;·&nbsp;
+    <a href="https://www.gabrielbacha.com/?utm_source=obsidian_community&amp;utm_medium=referral&amp;utm_campaign=obsidian_assets&amp;utm_content=bases_visuals_readme_footer"><strong>Gabriel Bacha's website</strong></a>
     &nbsp;·&nbsp;
     <a href="https://github.com/gabrielbacha/obsidian-base-visuals/issues/new?template=feature_request.yml"><strong>Request a feature</strong></a>
   </p>
