@@ -46,16 +46,15 @@ jobs:
           subject-path: |
             main.js
             styles.css
-      - name: Create draft release
+      - name: Create release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           release_notes="${RUNNER_TEMP}/bases-visuals-release-notes.md"
-          printf "%s\n\n" "More software, tools, and ideas: [gabrielbacha.com](https://www.gabrielbacha.com/?utm_source=github&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=bases_visuals_release)" > "$release_notes"
+          printf "%s\n\n" "Plugin page and more tools: [Mindful Apps](https://mindfulapps.xyz/bases-visuals/?utm_source=github&utm_medium=referral&utm_campaign=obsidian_assets&utm_content=bases_visuals_release)" > "$release_notes"
           cat CHANGELOG.md >> "$release_notes"
           # On a manual run the tag does not exist yet: --target creates it at this commit.
           gh release create "$RELEASE_VERSION" \
-            --draft \
             --target "$GITHUB_SHA" \
             --title "$RELEASE_VERSION" \
             --notes-file "$release_notes" \

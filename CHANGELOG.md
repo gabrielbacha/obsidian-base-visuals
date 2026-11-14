@@ -2,6 +2,12 @@
 
 All notable changes to Bases Visuals are documented here.
 
+## 0.20.2 — 2026-11-14
+
+- **Changes always go to the right Base.** A colour or rule change that was saved after a short delay could reach another Base when you switched notes or panes before the save. The save now stays with the file and view where you made the change.
+- **The plugin reads a Base file again when a pane opens another Base.** Before, it could use cached settings from the Base that the pane showed before.
+- Plugin links now go to Mindful Apps.
+
 ## 0.20.1 — 2026-11-05
 
 - **No more freezes with embedded Bases.** Finding the table a cell belongs to could search every open note's internals for each cell and column, and a failed search was never remembered. With a Base embedded in a note, this blocked Obsidian for 10–50 seconds on a tab switch. A table found once is now matched by its element, only the note that holds the cell is searched, and a failed search is remembered until the layout changes. Class changes outside a Base no longer trigger any work. ([#2](https://github.com/gabrielbacha/obsidian-base-visuals/issues/2))
